@@ -16,9 +16,9 @@ O **MeterWatt** nasceu da necessidade de transformar a relação entre consumido
 
 Para facilitar a navegação, o projeto está dividido nas seguintes pastas:
 
-*   **/firmware**: Contém o código fonte em C++ desenvolvido para o ESP32/Arduino, responsável pela leitura dos sensores e comunicação MQTT.
-*   **/src**: Contém os scripts em Python para o processamento de dados e geração do Dashboard interativo.
-*   **/docs**: Documentação técnica, esquemas do circuito e registros visuais do projeto funcionando.
+*   [**📁 firmware**](./firmware/mwatt.ino)**: Contém o código fonte em C++ desenvolvido para o ESP32/Arduino, responsável pela leitura dos sensores e comunicação MQTT.
+*   [**📁 src**](./src/dashboard.py): Contém os scripts em Python para o processamento de dados e geração do Dashboard interativo.
+*   [**📁 docs**](./docs): Documentação técnica, esquemas do circuito e registros visuais do projeto funcionando.
 
 ## 🚀 Tecnologias Utilizadas
 * **Hardware:** ESP32, Sensores de Corrente (SCT-013).
