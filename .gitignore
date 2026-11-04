@@ -1,0 +1,8 @@
+# Credenciais do firmware: nunca versionar
+firmware/mwatt/config.h
+firmware/config.h
+# Python
+__pycache__/
+*.pyc
+.env
+.venv/
