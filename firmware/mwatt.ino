@@ -33,8 +33,8 @@ double Irms = 0;
 float potencia;                                
 
 // WIFI
-const char* SSID = "CASAS 2.4G"; // SSID / nome da rede WI-FI que deseja se conectar
-const char* PASSWORD = "ass0607100"; // Senha da rede WI-FI que deseja se conectar
+const char* SSID = " "; // SSID / nome da rede WI-FI que deseja se conectar
+const char* PASSWORD = " "; // Senha da rede WI-FI que deseja se conectar
 const char* serverAddress = "http://192.168.15.13:5000/receber_dados";
 // MQTT
 const char* BROKER_MQTT = "46.17.108.113"; //URL do broker MQTT que se deseja utilizar
