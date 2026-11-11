@@ -1,0 +1,165 @@
+/* Painel ao vivo do MeterWatt. Mesmo visual do site de demonstração: fundo escuro,
+   âmbar como cor da energia, números grandes de mostrador. Sem nada carregado de fora. */
+:root {
+  --fundo: #0b0a12;
+  --cartao: #151225;
+  --cartao-2: #1c1830;
+  --linha: rgba(255, 255, 255, .09);
+  --tinta: #f4f1ff;
+  --suave: #b7b2d8;
+  --fraco: #8a85b0;
+  --ambar: #ffb020;
+  --ciano: #36e3ff;
+  --verde: #46f0a0;
+  --vermelho: #ff5d7a;
+  --magenta: #ff4fd8;
+  --raio: 22px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--fundo); -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--tinta);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background:
+    radial-gradient(900px 520px at 0% -10%, rgba(255, 176, 32, .13), transparent 62%),
+    radial-gradient(800px 560px at 105% 0%, rgba(54, 227, 255, .10), transparent 60%),
+    var(--fundo);
+  background-attachment: fixed;
+  padding: env(safe-area-inset-top, 0) max(16px, env(safe-area-inset-right, 0)) env(safe-area-inset-bottom, 0) max(16px, env(safe-area-inset-left, 0));
+}
+[hidden] { display: none !important; }
+:focus-visible { outline: 3px solid var(--ambar); outline-offset: 3px; border-radius: 8px; }
+h1, h2, p, dl, dd { margin: 0; }
+small { font-weight: 700; }
+code, .mono { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; }
+.pular { position: absolute; left: -999px; top: 8px; z-index: 9; background: #fff; color: #000; padding: 8px 14px; border-radius: 8px; }
+.pular:focus { left: 8px; }
+
+.topo, main, .rodape { max-width: 1120px; margin-inline: auto; }
+
+/* ---------- cabeçalho ---------- */
+.topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 18px 0 14px; }
+.marca { display: flex; align-items: center; gap: 12px; }
+.marca strong { display: block; font-size: 1.15rem; letter-spacing: -.01em; }
+.marca .sub { color: var(--fraco); font-size: .82rem; }
+.logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: linear-gradient(135deg, var(--ambar), var(--magenta)); box-shadow: 0 8px 22px -8px rgba(255, 176, 32, .8); }
+.logo path { fill: #0b0a12; }
+
+.estado { --cor: var(--fraco); display: inline-flex; align-items: center; gap: 9px; padding: 8px 14px; border-radius: 999px; font-size: .86rem; font-weight: 700; color: var(--cor); border: 1px solid color-mix(in srgb, var(--cor) 45%, transparent); background: color-mix(in srgb, var(--cor) 10%, transparent); }
+.estado i { width: 9px; height: 9px; border-radius: 50%; background: var(--cor); }
+.estado[data-estado="vivo"] { --cor: var(--verde); }
+.estado[data-estado="vivo"] i { animation: pulso 1.8s infinite; }
+.estado[data-estado="simulado"] { --cor: var(--ambar); }
+.estado[data-estado="simulado"] i { animation: pulso 1.8s infinite; }
+.estado[data-estado="alerta"] { --cor: var(--ambar); }
+.estado[data-estado="parado"], .estado[data-estado="offline"] { --cor: var(--vermelho); }
+@keyframes pulso { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cor) 70%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }
+
+/* ---------- blocos ---------- */
+.cartao { background: var(--cartao); border: 1px solid var(--linha); border-radius: var(--raio); box-shadow: 0 24px 60px -34px rgba(0, 0, 0, .9), inset 0 1px 0 rgba(255, 255, 255, .04); }
+.rotulo { font-size: .74rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; color: var(--fraco); }
+.selo { font-size: .8rem; color: var(--fraco); min-height: 1.2em; }
+.selo[data-tom="bom"] { color: var(--verde); }
+.selo[data-tom="atencao"] { color: var(--ambar); }
+.selo[data-tom="ruim"] { color: var(--vermelho); }
+
+.barra { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; min-height: 28px; }
+.seletor { display: inline-flex; align-items: center; gap: 10px; font-size: .86rem; color: var(--suave); font-weight: 650; }
+.seletor select { font: inherit; color: var(--tinta); background: var(--cartao-2); border: 1px solid var(--linha); border-radius: 12px; padding: 9px 12px; min-height: 44px; }
+.quando { color: var(--fraco); font-size: .86rem; font-variant-numeric: tabular-nums; margin-left: auto; }
+
+.aviso { display: flex; gap: 12px; align-items: flex-start; padding: 13px 16px; border-radius: 16px; margin-bottom: 10px; font-size: .94rem; border: 1px solid color-mix(in srgb, var(--cor) 55%, transparent); background: color-mix(in srgb, var(--cor) 11%, transparent); --cor: var(--ambar); }
+.aviso[data-tom="ruim"] { --cor: var(--vermelho); }
+.aviso::before { content: "!"; flex: none; width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; font-weight: 900; font-size: .85rem; color: #14101f; background: var(--cor); }
+
+/* ---------- potência e medidas ---------- */
+.heroi { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 28px; padding: 26px; background: linear-gradient(150deg, rgba(255, 176, 32, .10), var(--cartao) 46%); border-color: rgba(255, 176, 32, .28); }
+.agora { align-self: center; }
+.grande { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 2px; line-height: 1; }
+.grande span { font-size: clamp(3.4rem, 11vw, 5.6rem); font-weight: 850; letter-spacing: -.045em; font-variant-numeric: tabular-nums; text-shadow: 0 0 34px rgba(255, 176, 32, .35); }
+.grande small { font-size: 1.5rem; color: var(--ambar); }
+.ritmo { color: var(--suave); min-height: 1.45em; font-variant-numeric: tabular-nums; }
+.regua { margin-top: 18px; }
+.regua-trilho { height: 14px; border-radius: 99px; background:
+    repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(255, 255, 255, .16) calc(10% - 1px) 10%),
+    rgba(255, 255, 255, .06); overflow: hidden; }
+.regua-barra { height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, var(--ciano), var(--ambar) 62%, var(--vermelho)); transition: width .6s cubic-bezier(.2, .8, .2, 1); }
+.regua-escala { display: flex; justify-content: space-between; margin-top: 6px; font-size: .74rem; color: var(--fraco); font-variant-numeric: tabular-nums; }
+.regua-nota { font-size: .76rem; color: var(--fraco); margin-top: 4px; }
+
+.medidas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-content: start; }
+.medida { padding: 13px 15px; border-radius: 16px; background: rgba(255, 255, 255, .035); border: 1px solid var(--linha); min-width: 0; }
+.medida:last-child { grid-column: 1 / -1; }
+.medida dt { font-size: .78rem; color: var(--fraco); font-weight: 650; }
+.medida dd { display: flex; align-items: baseline; gap: 6px; font-size: 1.65rem; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.medida dd small { font-size: .9rem; color: var(--suave); }
+
+/* ---------- consumo ---------- */
+.energia { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.bloco { padding: 18px 20px; min-width: 0; }
+.valor { display: flex; align-items: baseline; gap: 7px; font-size: 2rem; font-weight: 850; letter-spacing: -.03em; font-variant-numeric: tabular-nums; margin: 4px 0 2px; }
+.valor small { font-size: .95rem; color: var(--suave); }
+
+/* ---------- gráfico ---------- */
+.grafico { margin-top: 12px; padding: 20px 20px 16px; }
+.grafico-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+h2 { font-size: 1.08rem; letter-spacing: -.01em; }
+.faixas { display: flex; gap: 6px; }
+.faixas button { font: inherit; font-size: .86rem; font-weight: 700; min-height: 40px; padding: 0 14px; border-radius: 999px; cursor: pointer; color: var(--suave); background: rgba(255, 255, 255, .05); border: 1px solid var(--linha); }
+.faixas button:hover { border-color: var(--ciano); color: var(--tinta); }
+.faixas button[aria-pressed="true"] { background: var(--tinta); color: #15102a; border-color: var(--tinta); }
+.grafico-area { position: relative; }
+#grafico { display: block; width: 100%; height: auto; touch-action: pan-y; }
+#grafico text { fill: var(--fraco); font-size: 13px; font-family: inherit; font-variant-numeric: tabular-nums; }
+#grafico .grade { stroke: rgba(255, 255, 255, .08); stroke-width: 1; }
+#grafico .linha { fill: none; stroke: var(--ambar); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+#grafico .area { fill: url(#degrade); stroke: none; }
+#grafico .ponto { fill: var(--ambar); stroke: var(--fundo); stroke-width: 2; }
+#grafico .cursor { stroke: rgba(255, 255, 255, .35); stroke-width: 1; stroke-dasharray: 3 4; }
+#grafico .vazio-txt { fill: var(--fraco); font-size: 15px; }
+#grafico.estreito text { font-size: 27px; }
+#grafico.estreito .vazio-txt { font-size: 30px; }
+.dica { position: absolute; top: 0; left: 0; pointer-events: none; white-space: nowrap; padding: 6px 10px; border-radius: 10px; font-size: .82rem; font-weight: 700; background: rgba(10, 8, 24, .95); border: 1px solid var(--ambar); font-variant-numeric: tabular-nums; }
+
+/* ---------- saúde ---------- */
+.saude { margin-top: 12px; padding: 20px; }
+.lista { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 4px 24px; margin-top: 10px; }
+.lista div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--linha); min-width: 0; }
+.lista dt { color: var(--fraco); font-size: .9rem; }
+.lista dd { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+
+/* ---------- estados da página ---------- */
+.vazio { padding: 30px; max-width: 720px; margin: 24px auto; }
+.vazio h1 { font-size: clamp(1.4rem, 4.5vw, 1.9rem); letter-spacing: -.02em; margin-bottom: 10px; }
+.vazio p { color: var(--suave); margin-top: 10px; }
+.vazio pre { margin: 12px 0 0; padding: 14px 16px; border-radius: 14px; background: #08070f; border: 1px solid var(--linha); overflow-x: auto; }
+.vazio .nota { font-size: .86rem; color: var(--fraco); }
+
+/* Leitura antiga (medidor sem sinal ou backend fora do ar): tudo fica apagado, para ninguém
+   confundir número velho com medição atual. */
+.antigo .heroi, .antigo .energia, .antigo .grafico { filter: saturate(.25); opacity: .55; }
+
+.rodape { color: var(--fraco); font-size: .82rem; padding: 22px 0 28px; }
+
+/* ---------- celular ---------- */
+@media (max-width: 860px) {
+  .heroi { grid-template-columns: 1fr; gap: 20px; padding: 20px; }
+}
+@media (max-width: 620px) {
+  .topo { padding-top: 14px; }
+  .energia { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .energia .bloco:last-child { grid-column: 1 / -1; }
+  .bloco { padding: 15px 16px; }
+  .valor { font-size: 1.6rem; }
+  .medida dd { font-size: 1.4rem; }
+  .grafico, .saude { padding: 16px; }
+  .faixas { width: 100%; }
+  .faixas button { flex: 1; min-height: 44px; }
+  .quando { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

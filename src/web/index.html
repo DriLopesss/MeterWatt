@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MeterWatt | Painel ao vivo</title>
+<meta name="description" content="Painel local do MeterWatt: tensão, corrente, potência e consumo medidos em tempo real.">
+<meta name="theme-color" content="#0b0a12">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23ffb020'/%3E%3Cpath d='M9 2 4 9h3l-1 5 5-7H8z' fill='%230b0a12'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/web/painel.css">
+</head>
+<body>
+<a class="pular" href="#conteudo">Ir para o conteúdo</a>
+
+<header class="topo">
+  <div class="marca">
+    <span class="logo" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M13.5 2 5 14h6.2L10.5 22 19 10h-6.2z"/></svg></span>
+    <div>
+      <strong>MeterWatt</strong>
+      <span class="sub">Painel ao vivo</span>
+    </div>
+  </div>
+  <div class="estado" id="estado" data-estado="conectando" role="status" aria-live="polite">
+    <i aria-hidden="true"></i><span id="estado-txt">Conectando…</span>
+  </div>
+</header>
+
+<main id="conteudo" tabindex="-1">
+
+  <section class="vazio cartao" id="vazio" hidden>
+    <h1>Nenhum medidor enviou leituras ainda</h1>
+    <p>O backend está no ar, mas não recebeu nada por MQTT. Assim que um ESP32 publicar a primeira leitura, ela aparece aqui sozinha.</p>
+    <p>Para testar sem o hardware, rode o simulador em outro terminal:</p>
+    <pre><code>python tools/simulador_pzem.py</code></pre>
+    <p class="nota">O simulador avisa em cada mensagem que os dados são simulados, e o painel mostra esse aviso.</p>
+  </section>
+
+  <section class="vazio cartao" id="sem-backend" hidden>
+    <h1>Sem conexão com o backend</h1>
+    <p>O painel não conseguiu falar com o programa que recebe as leituras. Confira se o <code>dashboard.py</code> está rodando e recarregue a página.</p>
+  </section>
+
+  <div id="painel" hidden>
+
+    <div class="barra">
+      <label class="seletor" id="seletor-caixa" hidden>
+        <span>Medidor</span>
+        <select id="seletor"></select>
+      </label>
+      <p class="quando" id="quando"></p>
+    </div>
+
+    <div id="avisos" aria-live="polite"></div>
+
+    <section class="heroi cartao" aria-labelledby="rot-potencia">
+      <div class="agora">
+        <p class="rotulo" id="rot-potencia">Potência ativa agora</p>
+        <p class="grande"><span id="potencia">—</span><small id="potencia-un">W</small></p>
+        <p class="ritmo" id="ritmo"></p>
+        <div class="regua" aria-hidden="true">
+          <div class="regua-trilho"><div class="regua-barra" id="regua-barra"></div></div>
+          <div class="regua-escala"><span>0</span><span id="regua-meio"></span><span id="regua-max"></span></div>
+        </div>
+        <p class="regua-nota" id="regua-nota"></p>
+      </div>
+
+      <dl class="medidas">
+        <div class="medida" id="m-tensao">
+          <dt>Tensão</dt>
+          <dd><span id="tensao">—</span><small>V</small></dd>
+          <p class="selo" id="tensao-selo"></p>
+        </div>
+        <div class="medida">
+          <dt>Corrente</dt>
+          <dd><span id="corrente">—</span><small>A</small></dd>
+          <p class="selo" id="corrente-selo"></p>
+        </div>
+        <div class="medida">
+          <dt>Fator de potência</dt>
+          <dd><span id="fp">—</span></dd>
+          <p class="selo" id="fp-selo"></p>
+        </div>
+        <div class="medida">
+          <dt>Frequência</dt>
+          <dd><span id="frequencia">—</span><small>Hz</small></dd>
+          <p class="selo" id="frequencia-selo"></p>
+        </div>
+        <div class="medida">
+          <dt>Potência aparente</dt>
+          <dd><span id="aparente">—</span><small>VA</small></dd>
+          <p class="selo" id="aparente-selo"></p>
+        </div>
+      </dl>
+    </section>
+
+    <section class="energia" aria-label="Consumo">
+      <div class="cartao bloco">
+        <p class="rotulo">Consumo hoje</p>
+        <p class="valor"><span id="kwh-hoje">—</span><small>kWh</small></p>
+        <p class="selo" id="kwh-hoje-selo"></p>
+      </div>
+      <div class="cartao bloco">
+        <p class="rotulo">Custo hoje</p>
+        <p class="valor"><span id="custo-hoje">—</span></p>
+        <p class="selo" id="custo-selo"></p>
+      </div>
+      <div class="cartao bloco">
+        <p class="rotulo">Contador do medidor</p>
+        <p class="valor"><span id="contador">—</span><small>kWh</small></p>
+        <p class="selo" id="contador-selo"></p>
+      </div>
+    </section>
+
+    <section class="cartao grafico" aria-labelledby="rot-grafico">
+      <div class="grafico-topo">
+        <h2 id="rot-grafico">Potência ao longo do tempo</h2>
+        <div class="faixas" role="group" aria-label="Período do gráfico">
+          <button type="button" data-min="10" aria-pressed="false">10 min</button>
+          <button type="button" data-min="30" aria-pressed="true">30 min</button>
+          <button type="button" data-min="120" aria-pressed="false">2 h</button>
+        </div>
+      </div>
+      <div class="grafico-area" id="grafico-area">
+        <svg id="grafico" viewBox="0 0 800 250" role="img" aria-label="Gráfico da potência no período escolhido"></svg>
+        <div class="dica" id="dica" hidden></div>
+      </div>
+      <p class="selo" id="grafico-selo"></p>
+    </section>
+
+    <section class="cartao saude" aria-labelledby="rot-saude">
+      <h2 id="rot-saude">Saúde do medidor</h2>
+      <dl class="lista">
+        <div><dt>Sinal do Wi-Fi</dt><dd id="s-rssi">—</dd></div>
+        <div><dt>Ligado há</dt><dd id="s-uptime">—</dd></div>
+        <div><dt>Última leitura</dt><dd id="s-ultima">—</dd></div>
+        <div><dt>Falhas de leitura do sensor</dt><dd id="s-falhas">—</dd></div>
+        <div><dt>Sensor</dt><dd id="s-sensor">—</dd></div>
+        <div><dt>Firmware</dt><dd id="s-fw">—</dd></div>
+        <div><dt>Identificador</dt><dd id="s-id" class="mono">—</dd></div>
+      </dl>
+    </section>
+
+  </div>
+</main>
+
+<footer class="rodape">
+  <p>Painel local do protótipo. Ainda não tem login: use só dentro da sua rede. As leituras também ficam gravadas no arquivo CSV do backend.</p>
+</footer>
+
+<script src="/web/painel.js" defer></script>
+</body>
+</html>

@@ -1,8 +1,11 @@
 # Credenciais do firmware: nunca versionar
-firmware/mwatt/config.h
+firmware/*/config.h
 firmware/config.h
+# Leituras gravadas pelo backend (dados de consumo são dados pessoais)
+leituras*.csv
 # Python
 __pycache__/
 *.pyc
 .env
 .venv/
+.pytest_cache/
