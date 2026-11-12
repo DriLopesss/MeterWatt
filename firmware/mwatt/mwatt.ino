@@ -96,8 +96,8 @@ void setup() {
   delay(200);
 
   uint64_t mac = ESP.getEfuseMac();
-  snprintf(idDispositivo, sizeof(idDispositivo), "mw-%04X%08X",
-           (uint16_t)(mac >> 32), (uint32_t)mac);
+  snprintf(idDispositivo, sizeof(idDispositivo), "mw-%04X%08lX",
+           (unsigned int)(uint16_t)(mac >> 32), (unsigned long)(uint32_t)mac);
   snprintf(topicoTelemetria, sizeof(topicoTelemetria), "meterwatt/%s/telemetria", idDispositivo);
   snprintf(topicoStatus, sizeof(topicoStatus), "meterwatt/%s/status", idDispositivo);
   Serial.printf("\nMeterWatt v2 - id %s\n", idDispositivo);

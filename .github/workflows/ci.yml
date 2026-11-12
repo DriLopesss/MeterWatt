@@ -18,7 +18,7 @@ jobs:
     name: Testes do backend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -29,7 +29,7 @@ jobs:
     name: Teste do protocolo do PZEM
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: g++ -std=c++11 -Wall -Wextra -Werror -o teste_pzem tests/firmware/teste_pzem_modbus.cpp
       - run: ./teste_pzem
 
@@ -37,7 +37,7 @@ jobs:
     name: Compilar firmware (ESP32)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # O config.h de verdade nunca vai para o GitHub. Para compilar, usa-se o de exemplo.
       - name: Criar config.h a partir do exemplo
         run: |
@@ -45,6 +45,9 @@ jobs:
           cp firmware/mwatt/config.example.h firmware/mwatt/config.h
       - uses: arduino/compile-sketches@v1
         with:
+          cli-compile-flags: |
+            - --warnings
+            - default
           fqbn: esp32:esp32:esp32
           platforms: |
             - name: esp32:esp32
