@@ -129,7 +129,24 @@ Ele publica as mesmas mensagens do firmware, com uma casa de mentira (geladeira,
 4. **Com uma carga resistiva conhecida** (chaleira ou ferro de passar). Compare a corrente com um alicate amperímetro True RMS e anote o erro. O fator de potência deve ficar perto de 1,00.
 5. Se aparecer `crc_invalido` ou `resposta_incompleta`, o problema é a ligação serial (nível de tensão, fio solto ou TX e RX trocados).
 
-Anote os resultados em `docs/calibracao.md`.
+Para esse teste, grave o firmware com `INTERVALO_ENVIO_MS 1000` no `config.h` (uma leitura por segundo).
+
+### Calibração com a ferramenta
+Com o backend rodando, num segundo terminal, na raiz do repositório:
+
+```bash
+python tools/calibrar.py anotar
+```
+
+Para cada carga, o programa marca sozinho o início e o fim da medição e pede os valores do multímetro e do alicate. Comece sem carga, depois use cargas resistivas (chaleira, ferro de passar). Deixe cada medição rodar por pelo menos 30 segundos.
+
+Depois, para gerar o relatório:
+
+```bash
+python tools/calibrar.py relatorio
+```
+
+Ele cruza as leituras do backend (`src/leituras.csv`) com as medidas anotadas (`docs/calibracao-medidas.csv`) e escreve `docs/calibracao.md`, com o erro de cada carga e se ficou dentro da meta de 5%. Para outra meta, use `--meta 2`. Se as leituras forem do simulador, o relatório avisa que não vale como calibração.
 
 ### 6. Firmware do ACS712 (versão anterior)
 1. Copie `firmware/mwatt/config.example.h` para `firmware/mwatt/config.h` e preencha.
@@ -143,6 +160,8 @@ pip install pytest
 python -m pytest tests -q
 g++ -std=c++11 -o teste_pzem tests/firmware/teste_pzem_modbus.cpp && ./teste_pzem
 ```
+
+O GitHub roda esses testes e **compila os dois firmwares para o ESP32** a cada pull request (aba *Actions*, arquivo `.github/workflows/ci.yml`). Se a compilação falhar ali, ela também falharia na Arduino IDE. A compilação usa o `config.example.h`: o `config.h` de verdade nunca vai para o GitHub.
 
 ## 🏆 Reconhecimento
 Este projeto foi selecionado como **finalista no NEXT FIAP 2023**, sendo avaliado por sua viabilidade técnica e impacto em sustentabilidade.

@@ -38,6 +38,12 @@
 #ifndef PERMITIR_ZERAR_ENERGIA
 #define PERMITIR_ZERAR_ENERGIA 0
 #endif
+#ifndef INTERVALO_ENVIO_MS
+#define INTERVALO_ENVIO_MS 5000
+#endif
+#if INTERVALO_ENVIO_MS < 1000
+#error "INTERVALO_ENVIO_MS precisa ser de pelo menos 1000: o PZEM so atualiza as medidas a cada ~1 s."
+#endif
 
 HardwareSerial& serialPzem = Serial2;
 WiFiClient rede;

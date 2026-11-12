@@ -190,3 +190,21 @@ def test_texto_estranho_nao_chega_ao_csv(backend):
     r = backend.processar_leitura(
         "mw-A", {"sensor_ok": False, "erro_sensor": "<img src=x onerror=alert(1)>"}, instante=T0 + 5)
     assert r["erro_sensor"] == "desconhecido"
+
+
+def test_leitura_a_cada_segundo_cabe_no_grafico(backend):
+    for i in range(3000):                       # 50 minutos a 1 leitura por segundo
+        backend.processar_leitura("mw-A", pzem(potencia_w=100.0 + (i % 2) * 20, energia_wh=1000 + i // 30))
+    with backend.trava:
+        assert len(backend.dispositivos["mw-A"]["historico"]) == 3000
+    h = backend.app.test_client().get("/api/historico/mw-A?minutos=120").get_json()
+    assert 300 <= len(h["pontos"]) <= backend.PONTOS_NO_GRAFICO
+    assert all(107 <= v <= 113 for _, v in h["pontos"][:-1])   # médias de grupos com valores 100 e 120
+
+
+def test_resumo_do_grafico_nao_emenda_buracos(backend):
+    pontos = [[float(t), 10.0] for t in range(100)] + [[float(t), 50.0] for t in range(400, 500)]
+    resumido = backend.resumir_pontos(pontos, 20)
+    assert len(resumido) <= 21
+    assert {v for _, v in resumido} == {10.0, 50.0}            # nenhum grupo misturou os dois lados
+    assert backend.resumir_pontos(pontos[:10], 20) == pontos[:10]
