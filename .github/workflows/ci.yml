@@ -26,12 +26,16 @@ jobs:
       - run: python -m pytest tests -q
 
   protocolo:
-    name: Teste do protocolo do PZEM
+    name: Testes do firmware no computador
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: g++ -std=c++11 -Wall -Wextra -Werror -o teste_pzem tests/firmware/teste_pzem_modbus.cpp
       - run: ./teste_pzem
+      - run: g++ -std=c++11 -Wall -Wextra -Werror -o teste_ajustes tests/firmware/teste_ajustes.cpp
+      - run: ./teste_ajustes
+      - name: Firmware num ESP32 simulado
+        run: bash tests/firmware/simulado/rodar.sh
 
   firmware:
     name: Compilar firmware (ESP32)
@@ -54,6 +58,7 @@ jobs:
               source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
           libraries: |
             - name: PubSubClient
+            - name: WiFiManager
           sketch-paths: |
             - firmware/mwatt_pzem
             - firmware/mwatt

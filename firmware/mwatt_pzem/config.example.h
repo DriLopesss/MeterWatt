@@ -3,6 +3,16 @@
 #pragma once
 
 // --- Rede ---
+// 1 = o Wi-Fi e o servidor MQTT são configurados por uma página no celular (recomendado).
+//     Os valores de MQTT abaixo viram só o ponto de partida da página.
+// 0 = usa WIFI_SSID e WIFI_SENHA daqui, como nas versões anteriores.
+#define USAR_PORTAL_WIFI 1
+
+// Senha da rede "MeterWatt-XXXX" que o ESP32 cria para a configuração (8 a 63 caracteres).
+// Troque antes de gravar: quem souber esta senha consegue mudar os ajustes do aparelho.
+#define SENHA_PORTAL  "troque-esta-senha"
+
+// Só usados com USAR_PORTAL_WIFI 0.
 #define WIFI_SSID     "nome-da-rede"
 #define WIFI_SENHA    "senha-da-rede"
 
@@ -11,6 +21,11 @@
 #define MQTT_PORTA    1883
 #define MQTT_USUARIO  "meterwatt"
 #define MQTT_SENHA    "troque-esta-senha"
+
+// --- Atualização do firmware pelo Wi-Fi ---
+// Vazio = desligada até alguém definir uma senha na página. Se preencher, use de 8 a 32
+// caracteres sem espaços. Sem essa senha, ninguém na rede consegue gravar outro firmware.
+#define OTA_SENHA     ""
 
 // --- Serial do PZEM-004T v3.0 (Serial2 do ESP32) ---
 // GPIO16 recebe (liga no TX do PZEM) e GPIO17 envia (liga no RX do PZEM).
