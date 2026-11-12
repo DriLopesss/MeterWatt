@@ -118,9 +118,28 @@ Ele publica as mesmas mensagens do firmware, com uma casa de mentira (geladeira,
 
 ### 4. Firmware do PZEM
 1. Copie `firmware/mwatt_pzem/config.example.h` para `firmware/mwatt_pzem/config.h`. O `config.h` está no `.gitignore` e **nunca deve ir para o GitHub**.
-2. Preencha o Wi-Fi, o IP do computador com o broker e o usuário e senha do MQTT.
-3. Na Arduino IDE, instale a biblioteca **PubSubClient**, selecione a placa **ESP32 Dev Module** e grave. O firmware não usa biblioteca de PZEM: o protocolo está em `pzem_modbus.h`.
+2. No `config.h`, troque a `SENHA_PORTAL` (de 8 a 63 caracteres). Os campos de MQTT servem só de ponto de partida.
+3. Na Arduino IDE, instale as bibliotecas **PubSubClient** e **WiFiManager** (de tzapu), selecione a placa **ESP32 Dev Module** e grave. O protocolo do PZEM está em `pzem_modbus.h`, sem biblioteca.
 4. Abra o Monitor Serial em 115200. Cada leitura aparece em JSON.
+
+#### Configurar o Wi-Fi pelo celular (sem mexer no código)
+1. Na primeira vez, o ESP32 cria a rede **MeterWatt-XXXX** (as 4 últimas letras do identificador). Conecte o celular nela com a `SENHA_PORTAL`.
+2. A página de configuração abre sozinha. Se não abrir, acesse `192.168.4.1` no navegador.
+3. Toque em **Configure WiFi**, escolha a rede da casa, digite a senha e preencha o servidor MQTT (o IP do computador com o broker), a porta, o usuário e a senha.
+4. Salve. O ESP32 conecta na rede da casa e a rede MeterWatt-XXXX some. Os ajustes ficam guardados na memória da placa, mesmo sem energia.
+
+A página nunca mostra senhas salvas: deixar um campo de senha em branco mantém a atual. Um formulário com algum campo inválido não muda nada, e o Monitor Serial diz qual campo estava errado.
+
+**Para recomeçar do zero**, segure o botão **BOOT** da placa por 5 segundos. Ele apaga o Wi-Fi e os ajustes e reabre a página.
+
+Para usar o jeito antigo, com o Wi-Fi escrito no `config.h`, coloque `USAR_PORTAL_WIFI 0`.
+
+#### Atualizar o firmware pelo Wi-Fi
+1. Defina uma senha de atualização (de 8 a 32 caracteres), na página de configuração ou em `OTA_SENHA` no `config.h`. Sem ela, a atualização pelo Wi-Fi fica desligada.
+2. Com o ESP32 e o computador na mesma rede, na Arduino IDE, vá em **Ferramentas > Porta** e escolha a porta de rede `mw-...`.
+3. Grave normalmente. A IDE pede a senha de atualização.
+
+Se a atualização falhar no meio, o ESP32 continua com o firmware anterior. Mesmo assim, não desligue a placa durante a gravação.
 
 ### 5. Primeiro teste de bancada com o módulo real
 1. **Só o ESP32, sem o PZEM.** O Monitor Serial deve mostrar `"sensor_ok":false,"erro_sensor":"sem_resposta"`, e o painel, "Sensor sem leitura". Isso é o esperado.
@@ -159,7 +178,10 @@ Ele cruza as leituras do backend (`src/leituras.csv`) com as medidas anotadas (`
 pip install pytest
 python -m pytest tests -q
 g++ -std=c++11 -o teste_pzem tests/firmware/teste_pzem_modbus.cpp && ./teste_pzem
+g++ -std=c++11 -o teste_ajustes tests/firmware/teste_ajustes.cpp && ./teste_ajustes
 ```
+
+Para rodar o firmware do PZEM num ESP32 simulado no computador (página de configuração, memória, falhas do sensor): `bash tests/firmware/simulado/rodar.sh`.
 
 O GitHub roda esses testes e **compila os dois firmwares para o ESP32** a cada pull request (aba *Actions*, arquivo `.github/workflows/ci.yml`). Se a compilação falhar ali, ela também falharia na Arduino IDE. A compilação usa o `config.example.h`: o `config.h` de verdade nunca vai para o GitHub.
 

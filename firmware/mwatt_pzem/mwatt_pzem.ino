@@ -16,15 +16,53 @@
  * ESP32 só aceita 3,3 V nos pinos. Veja no README as duas formas de ligar. Nunca ligue
  * o TX do PZEM alimentado em 5 V direto no RX do ESP32.
  *
+ * CONFIGURAÇÃO SEM MEXER NO CÓDIGO (v3.1):
+ *  - Na primeira vez, ou sem Wi-Fi salvo, o ESP32 cria a rede "MeterWatt-XXXX". Conecte o
+ *    celular nela (senha SENHA_PORTAL do config.h) e uma página pede a rede de casa, o
+ *    servidor MQTT e as senhas. Tudo fica guardado na memória do ESP32.
+ *  - Segurar o botão BOOT por 5 segundos apaga os ajustes e reabre a página.
+ *  - Com uma senha de atualização definida, o firmware pode ser atualizado pelo Wi-Fi
+ *    (Arduino IDE > Ferramentas > Porta > porta de rede "mw-...").
+ *
  * Este firmware ainda NÃO foi testado com o módulo real. O protocolo foi testado no
  * computador (tests/firmware). O primeiro teste na bancada está descrito no README.
  */
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <Preferences.h>
+#include <ArduinoOTA.h>
 #include "config.h"
 #include "pzem_modbus.h"
+#include "ajustes.h"
 
-#define VERSAO_FW "3.0.0"
+#define VERSAO_FW "3.1.0"
+
+#ifndef USAR_PORTAL_WIFI
+#define USAR_PORTAL_WIFI 1
+#endif
+#if USAR_PORTAL_WIFI
+#include <WiFiManager.h>
+#ifndef SENHA_PORTAL
+#error "Defina SENHA_PORTAL no config.h (de 8 a 63 caracteres): e a senha da rede MeterWatt-XXXX."
+#endif
+static_assert(sizeof(SENHA_PORTAL) >= 9 && sizeof(SENHA_PORTAL) <= 64,
+              "SENHA_PORTAL precisa ter de 8 a 63 caracteres (exigencia do Wi-Fi WPA2).");
+#endif
+#ifndef PINO_BOTAO
+#define PINO_BOTAO 0           // botão BOOT da placa
+#endif
+#ifndef OTA_SENHA
+#define OTA_SENHA ""           // vazio = atualização pelo Wi-Fi desligada até alguém definir na página
+#endif
+#ifndef MQTT_HOST
+#define MQTT_HOST ""
+#endif
+#ifndef MQTT_USUARIO
+#define MQTT_USUARIO ""
+#endif
+#ifndef MQTT_SENHA
+#define MQTT_SENHA ""
+#endif
 
 #ifndef MQTT_PORTA
 #define MQTT_PORTA 1883
@@ -48,6 +86,21 @@
 HardwareSerial& serialPzem = Serial2;
 WiFiClient rede;
 PubSubClient mqtt(rede);
+Preferences memoria;
+ajustes::Ajustes cfg;              // o que está valendo agora (memória do ESP32 ou config.h)
+bool otaIniciada = false;
+unsigned long botaoDesde = 0;
+
+#if USAR_PORTAL_WIFI
+WiFiManager portal;
+char portaTexto[6];
+// Os campos extras da página. Senhas começam vazias: a página nunca mostra senhas salvas.
+WiFiManagerParameter campoHost("mqtt_host", "Servidor MQTT (IP ou nome)", "", ajustes::TAM_HOST - 1);
+WiFiManagerParameter campoPorta("mqtt_porta", "Porta MQTT", "1883", 5, "type='number' min='1' max='65535'");
+WiFiManagerParameter campoUsuario("mqtt_usuario", "Usuário MQTT", "", ajustes::TAM_USUARIO - 1);
+WiFiManagerParameter campoSenha("mqtt_senha", "Senha MQTT (em branco = manter a atual)", "", ajustes::TAM_SENHA - 1, "type='password'");
+WiFiManagerParameter campoOta("ota_senha", "Senha para atualizar pelo Wi-Fi (8 a 32 caracteres; em branco = manter)", "", ajustes::TAM_SENHA_OTA - 1, "type='password'");
+#endif
 
 char idDispositivo[24];
 char topicoTelemetria[64];
@@ -100,12 +153,95 @@ void aoReceberMqtt(char* topico, byte* dados, unsigned int tamanho) {
   }
 }
 
+// ------------------------------------------------------------- ajustes
+
+void carregarAjustes() {
+  // Valores do config.h servem de ponto de partida; o que foi salvo pela página tem prioridade.
+  ajustes::copiar(cfg.host, MQTT_HOST, ajustes::TAM_HOST);
+  cfg.porta = MQTT_PORTA;
+  ajustes::copiar(cfg.usuario, MQTT_USUARIO, ajustes::TAM_USUARIO);
+  ajustes::copiar(cfg.senha, MQTT_SENHA, ajustes::TAM_SENHA);
+  ajustes::copiar(cfg.senhaOta, OTA_SENHA, ajustes::TAM_SENHA_OTA);
+  memoria.begin("meterwatt", true);
+  if (memoria.isKey("host")) {
+    memoria.getString("host", cfg.host, ajustes::TAM_HOST);
+    cfg.porta = memoria.getUShort("porta", cfg.porta);
+    memoria.getString("usuario", cfg.usuario, ajustes::TAM_USUARIO);
+    memoria.getString("senha", cfg.senha, ajustes::TAM_SENHA);
+    memoria.getString("ota", cfg.senhaOta, ajustes::TAM_SENHA_OTA);
+  }
+  memoria.end();
+}
+
+void salvarAjustes() {
+  memoria.begin("meterwatt", false);
+  memoria.putString("host", cfg.host);
+  memoria.putUShort("porta", cfg.porta);
+  memoria.putString("usuario", cfg.usuario);
+  memoria.putString("senha", cfg.senha);
+  memoria.putString("ota", cfg.senhaOta);
+  memoria.end();
+}
+
+void apagarTudoEReiniciar() {
+  Serial.println("Botao BOOT segurado: apagando Wi-Fi e ajustes e reiniciando.");
+  memoria.begin("meterwatt", false);
+  memoria.clear();
+  memoria.end();
+#if USAR_PORTAL_WIFI
+  portal.resetSettings();
+#endif
+  delay(300);
+  ESP.restart();
+}
+
+#if USAR_PORTAL_WIFI
+void aoSalvarPagina() {
+  ajustes::Resultado r = ajustes::aplicarFormulario(&cfg, campoHost.getValue(), campoPorta.getValue(),
+                                                    campoUsuario.getValue(), campoSenha.getValue(),
+                                                    campoOta.getValue());
+  Serial.printf("Pagina de configuracao: %s\n", ajustes::mensagem(r));
+  if (r != ajustes::AJUSTES_OK) return;
+  salvarAjustes();
+  mqtt.disconnect();               // reconecta já com os ajustes novos
+  mqtt.setServer(cfg.host, cfg.porta);
+  ultimaTentativaMqtt = 0;
+}
+#endif
+
+void iniciarOtaSePossivel() {
+  if (otaIniciada || WiFi.status() != WL_CONNECTED || !ajustes::otaLigada(cfg)) return;
+  ArduinoOTA.setHostname(idDispositivo);
+  ArduinoOTA.setPassword(cfg.senhaOta);
+  ArduinoOTA.onStart([]() {
+    Serial.println("Atualizacao pelo Wi-Fi: comecando. Nao desligue a placa.");
+    if (mqtt.connected()) mqtt.publish(topicoStatus, "atualizando", true);
+  });
+  ArduinoOTA.onEnd([]() { Serial.println("Atualizacao pelo Wi-Fi: concluida, reiniciando."); });
+  ArduinoOTA.onError([](ota_error_t erro) { Serial.printf("Atualizacao pelo Wi-Fi: falhou (erro %u)\n", (unsigned)erro); });
+  ArduinoOTA.begin();
+  otaIniciada = true;
+  Serial.printf("Atualizacao pelo Wi-Fi ligada: procure a porta de rede %s na Arduino IDE.\n", idDispositivo);
+}
+
+void vigiarBotao() {
+  if (digitalRead(PINO_BOTAO) == LOW) {
+    if (botaoDesde == 0) botaoDesde = millis() | 1;
+    else if (millis() - botaoDesde > 5000) apagarTudoEReiniciar();
+  } else {
+    botaoDesde = 0;
+  }
+}
+
+// ------------------------------------------------------------- MQTT
+
 void conectarMqttSePreciso() {
   if (WiFi.status() != WL_CONNECTED || mqtt.connected()) return;
+  if (!ajustes::hostValido(cfg.host)) return;          // ainda sem servidor configurado
   if (millis() - ultimaTentativaMqtt < 5000) return;  // tenta a cada 5 s, sem travar
   ultimaTentativaMqtt = millis();
-  Serial.printf("MQTT: conectando a %s:%d...\n", MQTT_HOST, MQTT_PORTA);
-  if (mqtt.connect(idDispositivo, MQTT_USUARIO, MQTT_SENHA, topicoStatus, 0, true, "offline")) {
+  Serial.printf("MQTT: conectando a %s:%u...\n", cfg.host, (unsigned)cfg.porta);
+  if (mqtt.connect(idDispositivo, cfg.usuario, cfg.senha, topicoStatus, 0, true, "offline")) {
     mqtt.publish(topicoStatus, "online", true);
     mqtt.subscribe(topicoComando);
     Serial.println("MQTT: conectado");
@@ -127,17 +263,50 @@ void setup() {
   Serial.printf("\nMeterWatt v%s (PZEM-004T v3) - id %s\n", VERSAO_FW, idDispositivo);
 
   serialPzem.begin(9600, SERIAL_8N1, PINO_RX_PZEM, PINO_TX_PZEM);
+  pinMode(PINO_BOTAO, INPUT_PULLUP);
+  carregarAjustes();
+
+  mqtt.setServer(cfg.host, cfg.porta);
+  mqtt.setBufferSize(512);
+  mqtt.setCallback(aoReceberMqtt);
 
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+#if USAR_PORTAL_WIFI
+  // Preenche a página com o que está valendo (menos as senhas).
+  snprintf(portaTexto, sizeof(portaTexto), "%u", (unsigned)cfg.porta);
+  campoHost.setValue(cfg.host, ajustes::TAM_HOST - 1);
+  campoPorta.setValue(portaTexto, 5);
+  campoUsuario.setValue(cfg.usuario, ajustes::TAM_USUARIO - 1);
+  portal.addParameter(&campoHost);
+  portal.addParameter(&campoPorta);
+  portal.addParameter(&campoUsuario);
+  portal.addParameter(&campoSenha);
+  portal.addParameter(&campoOta);
+  portal.setSaveParamsCallback(aoSalvarPagina);
+  portal.setTitle("MeterWatt");
+  portal.setConfigPortalBlocking(false);   // a medição continua enquanto a página está aberta
+  portal.setConnectTimeout(20);
+  char nomeRede[24];
+  snprintf(nomeRede, sizeof(nomeRede), "MeterWatt-%s", idDispositivo + strlen(idDispositivo) - 4);
+  if (portal.autoConnect(nomeRede, SENHA_PORTAL)) {
+    Serial.printf("Wi-Fi conectado: %s\n", WiFi.localIP().toString().c_str());
+  } else {
+    Serial.printf("Sem Wi-Fi salvo ou rede fora do ar. Conecte o celular na rede %s para configurar.\n", nomeRede);
+  }
+#else
   WiFi.begin(WIFI_SSID, WIFI_SENHA);
-
-  mqtt.setServer(MQTT_HOST, MQTT_PORTA);
-  mqtt.setBufferSize(512);
-  mqtt.setCallback(aoReceberMqtt);
+#endif
+  if (!ajustes::hostValido(cfg.host)) Serial.println("Servidor MQTT ainda nao configurado.");
 }
 
 void loop() {
+#if USAR_PORTAL_WIFI
+  portal.process();
+#endif
+  vigiarBotao();
+  iniciarOtaSePossivel();
+  if (otaIniciada) ArduinoOTA.handle();
   conectarMqttSePreciso();
   mqtt.loop();
 
