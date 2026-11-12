@@ -38,6 +38,12 @@
 #ifndef PERMITIR_ZERAR_ENERGIA
 #define PERMITIR_ZERAR_ENERGIA 0
 #endif
+#ifndef INTERVALO_ENVIO_MS
+#define INTERVALO_ENVIO_MS 5000
+#endif
+#if INTERVALO_ENVIO_MS < 1000
+#error "INTERVALO_ENVIO_MS precisa ser de pelo menos 1000: o PZEM so atualiza as medidas a cada ~1 s."
+#endif
 
 HardwareSerial& serialPzem = Serial2;
 WiFiClient rede;
@@ -113,8 +119,8 @@ void setup() {
   delay(200);
 
   uint64_t mac = ESP.getEfuseMac();
-  snprintf(idDispositivo, sizeof(idDispositivo), "mw-%04X%08X",
-           (uint16_t)(mac >> 32), (uint32_t)mac);
+  snprintf(idDispositivo, sizeof(idDispositivo), "mw-%04X%08lX",
+           (unsigned int)(uint16_t)(mac >> 32), (unsigned long)(uint32_t)mac);
   snprintf(topicoTelemetria, sizeof(topicoTelemetria), "meterwatt/%s/telemetria", idDispositivo);
   snprintf(topicoStatus, sizeof(topicoStatus), "meterwatt/%s/status", idDispositivo);
   snprintf(topicoComando, sizeof(topicoComando), "meterwatt/%s/comando", idDispositivo);

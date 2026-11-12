@@ -1,0 +1,60 @@
+# Roda a cada pull request e a cada mudança no main:
+#  - testes do backend e das ferramentas (Python)
+#  - teste do protocolo do PZEM (C++ no computador)
+#  - compilação dos dois firmwares para o ESP32, como a Arduino IDE faria
+name: Testes e compilação
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Testes do backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r src/requirements.txt pytest
+      - run: python -m pytest tests -q
+
+  protocolo:
+    name: Teste do protocolo do PZEM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: g++ -std=c++11 -Wall -Wextra -Werror -o teste_pzem tests/firmware/teste_pzem_modbus.cpp
+      - run: ./teste_pzem
+
+  firmware:
+    name: Compilar firmware (ESP32)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # O config.h de verdade nunca vai para o GitHub. Para compilar, usa-se o de exemplo.
+      - name: Criar config.h a partir do exemplo
+        run: |
+          cp firmware/mwatt_pzem/config.example.h firmware/mwatt_pzem/config.h
+          cp firmware/mwatt/config.example.h firmware/mwatt/config.h
+      - uses: arduino/compile-sketches@v1
+        with:
+          cli-compile-flags: |
+            - --warnings
+            - default
+          fqbn: esp32:esp32:esp32
+          platforms: |
+            - name: esp32:esp32
+              source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          libraries: |
+            - name: PubSubClient
+          sketch-paths: |
+            - firmware/mwatt_pzem
+            - firmware/mwatt
+          enable-deltas-report: false

@@ -46,8 +46,10 @@ LIMITE_OFFLINE_S = float(os.getenv("LIMITE_OFFLINE_S", "20"))
 # Buraco maior que isto entre duas leituras não entra na estimativa por integração
 # (o aparelho ficou fora do ar e não sabemos o que aconteceu no meio).
 INTERVALO_MAXIMO_S = 60
-# Quantas leituras ficam na memória para o gráfico (1440 x 5 s = 2 horas).
-TAMANHO_HISTORICO = 1440
+# Quantas leituras ficam na memória para o gráfico: 2 horas com o medidor enviando a cada 1 s.
+TAMANHO_HISTORICO = 7200
+# O gráfico não precisa de mais pontos que isto: acima disso, a API devolve médias.
+PONTOS_NO_GRAFICO = 720
 
 ID_VALIDO = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 TEXTO_SIMPLES = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
@@ -395,6 +397,26 @@ def api_dispositivos():
                     "limite_offline_s": LIMITE_OFFLINE_S, "servidor_em": agora_iso()})
 
 
+def resumir_pontos(pontos, maximo):
+    """Reduz a lista para no máximo `maximo` pontos, trocando cada grupo vizinho pela média.
+
+    Um buraco de mais de 30 s nunca é emendado: o grupo fecha antes dele, para o
+    gráfico continuar mostrando que faltou leitura ali.
+    """
+    if len(pontos) <= maximo:
+        return pontos
+    tamanho = math.ceil(len(pontos) / maximo)
+    saida, grupo = [], []
+    for ponto in pontos:
+        if grupo and (len(grupo) >= tamanho or ponto[0] - grupo[-1][0] > 30):
+            saida.append([grupo[-1][0], round(sum(v for _, v in grupo) / len(grupo), 1)])
+            grupo = []
+        grupo.append(ponto)
+    if grupo:
+        saida.append([grupo[-1][0], round(sum(v for _, v in grupo) / len(grupo), 1)])
+    return saida
+
+
 @app.get("/api/historico/<dispositivo>")
 def api_historico(dispositivo):
     if not ID_VALIDO.match(dispositivo):
@@ -410,6 +432,7 @@ def api_historico(dispositivo):
             abort(404)
         pontos = [[t, v] for t, v in e["historico"] if t >= limite]
         unidade = "W" if e["tipo"] == "pzem" else "VA"
+    pontos = resumir_pontos(pontos, PONTOS_NO_GRAFICO)
     return jsonify({"dispositivo": dispositivo, "unidade": unidade, "minutos": minutos,
                     "agora": round(time.time(), 1), "pontos": pontos})
 

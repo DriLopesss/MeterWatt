@@ -29,5 +29,7 @@
 // Deixe em 0 fora dos testes: zerar o contador apaga o histórico guardado no PZEM.
 #define PERMITIR_ZERAR_ENERGIA 0
 
-// A cada quanto tempo lê o módulo e envia (o PZEM atualiza as medidas a cada ~1 s).
+// A cada quanto tempo lê o módulo e envia. O PZEM atualiza as medidas a cada ~1 s,
+// então 1000 é o mínimo. Use 1000 nos testes de calibração e para estudar a
+// "assinatura" dos aparelhos; 5000 gasta menos rede e menos espaço no CSV.
 #define INTERVALO_ENVIO_MS  5000
