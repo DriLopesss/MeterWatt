@@ -9,3 +9,8 @@ __pycache__/
 .env
 .venv/
 .pytest_cache/
+# Aplicativo com contas: banco, chave de desenvolvimento e e-mails de teste
+instancia/
+*.sqlite3
+*.sqlite3-*
+*.key

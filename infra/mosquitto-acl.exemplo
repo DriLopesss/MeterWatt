@@ -1,0 +1,24 @@
+# ACL do Mosquitto para o MeterWatt (copie para /etc/mosquitto/acl e ajuste).
+# No mosquitto.conf:
+#   allow_anonymous false
+#   password_file /etc/mosquitto/senhas
+#   acl_file /etc/mosquitto/acl
+#   listener 8883  + certfile/keyfile (TLS) quando sair da rede de casa
+#
+# Cada medidor tem usuário próprio, igual ao id dele (ex.: mw-A1B2C3D4E5F6), criado com
+#   mosquitto_passwd /etc/mosquitto/senhas mw-A1B2C3D4E5F6
+# Assim um medidor só consegue publicar nos próprios tópicos e ler os próprios comandos.
+# Sem isso, quem tiver a senha de um medidor consegue se passar por qualquer outro.
+
+# o servidor do aplicativo
+user meterwatt-servidor
+topic read meterwatt/+/telemetria
+topic read meterwatt/+/status
+topic read meterwatt/+/pareamento
+topic write meterwatt/+/comando
+
+# todos os medidores (%u = usuário que conectou)
+pattern write meterwatt/%u/telemetria
+pattern write meterwatt/%u/status
+pattern write meterwatt/%u/pareamento
+pattern read meterwatt/%u/comando

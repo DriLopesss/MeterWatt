@@ -94,6 +94,9 @@ struct WiFiManager {
   void setSaveParamsCallback(void (*f)()) { salvar = f; } void setTitle(const char*) {} void setConfigPortalBlocking(bool) {} void setConnectTimeout(int) {}
   bool autoConnect(const char* r, const char* s) { rede = r; senhaRede = s; return wifiConectado; }
   void process() { processos++; } void resetSettings() { resets++; }
+  bool portalAberto = false; int aberturas = 0, tempoLimite = 0;
+  bool getConfigPortalActive() { return portalAberto; } void setConfigPortalTimeout(int s) { tempoLimite = s; }
+  bool startConfigPortal(const char* r, const char* s) { rede = r; senhaRede = s; portalAberto = true; aberturas++; return false; }
   // o celular envia o formulário
   void enviar(std::map<std::string, std::string> v) { for (auto* c : campos) if (v.count(c->id)) c->valor = v[c->id]; if (salvar) salvar(); }
 };

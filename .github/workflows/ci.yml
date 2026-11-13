@@ -1,5 +1,5 @@
 # Roda a cada pull request e a cada mudança no main:
-#  - testes do backend e das ferramentas (Python)
+#  - testes do backend, do aplicativo com contas e das ferramentas (Python)
 #  - teste do protocolo do PZEM (C++ no computador)
 #  - compilação dos dois firmwares para o ESP32, como a Arduino IDE faria
 name: Testes e compilação
@@ -34,6 +34,8 @@ jobs:
       - run: ./teste_pzem
       - run: g++ -std=c++11 -Wall -Wextra -Werror -o teste_ajustes tests/firmware/teste_ajustes.cpp
       - run: ./teste_ajustes
+      - run: g++ -std=c++11 -Wall -Wextra -Werror -o teste_pareamento tests/firmware/teste_pareamento.cpp
+      - run: ./teste_pareamento
       - name: Firmware num ESP32 simulado
         run: bash tests/firmware/simulado/rodar.sh
 

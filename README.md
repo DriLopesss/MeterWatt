@@ -185,6 +185,26 @@ Para rodar o firmware do PZEM num ESP32 simulado no computador (página de confi
 
 O GitHub roda esses testes e **compila os dois firmwares para o ESP32** a cada pull request (aba *Actions*, arquivo `.github/workflows/ci.yml`). Se a compilação falhar ali, ela também falharia na Arduino IDE. A compilação usa o `config.example.h`: o `config.h` de verdade nunca vai para o GitHub.
 
+## 👤 Aplicativo com contas (`src/meterwatt`)
+
+O produto: cada cliente cria a conta, pareia o medidor e vê só os dados dele. O `src/dashboard.py` continua como **painel de bancada** (sem login, para calibrar na mesa).
+
+```bash
+pip install -r src/requirements.txt
+cd src && python -m meterwatt            # http://localhost:8000
+# em outro terminal, um medidor de mentira:
+python tools/simulador_pzem.py --intervalo 1 --parear K7QM-2XPA   # código gerado em Medidores > Adicionar
+```
+Em desenvolvimento os e-mails (confirmação, senha) ficam em `src/instancia/caixa-de-saida/`. A pasta `instancia/` guarda o banco e a chave de desenvolvimento e nunca vai para o Git.
+
+- **Segurança**: Argon2id, verificação em duas etapas (TOTP + códigos de backup), sessões no servidor, CSRF, limites de tentativas, CSP estrita. Detalhes em [`docs/seguranca.md`](docs/seguranca.md).
+- **LGPD**: autorizações por finalidade com histórico, cópia dos dados, apagar consumo, excluir conta, atividade visível, retenção automática. Detalhes em [`docs/lgpd.md`](docs/lgpd.md).
+- **Consumo fantasma**: quanto a casa gasta parada (madrugadas dos últimos 7 dias), em W, kWh e R$ por mês.
+- **Meta do mês**: previsão da conta até o fim do mês e quanto dá para gastar por dia para caber.
+- **Pareamento**: firmware 3.2 tem o campo "Código de pareamento" na página de configuração (toque rápido no BOOT reabre a página).
+- Produção: veja `src/meterwatt/.env.exemplo` e `infra/mosquitto-acl.exemplo`.
+- Testes: `python -m pytest tests -q`.
+
 ## 🏆 Reconhecimento
 Este projeto foi selecionado como **finalista no NEXT FIAP 2023**, sendo avaliado por sua viabilidade técnica e impacto em sustentabilidade.
 

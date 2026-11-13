@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0a12">
+<meta name="referrer" content="no-referrer">
+<title>MeterWatt</title>
+<link rel="icon" href="/estatico/icone.svg" type="image/svg+xml">
+<link rel="preload" href="/estatico/fontes/unbounded-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/estatico/fontes/jetbrains-mono-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/estatico/app.css">
+<script src="/estatico/app.js" defer></script>
+</head>
+<body data-tela="carregando">
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+<canvas id="particulas" aria-hidden="true"></canvas>
+
+<!-- ======================================================= entrada e cadastro -->
+<div id="area-publica" class="publica" hidden>
+  <aside class="marca">
+    <a class="logo" href="#entrar" aria-label="MeterWatt, início"><span class="logo-raio" aria-hidden="true"></span>MeterWatt</a>
+    <p class="marca-frase">Cada watt da sua casa, na hora em que ele é gasto.</p>
+    <p class="marca-nota">Os seus dados de consumo ficam com você: dá para baixar, apagar ou levar embora quando quiser.</p>
+  </aside>
+
+  <main class="cartao-publico" id="conteudo" tabindex="-1">
+    <div class="aviso-teste" id="aviso-teste" hidden>Servidor de teste: os e-mails não são enviados de verdade. Eles ficam na pasta <code>instancia/caixa-de-saida</code>.</div>
+
+    <section data-rota="entrar" hidden>
+      <h1>Entrar</h1>
+      <form id="form-entrar" novalidate>
+        <label>E-mail<input name="email" type="email" autocomplete="username" required></label>
+        <label>Senha
+          <span class="campo-senha"><input name="senha" type="password" autocomplete="current-password" required><button type="button" class="ver-senha" aria-label="Mostrar senha">ver</button></span>
+        </label>
+        <p class="erro" role="alert"></p>
+        <div class="reenviar" hidden><button type="button" class="link" id="botao-reenviar">Enviar outro link de confirmação</button></div>
+        <button class="primario" type="submit">Entrar</button>
+      </form>
+      <p class="rodape-form"><a href="#esqueci">Esqueci a senha</a></p>
+      <p class="rodape-form">Ainda não tem conta? <a href="#cadastro">Criar conta</a></p>
+    </section>
+
+    <section data-rota="cadastro" hidden>
+      <h1>Criar conta</h1>
+      <form id="form-cadastro" novalidate>
+        <label>Nome<input name="nome" autocomplete="name" maxlength="80" required></label>
+        <label>E-mail<input name="email" type="email" autocomplete="email" required></label>
+        <label>Senha
+          <span class="campo-senha"><input name="senha" type="password" autocomplete="new-password" minlength="10" maxlength="128" required aria-describedby="forca-dica"><button type="button" class="ver-senha" aria-label="Mostrar senha">ver</button></span>
+        </label>
+        <div class="forca" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <p class="dica" id="forca-dica">Pelo menos 10 caracteres. Uma frase curta que só você conhece funciona bem.</p>
+        <fieldset class="aceites">
+          <legend>Autorizações</legend>
+          <label class="check"><input type="checkbox" name="termos" required> <span>Li e aceito os <a href="#termos" target="_blank" rel="noopener">termos de uso</a>.</span></label>
+          <label class="check"><input type="checkbox" name="privacidade" required> <span>Li a <a href="#politica" target="_blank" rel="noopener">política de privacidade</a>.</span></label>
+          <label class="check"><input type="checkbox" name="consumo" required> <span>Autorizo guardar as leituras dos meus medidores para mostrar o painel. Elas revelam a rotina da casa; posso apagar ou revogar quando quiser.</span></label>
+          <label class="check opcional"><input type="checkbox" name="historico_longo"> <span>Opcional: guardar o histórico por 2 anos em vez de 90 dias.</span></label>
+          <label class="check opcional"><input type="checkbox" name="novidades"> <span>Opcional: receber novidades do MeterWatt por e-mail.</span></label>
+        </fieldset>
+        <p class="erro" role="alert"></p>
+        <button class="primario" type="submit">Criar conta</button>
+      </form>
+      <p class="rodape-form">Já tem conta? <a href="#entrar">Entrar</a></p>
+    </section>
+
+    <section data-rota="enviado" hidden>
+      <h1>Confira o seu e-mail</h1>
+      <p class="texto-grande" id="texto-enviado"></p>
+      <p class="dica">Não chegou em alguns minutos? Olhe a caixa de spam ou peça outro link pela tela de entrada.</p>
+      <p class="rodape-form"><a href="#entrar">Voltar para a entrada</a></p>
+    </section>
+
+    <section data-rota="confirmar" hidden>
+      <h1>Confirmando o e-mail</h1>
+      <p class="texto-grande" id="texto-confirmar">Um instante…</p>
+      <p class="rodape-form"><a href="#entrar" class="botao primario">Entrar</a></p>
+    </section>
+
+    <section data-rota="esqueci" hidden>
+      <h1>Esqueci a senha</h1>
+      <p class="texto">Digite o e-mail da conta. Se ela existir, mandamos um link para criar uma senha nova (vale 30 minutos).</p>
+      <form id="form-esqueci" novalidate>
+        <label>E-mail<input name="email" type="email" autocomplete="email" required></label>
+        <p class="erro" role="alert"></p>
+        <button class="primario" type="submit">Enviar link</button>
+      </form>
+      <p class="rodape-form"><a href="#entrar">Voltar para a entrada</a></p>
+    </section>
+
+    <section data-rota="redefinir" hidden>
+      <h1>Senha nova</h1>
+      <form id="form-redefinir" novalidate>
+        <label>Senha nova
+          <span class="campo-senha"><input name="senha" type="password" autocomplete="new-password" minlength="10" maxlength="128" required><button type="button" class="ver-senha" aria-label="Mostrar senha">ver</button></span>
+        </label>
+        <p class="dica">Ao salvar, todas as sessões abertas da conta são encerradas.</p>
+        <p class="erro" role="alert"></p>
+        <button class="primario" type="submit">Salvar senha nova</button>
+      </form>
+    </section>
+
+    <section data-rota="2fa" hidden>
+      <h1>Verificação em duas etapas</h1>
+      <p class="texto">Abra o aplicativo autenticador e digite o código de 6 números do MeterWatt.</p>
+      <form id="form-2fa" novalidate>
+        <label>Código<input name="codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="11" class="codigo-grande" required></label>
+        <p class="dica">Sem o celular? Use um dos códigos de backup (formato xxxxx-xxxxx).</p>
+        <p class="erro" role="alert"></p>
+        <button class="primario" type="submit">Confirmar</button>
+      </form>
+      <p class="rodape-form"><button type="button" class="link" data-acao="sair">Cancelar e voltar</button></p>
+    </section>
+
+    <section data-rota="politica" data-documento hidden></section>
+    <section data-rota="termos" data-documento hidden></section>
+  </main>
+</div>
+
+<!-- ======================================================= aplicativo -->
+<div id="area-app" class="app" hidden>
+  <header class="topo">
+    <a class="logo" href="#painel" aria-label="MeterWatt, painel"><span class="logo-raio" aria-hidden="true"></span><span>MeterWatt</span></a>
+    <nav class="abas" aria-label="Seções">
+      <a href="#painel" data-aba="painel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><span>Painel</span></a>
+      <a href="#medidores" data-aba="medidores"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M9 17h6"/></svg><span>Medidores</span></a>
+      <a href="#seguranca" data-aba="seguranca"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6z"/></svg><span>Segurança</span></a>
+      <a href="#privacidade" data-aba="privacidade"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span>Privacidade</span></a>
+    </nav>
+    <div class="conta">
+      <span class="conta-nome" id="nome-usuario"></span>
+      <button type="button" class="discreto" data-acao="sair">Sair</button>
+    </div>
+  </header>
+
+  <div class="faixa" id="faixa-2fa" hidden>Este servidor exige a verificação em duas etapas. Ative em <a href="#seguranca">Segurança</a> para usar o painel e os medidores.</div>
+
+  <main class="conteudo-app" id="conteudo-app" tabindex="-1">
+
+    <!-- ----------------------------------------------- painel -->
+    <section data-rota="painel" hidden>
+      <div class="relogio">
+        <p class="relogio-rotulo">Sua casa agora</p>
+        <div class="relogio-visor" id="visor-agora" aria-live="polite" aria-atomic="true"></div>
+        <p class="relogio-sub" id="agora-sub">Esperando leituras…</p>
+      </div>
+
+      <div class="grade-painel">
+        <article class="bloco bloco-hoje">
+          <h2>Hoje</h2>
+          <p class="valor-grande" id="hoje-kwh">—</p>
+          <p class="valor-sub" id="hoje-custo"></p>
+          <dl class="comparacao" id="hoje-comparacao"></dl>
+        </article>
+
+        <article class="bloco bloco-meta" id="bloco-meta">
+          <h2>Meta do mês</h2>
+          <div class="meta-corpo">
+            <svg class="anel" viewBox="0 0 120 120" aria-hidden="true"><circle class="anel-fundo" cx="60" cy="60" r="50"/><circle class="anel-gasto" cx="60" cy="60" r="50"/><circle class="anel-projecao" cx="60" cy="60" r="50"/></svg>
+            <div class="meta-numeros">
+              <p class="valor-grande" id="meta-projecao">—</p>
+              <p class="valor-sub" id="meta-linha"></p>
+            </div>
+          </div>
+          <p class="meta-mensagem" id="meta-mensagem"></p>
+          <details class="ajustar">
+            <summary>Ajustar meta e tarifa</summary>
+            <form id="form-preferencias" class="linha-form" novalidate>
+              <label>Meta do mês (R$)<input name="meta_mensal_reais" inputmode="decimal" placeholder="ex.: 180"></label>
+              <label>Tarifa (R$ por kWh)<input name="tarifa_kwh" inputmode="decimal" placeholder="ex.: 0,92"></label>
+              <button class="secundario" type="submit">Salvar</button>
+              <p class="erro" role="alert"></p>
+            </form>
+            <p class="dica">A tarifa está na conta de luz, somando energia (TE) e uso da rede (TUSD), com impostos. Bandeiras mudam o valor de mês a mês.</p>
+          </details>
+        </article>
+
+        <article class="bloco bloco-fantasma" id="bloco-fantasma">
+          <h2>Consumo fantasma</h2>
+          <div id="fantasma-conteudo"></div>
+          <details class="como">
+            <summary>Como calculamos</summary>
+            <p>Olhamos as madrugadas (0h às 5h) dos últimos 7 dias. Em cada uma, pegamos os 5 minutos de menor consumo: é o que fica ligado mesmo com a casa parada. Usamos a mediana das noites, para uma noite fora do normal não distorcer. Precisa de pelo menos 2 noites quase completas.</p>
+            <p>Entram aqui aparelhos em espera, carregadores na tomada, roteador, decodificador e o ciclo mínimo da geladeira. Parte disso é inevitável; o resto costuma sumir com um filtro de linha com interruptor.</p>
+          </details>
+        </article>
+
+        <article class="bloco bloco-dias">
+          <h2>Últimos 14 dias</h2>
+          <div class="barras" id="barras-dias" role="img" aria-label="Consumo por dia"></div>
+        </article>
+      </div>
+
+      <div class="vazio" id="painel-vazio" hidden>
+        <h2>Nenhum medidor pareado ainda</h2>
+        <p>Pareie o seu MeterWatt para ver o consumo da casa aqui, segundo a segundo.</p>
+        <a class="botao primario" href="#medidores">Parear medidor</a>
+      </div>
+    </section>
+
+    <!-- ----------------------------------------------- medidores -->
+    <section data-rota="medidores" hidden>
+      <div class="cabecalho-secao">
+        <h1>Medidores</h1>
+        <button type="button" class="primario" id="botao-parear">Adicionar medidor</button>
+      </div>
+      <div id="lista-medidores" class="lista-medidores"></div>
+      <p class="dica" id="medidores-dica">Leituras marcadas como <strong>simuladas</strong> vêm do simulador, não de um aparelho real.</p>
+    </section>
+
+    <!-- ----------------------------------------------- segurança -->
+    <section data-rota="seguranca" hidden>
+      <h1>Segurança</h1>
+
+      <article class="bloco">
+        <h2>Verificação em duas etapas</h2>
+        <div id="dois-fatores"></div>
+      </article>
+
+      <article class="bloco">
+        <h2>Trocar a senha</h2>
+        <form id="form-senha" novalidate class="form-estreito">
+          <label>Senha atual<input name="atual" type="password" autocomplete="current-password" required></label>
+          <label>Senha nova<input name="nova" type="password" autocomplete="new-password" minlength="10" maxlength="128" required></label>
+          <p class="dica">As outras sessões abertas são encerradas e você recebe um aviso por e-mail.</p>
+          <p class="erro" role="alert"></p>
+          <button class="secundario" type="submit">Trocar senha</button>
+        </form>
+      </article>
+
+      <article class="bloco">
+        <div class="cabecalho-bloco">
+          <h2>Onde a conta está aberta</h2>
+          <button type="button" class="discreto" id="encerrar-outras">Encerrar as outras</button>
+        </div>
+        <ul class="lista-sessoes" id="lista-sessoes"></ul>
+        <p class="dica">Mostramos só o tipo de navegador e o começo do endereço de rede: não guardamos o endereço completo.</p>
+      </article>
+    </section>
+
+    <!-- ----------------------------------------------- privacidade -->
+    <section data-rota="privacidade" hidden>
+      <h1>Privacidade e seus dados</h1>
+      <p class="texto">Pela LGPD, você decide o que guardamos e pode pedir cópia, correção ou exclusão a qualquer momento. Tudo isso funciona aqui mesmo, sem precisar escrever para ninguém.</p>
+
+      <article class="bloco">
+        <h2>Autorizações</h2>
+        <ul class="lista-autorizacoes" id="lista-autorizacoes"></ul>
+      </article>
+
+      <article class="bloco">
+        <h2>Seus dados</h2>
+        <div class="acoes-dados">
+          <div>
+            <h3>Baixar uma cópia</h3>
+            <p>Um arquivo JSON com a conta, as autorizações, os medidores, o consumo e a atividade.</p>
+            <button type="button" class="secundario" id="botao-exportar">Baixar meus dados</button>
+          </div>
+          <div>
+            <h3>Apagar o consumo</h3>
+            <p>Apaga todas as leituras e totais. Os medidores continuam pareados e voltam a medir do zero.</p>
+            <button type="button" class="secundario perigo" id="botao-apagar-consumo">Apagar consumo</button>
+          </div>
+          <div>
+            <h3>Excluir a conta</h3>
+            <p>Apaga a conta e tudo ligado a ela. Não tem como desfazer.</p>
+            <button type="button" class="secundario perigo" id="botao-excluir-conta">Excluir conta</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="bloco">
+        <h2>Por quanto tempo guardamos</h2>
+        <dl class="retencao" id="retencao"></dl>
+      </article>
+
+      <article class="bloco">
+        <h2>Atividade da conta</h2>
+        <ol class="atividade" id="atividade"></ol>
+      </article>
+
+      <p class="rodape-form"><a href="#politica">Política de privacidade</a> <span aria-hidden="true">|</span> <a href="#termos">Termos de uso</a> <span id="contato-encarregado"></span></p>
+    </section>
+
+    <section data-rota="politica" data-documento hidden></section>
+    <section data-rota="termos" data-documento hidden></section>
+  </main>
+</div>
+
+<!-- ======================================================= tela de erro -->
+<div id="area-erro" class="tela-erro" hidden>
+  <div class="erro-visor" aria-hidden="true"><span>4</span><span class="erro-pisca">0</span><span>4</span></div>
+  <h1 id="erro-titulo">Essa tomada não leva a lugar nenhum</h1>
+  <p id="erro-texto">O endereço que você abriu não existe ou mudou de lugar.</p>
+  <a class="botao primario" href="#painel">Voltar ao painel</a>
+</div>
+
+<!-- ======================================================= diálogos -->
+<dialog id="dialogo-parear" class="dialogo" aria-labelledby="parear-titulo">
+  <form method="dialog" class="fechar"><button aria-label="Fechar">×</button></form>
+  <h2 id="parear-titulo">Adicionar medidor</h2>
+  <div class="parear-codigo" id="parear-codigo" aria-live="polite"></div>
+  <p class="parear-tempo" id="parear-tempo"></p>
+  <ol class="passos">
+    <li>No medidor, dê um toque rápido no botão <strong>BOOT</strong>. Ele abre a rede Wi-Fi <strong>MeterWatt-</strong> seguida de 4 letras.</li>
+    <li>Conecte o celular nessa rede (a senha está na etiqueta do aparelho) e toque em <strong>Configure WiFi</strong>.</li>
+    <li>Digite o código acima no campo <strong>Código de pareamento</strong> e salve.</li>
+  </ol>
+  <p class="parear-status" id="parear-status">Esperando o medidor…</p>
+</dialog>
+
+<dialog id="dialogo-confirmar" class="dialogo" aria-labelledby="confirmar-titulo">
+  <form method="dialog" class="fechar"><button aria-label="Fechar">×</button></form>
+  <h2 id="confirmar-titulo"></h2>
+  <p id="confirmar-texto"></p>
+  <form id="form-confirmar" novalidate>
+    <label data-campo="frase" hidden>Digite <strong>EXCLUIR</strong> para confirmar<input name="frase" autocomplete="off"></label>
+    <label data-campo="senha">Sua senha<input name="senha" type="password" autocomplete="current-password"></label>
+    <label data-campo="codigo" hidden>Código do autenticador ou de backup<input name="codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="11"></label>
+    <p class="erro" role="alert"></p>
+    <div class="botoes-dialogo">
+      <button type="button" class="discreto" data-acao="cancelar">Cancelar</button>
+      <button type="submit" class="primario" id="confirmar-botao"></button>
+    </div>
+  </form>
+</dialog>
+
+<div class="aviso-flutuante" id="aviso" role="status" aria-live="polite" hidden></div>
+
+<!-- ======================================================= textos jurídicos (rascunho) -->
+<template id="doc-politica">
+  <article class="documento">
+    <p class="rascunho">Rascunho para o protótipo. Precisa de revisão de um advogado antes de qualquer cliente real.</p>
+    <h1>Política de privacidade</h1>
+    <p class="versao">Versão <span data-info="privacidade_versao"></span></p>
+
+    <h2>Quem cuida dos seus dados</h2>
+    <p>O controlador é <span data-info="controlador">[nome e CNPJ da empresa, a definir]</span>. Para falar sobre privacidade, escreva para <span data-info="email_privacidade">[e-mail de privacidade, a definir]</span>. Encarregado (DPO): <span data-info="encarregado">[a definir]</span>.</p>
+
+    <h2>O que guardamos e para quê</h2>
+    <ul>
+      <li><strong>Conta</strong> (nome, e-mail, senha protegida por Argon2id): para você entrar e para avisos de segurança. Base legal: execução do contrato (art. 7º, V).</li>
+      <li><strong>Leituras dos medidores</strong> (tensão, corrente, potência, energia, sinal do Wi-Fi): para mostrar o painel, o histórico, a meta e o consumo fantasma. Elas revelam a rotina da casa (quando há gente, quando dorme, quando viaja). Por isso pedimos a sua autorização à parte, e você pode revogá-la. Base legal: consentimento (art. 7º, I).</li>
+      <li><strong>Segurança</strong> (sessões abertas, tipo de navegador, início do endereço de rede, registro de atividade): para proteger a conta e mostrar a você o que aconteceu nela. Base legal: legítimo interesse e proteção do titular (art. 7º, IX). [ADVOGADO: confirmar.]</li>
+      <li><strong>Novidades por e-mail</strong>, só se você marcar. Base legal: consentimento.</li>
+    </ul>
+
+    <h2>O que não fazemos</h2>
+    <ul>
+      <li>Não vendemos nem repassamos dados a anunciantes.</li>
+      <li>Não usamos cookies de rastreamento nem ferramentas de análise de terceiros. O único cookie é o da sessão, necessário para você continuar dentro da conta.</li>
+      <li>Não guardamos leitura de medidor que não esteja pareado a uma conta que autorizou.</li>
+    </ul>
+
+    <h2>Por quanto tempo</h2>
+    <ul>
+      <li>Leituras detalhadas (de segundo a segundo): <span data-info="leituras_detalhadas_horas"></span> horas.</li>
+      <li>Consumo de 5 em 5 minutos: <span data-info="consumo_5_minutos_dias"></span> dias, ou <span data-info="consumo_5_minutos_dias_com_historico_longo"></span> dias se você autorizar o histórico longo.</li>
+      <li>Registro de atividade da conta: <span data-info="atividade_da_conta_dias"></span> dias.</li>
+      <li>Conta que nunca confirmou o e-mail: apagada em <span data-info="conta_nao_confirmada_dias"></span> dias.</li>
+      <li>Ao excluir a conta, tudo é apagado na hora. Fica só um código irreversível do e-mail e a data, para provar que o pedido foi atendido. [ADVOGADO: confirmar prazo.]</li>
+    </ul>
+
+    <h2>Seus direitos (art. 18)</h2>
+    <p>Confirmar o tratamento, acessar e baixar os dados, corrigir, anonimizar ou apagar, revogar autorizações e saber com quem compartilhamos. Quase tudo funciona sozinho na tela <a href="#privacidade">Privacidade</a>. O resto, pelo e-mail acima, com resposta em até 15 dias.</p>
+
+    <h2>Com quem compartilhamos</h2>
+    <p>Só com quem opera o serviço para nós: provedor de servidores e de envio de e-mail. [ADVOGADO e equipe: listar os fornecedores e os países onde ficam os servidores (art. 33).]</p>
+
+    <h2>Segurança</h2>
+    <p>Conexão criptografada (HTTPS), senha guardada com Argon2id, verificação em duas etapas opcional, segredos cifrados no banco, cada medidor com usuário próprio no servidor de mensagens. Em caso de incidente que possa causar risco, avisamos você e a ANPD.</p>
+
+    <h2>Crianças</h2>
+    <p>O serviço é para maiores de 18 anos, responsáveis pela conta de luz do imóvel.</p>
+  </article>
+</template>
+
+<template id="doc-termos">
+  <article class="documento">
+    <p class="rascunho">Rascunho para o protótipo. Precisa de revisão de um advogado antes de qualquer cliente real.</p>
+    <h1>Termos de uso</h1>
+    <p class="versao">Versão <span data-info="termos_versao"></span></p>
+    <h2>O serviço</h2>
+    <p>O MeterWatt mostra o consumo de energia medido pelo aparelho MeterWatt instalado no seu imóvel. Os valores em reais são estimativas com a tarifa que você informa e não substituem a conta da distribuidora.</p>
+    <h2>Instalação</h2>
+    <p>O medidor fica ligado à rede elétrica. A instalação precisa ser feita por eletricista qualificado, com o disjuntor desligado, seguindo a NBR 5410. Não abra o aparelho ligado.</p>
+    <h2>Sua conta</h2>
+    <p>Você responde pelo que acontece com a sua senha. Ative a verificação em duas etapas. Avise-nos se suspeitar de acesso indevido.</p>
+    <h2>Uso proibido</h2>
+    <p>Medir imóvel de outra pessoa sem a autorização dela, tentar acessar contas ou medidores de terceiros e sobrecarregar o serviço de propósito.</p>
+    <h2>Disponibilidade</h2>
+    <p>Este é um protótipo em teste. Pode ficar fora do ar e mudar sem aviso. [ADVOGADO: limitação de responsabilidade, plano pago, cancelamento, foro.]</p>
+  </article>
+</template>
+</body>
+</html>
