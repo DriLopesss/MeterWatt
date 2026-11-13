@@ -17,6 +17,7 @@ import json
 import math
 import os
 import random
+import threading
 import time
 
 import paho.mqtt.client as mqtt
@@ -90,6 +91,8 @@ def main():
     ap.add_argument("--acelerar", type=float, default=1.0, help="quantas vezes o tempo da casa corre mais rápido")
     ap.add_argument("--falhas", action="store_true", help="de vez em quando simula o PZEM sem responder")
     ap.add_argument("--semente", type=int, default=None, help="para repetir a mesma sequência")
+    ap.add_argument("--parear", metavar="CODIGO", default=None,
+                    help="código do aplicativo (ex.: K7QM-2XPA): pede o pareamento como o firmware 3.2 faz")
     args = ap.parse_args()
 
     host = os.getenv("MQTT_HOST", "localhost")
@@ -100,9 +103,27 @@ def main():
     if os.getenv("MQTT_USUARIO"):
         cliente.username_pw_set(os.getenv("MQTT_USUARIO"), os.getenv("MQTT_SENHA"))
     cliente.will_set(f"{base}/status", "offline", retain=True)
+    pareado = threading.Event()
+
+    def ao_receber(_c, _u, msg):
+        if msg.payload == b"pareado":
+            pareado.set()
+            print("Pareamento confirmado pelo servidor: o medidor já aparece no aplicativo.")
+
+    cliente.on_message = ao_receber
     cliente.connect(host, porta)
     cliente.loop_start()
+    cliente.subscribe(f"{base}/comando")
     cliente.publish(f"{base}/status", "online", retain=True)
+    if args.parear:
+        pedido = json.dumps({"codigo": args.parear.strip().upper()})
+        limite = time.time() + 15 * 60
+        while not pareado.is_set() and time.time() < limite:   # igual ao firmware: repete a cada 30 s
+            cliente.publish(f"{base}/pareamento", pedido, qos=1)
+            print(f"Pedido de pareamento enviado ({args.parear}). Esperando o servidor...")
+            pareado.wait(30)
+        if not pareado.is_set():
+            print("O servidor não confirmou em 15 minutos. Gere outro código no aplicativo.")
 
     casa = Casa(args.tensao, args.semente)
     inicio = time.time()

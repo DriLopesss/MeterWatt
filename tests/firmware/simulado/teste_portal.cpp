@@ -33,14 +33,31 @@ int main() {
   girar(6000);
   CONFERE(ArduinoOTA.comecou == 1);                                   // não reinicia a cada volta
 
+  // 3b. Pareamento com o aplicativo: código errado não muda nada; certo vai ao servidor até ele confirmar
+  auto pedidos = [] { size_t n = 0; for (auto& p : publicadas) if (p.topico == "meterwatt/mw-A1B2C3D4E5F6/pareamento") n++; return n; };
+  portal.enviar({{"codigo", "XXXX-0000"}});
+  CONFERE(!pedidoPareamento.ativo && pedidos() == 0);
+  portal.enviar({{"codigo", "k7qm 2xpa"}});
+  CONFERE(pedidoPareamento.ativo && campoCodigo.valor == "");        // o campo é limpo: o código não fica na página
+  CONFERE(nvs.count("codigo") == 0);                                  // e nunca vai para a memória
+  girar(100);
+  CONFERE(pedidos() == 1 && publicadas.back().corpo == "{\"codigo\":\"K7QM-2XPA\"}" && !publicadas.back().retido);
+  girar(31000);
+  CONFERE(pedidos() == 2);                                            // repete a cada 30 s
+  { char t[] = "meterwatt/mw-A1B2C3D4E5F6/comando"; byte r[] = {'p','a','r','e','a','d','o'}; mqtt.cb(t, r, 7); }
+  CONFERE(!pedidoPareamento.ativo);
+  girar(31000);
+  CONFERE(pedidos() == 2);                                            // confirmado: parou de pedir
+
   // 4. Depois de reiniciar, vale o que foi salvo, não o config.h
   ajustes::copiar(cfg.host, "lixo", ajustes::TAM_HOST);
   carregarAjustes();
   CONFERE(std::string(cfg.host) == "broker.local" && cfg.porta == 8883 && std::string(cfg.usuario) == "casa1");
 
-  // 5. Botão BOOT: apertar rápido não faz nada; segurar 5 s apaga tudo
+  // 5. Botão BOOT: toque rápido reabre a página por 10 min sem apagar nada; segurar 5 s apaga tudo
   nivelBotao = LOW; girar(1500); nivelBotao = HIGH; girar(100);
-  CONFERE(reinicios == 0 && !nvs.empty());
+  CONFERE(reinicios == 0 && !nvs.empty() && portal.aberturas == 1 && portal.tempoLimite == 600);
+  CONFERE(portal.rede == "MeterWatt-E5F6" && portal.senhaRede == SENHA_PORTAL);
   nivelBotao = LOW; girar(5300);
   CONFERE(reinicios >= 1 && nvs.empty() && portal.resets >= 1);
   nivelBotao = HIGH;

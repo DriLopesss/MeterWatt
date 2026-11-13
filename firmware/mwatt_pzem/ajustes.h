@@ -18,6 +18,7 @@ const size_t TAM_USUARIO = 33;
 const size_t TAM_SENHA = 65;
 const size_t TAM_SENHA_OTA = 33;
 const size_t MIN_SENHA_OTA = 8;
+const size_t TAM_CODIGO = 10;      // "ABCD-EFGH" + '\0'
 
 struct Ajustes {
   char host[TAM_HOST];
@@ -33,7 +34,8 @@ enum Resultado {
   PORTA_INVALIDA,
   USUARIO_INVALIDO,
   SENHA_INVALIDA,
-  SENHA_OTA_INVALIDA
+  SENHA_OTA_INVALIDA,
+  CODIGO_INVALIDO
 };
 
 inline const char* mensagem(Resultado r) {
@@ -44,6 +46,7 @@ inline const char* mensagem(Resultado r) {
     case USUARIO_INVALIDO: return "usuario invalido (de 1 a 32 caracteres, sem espacos nem acentos)";
     case SENHA_INVALIDA: return "senha do MQTT invalida (ate 64 caracteres, sem espacos nem acentos)";
     case SENHA_OTA_INVALIDA: return "senha de atualizacao invalida (de 8 a 32 caracteres, sem espacos nem acentos)";
+    case CODIGO_INVALIDO: return "codigo de pareamento invalido (8 letras e numeros, como ABCD-EF23)";
   }
   return "erro desconhecido";
 }
@@ -98,19 +101,48 @@ inline bool portaDeTexto(const char* t, uint16_t* porta) {
 }
 
 /*
+ * Código de pareamento mostrado no aplicativo (ex.: "K7QM-2XPA"). Aceita minúsculas,
+ * espaços e traços em qualquer lugar; devolve sempre "XXXX-XXXX" em maiúsculas.
+ * Mesmo alfabeto do servidor: sem 0, O, 1, I e L, que se confundem na digitação.
+ */
+inline bool normalizarCodigo(const char* entrada, char* saida) {
+  static const char* ALFABETO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  if (!entrada) return false;
+  char limpo[8];
+  size_t n = 0;
+  for (size_t i = 0; entrada[i]; i++) {
+    if (i > 32) return false;
+    char c = entrada[i];
+    if (c == ' ' || c == '-') continue;
+    if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+    if (!strchr(ALFABETO, c) || c == '\0' || n >= 8) return false;
+    limpo[n++] = c;
+  }
+  if (n != 8) return false;
+  memcpy(saida, limpo, 4);
+  saida[4] = '-';
+  memcpy(saida + 5, limpo + 4, 4);
+  saida[9] = '\0';
+  return true;
+}
+
+/*
  * Aplica o formulário. Senhas em branco mantêm a senha atual (a página nunca mostra
  * senhas salvas). Para desligar a atualização pelo Wi-Fi, use desligarOta = true.
  * Se qualquer campo estiver errado, `atual` fica exatamente como estava.
  */
 inline Resultado aplicarFormulario(Ajustes* atual, const char* host, const char* porta,
                                    const char* usuario, const char* senha, const char* senhaOta,
-                                   bool desligarOta = false) {
+                                   bool desligarOta = false,
+                                   const char* codigo = nullptr, char* codigoSaida = nullptr) {
   Ajustes novo = *atual;
+  char codigoNovo[TAM_CODIGO] = "";
   if (!hostValido(host)) return HOST_INVALIDO;
   if (!portaDeTexto(porta, &novo.porta)) return PORTA_INVALIDA;
   if (!textoSimples(usuario, 1, TAM_USUARIO - 1)) return USUARIO_INVALIDO;
   if (senha && senha[0] && !textoSimples(senha, 1, TAM_SENHA - 1)) return SENHA_INVALIDA;
   if (senhaOta && senhaOta[0] && !textoSimples(senhaOta, MIN_SENHA_OTA, TAM_SENHA_OTA - 1)) return SENHA_OTA_INVALIDA;
+  if (codigo && codigo[0] && !normalizarCodigo(codigo, codigoNovo)) return CODIGO_INVALIDO;
 
   copiar(novo.host, host, TAM_HOST);
   copiar(novo.usuario, usuario, TAM_USUARIO);
@@ -118,6 +150,7 @@ inline Resultado aplicarFormulario(Ajustes* atual, const char* host, const char*
   if (desligarOta) novo.senhaOta[0] = '\0';
   else if (senhaOta && senhaOta[0]) copiar(novo.senhaOta, senhaOta, TAM_SENHA_OTA);
   *atual = novo;
+  if (codigoSaida) copiar(codigoSaida, codigoNovo, TAM_CODIGO);   // vazio = nenhum pareamento pedido
   return AJUSTES_OK;
 }
 

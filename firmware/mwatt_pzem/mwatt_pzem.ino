@@ -21,6 +21,12 @@
  *    celular nela (senha SENHA_PORTAL do config.h) e uma página pede a rede de casa, o
  *    servidor MQTT e as senhas. Tudo fica guardado na memória do ESP32.
  *  - Segurar o botão BOOT por 5 segundos apaga os ajustes e reabre a página.
+ *  - Apertar o BOOT rapidinho (menos de 3 s) reabre a página por 10 minutos, sem apagar
+ *    nada. É por ela que se digita o código de pareamento do aplicativo (v3.2).
+ *
+ * PAREAMENTO COM O APLICATIVO (v3.2): o aplicativo mostra um código como "K7QM-2XPA".
+ * Digitado na página, o medidor o envia ao servidor, que liga este medidor à conta.
+ * O código fica só na RAM e vale 15 minutos.
  *  - Com uma senha de atualização definida, o firmware pode ser atualizado pelo Wi-Fi
  *    (Arduino IDE > Ferramentas > Porta > porta de rede "mw-...").
  *
@@ -34,8 +40,9 @@
 #include "config.h"
 #include "pzem_modbus.h"
 #include "ajustes.h"
+#include "pareamento.h"
 
-#define VERSAO_FW "3.1.0"
+#define VERSAO_FW "3.2.0"
 
 #ifndef USAR_PORTAL_WIFI
 #define USAR_PORTAL_WIFI 1
@@ -99,6 +106,7 @@ WiFiManagerParameter campoHost("mqtt_host", "Servidor MQTT (IP ou nome)", "", aj
 WiFiManagerParameter campoPorta("mqtt_porta", "Porta MQTT", "1883", 5, "type='number' min='1' max='65535'");
 WiFiManagerParameter campoUsuario("mqtt_usuario", "Usuário MQTT", "", ajustes::TAM_USUARIO - 1);
 WiFiManagerParameter campoSenha("mqtt_senha", "Senha MQTT (em branco = manter a atual)", "", ajustes::TAM_SENHA - 1, "type='password'");
+WiFiManagerParameter campoCodigo("codigo", "Código de pareamento do aplicativo (ex.: K7QM-2XPA; opcional)", "", 12, "autocapitalize='characters' autocomplete='off'");
 WiFiManagerParameter campoOta("ota_senha", "Senha para atualizar pelo Wi-Fi (8 a 32 caracteres; em branco = manter)", "", ajustes::TAM_SENHA_OTA - 1, "type='password'");
 #endif
 
@@ -106,6 +114,8 @@ char idDispositivo[24];
 char topicoTelemetria[64];
 char topicoStatus[64];
 char topicoComando[64];
+char topicoPareamento[64];
+pareamento::Estado pedidoPareamento;
 
 unsigned long ultimoEnvio = 0;
 unsigned long ultimaTentativaMqtt = 0;
@@ -147,6 +157,10 @@ bool zerarEnergiaNoPzem() {
 
 void aoReceberMqtt(char* topico, byte* dados, unsigned int tamanho) {
   if (strcmp(topico, topicoComando) != 0) return;
+  if (pareamento::aoComando(&pedidoPareamento, dados, tamanho)) {
+    Serial.println("Pareamento: confirmado pelo servidor. O medidor ja aparece no aplicativo.");
+    return;
+  }
   const char* comando = "zerar_energia";
   if (tamanho == strlen(comando) && memcmp(dados, comando, tamanho) == 0) {
     pedidoZerarEnergia = true;
@@ -197,11 +211,17 @@ void apagarTudoEReiniciar() {
 
 #if USAR_PORTAL_WIFI
 void aoSalvarPagina() {
+  char codigo[ajustes::TAM_CODIGO];
   ajustes::Resultado r = ajustes::aplicarFormulario(&cfg, campoHost.getValue(), campoPorta.getValue(),
                                                     campoUsuario.getValue(), campoSenha.getValue(),
-                                                    campoOta.getValue());
+                                                    campoOta.getValue(), false, campoCodigo.getValue(), codigo);
   Serial.printf("Pagina de configuracao: %s\n", ajustes::mensagem(r));
   if (r != ajustes::AJUSTES_OK) return;
+  campoCodigo.setValue("", 12);    // o código vale uma vez e nunca é gravado
+  if (codigo[0]) {
+    pareamento::iniciar(&pedidoPareamento, codigo, millis());
+    Serial.println("Pareamento: codigo recebido, enviando ao servidor (vale 15 minutos).");
+  }
   salvarAjustes();
   mqtt.disconnect();               // reconecta já com os ajustes novos
   mqtt.setServer(cfg.host, cfg.porta);
@@ -224,13 +244,33 @@ void iniciarOtaSePossivel() {
   Serial.printf("Atualizacao pelo Wi-Fi ligada: procure a porta de rede %s na Arduino IDE.\n", idDispositivo);
 }
 
+void abrirPaginaPorUmTempo() {
+#if USAR_PORTAL_WIFI
+  if (portal.getConfigPortalActive()) return;
+  char nomeRede[24];
+  snprintf(nomeRede, sizeof(nomeRede), "MeterWatt-%s", idDispositivo + strlen(idDispositivo) - 4);
+  portal.setConfigPortalTimeout(600);   // fecha sozinha em 10 minutos
+  portal.startConfigPortal(nomeRede, SENHA_PORTAL);
+  Serial.printf("Pagina de configuracao aberta por 10 min: conecte o celular na rede %s.\n", nomeRede);
+#endif
+}
+
 void vigiarBotao() {
   if (digitalRead(PINO_BOTAO) == LOW) {
     if (botaoDesde == 0) botaoDesde = millis() | 1;
     else if (millis() - botaoDesde > 5000) apagarTudoEReiniciar();
   } else {
+    // Soltou: um toque curto (entre 50 ms e 3 s) reabre a página sem apagar nada.
+    if (botaoDesde != 0 && millis() - botaoDesde >= 50 && millis() - botaoDesde < 3000) abrirPaginaPorUmTempo();
     botaoDesde = 0;
   }
+}
+
+void enviarPareamentoSePreciso() {
+  if (!pareamento::deveEnviar(&pedidoPareamento, millis(), mqtt.connected())) return;
+  char json[48];
+  pareamento::montarMensagem(pedidoPareamento, json, sizeof(json));
+  if (mqtt.publish(topicoPareamento, json)) pareamento::marcarEnviado(&pedidoPareamento, millis());
 }
 
 // ------------------------------------------------------------- MQTT
@@ -260,6 +300,8 @@ void setup() {
   snprintf(topicoTelemetria, sizeof(topicoTelemetria), "meterwatt/%s/telemetria", idDispositivo);
   snprintf(topicoStatus, sizeof(topicoStatus), "meterwatt/%s/status", idDispositivo);
   snprintf(topicoComando, sizeof(topicoComando), "meterwatt/%s/comando", idDispositivo);
+  snprintf(topicoPareamento, sizeof(topicoPareamento), "meterwatt/%s/pareamento", idDispositivo);
+  pareamento::limpar(&pedidoPareamento);
   Serial.printf("\nMeterWatt v%s (PZEM-004T v3) - id %s\n", VERSAO_FW, idDispositivo);
 
   serialPzem.begin(9600, SERIAL_8N1, PINO_RX_PZEM, PINO_TX_PZEM);
@@ -283,6 +325,7 @@ void setup() {
   portal.addParameter(&campoUsuario);
   portal.addParameter(&campoSenha);
   portal.addParameter(&campoOta);
+  portal.addParameter(&campoCodigo);
   portal.setSaveParamsCallback(aoSalvarPagina);
   portal.setTitle("MeterWatt");
   portal.setConfigPortalBlocking(false);   // a medição continua enquanto a página está aberta
@@ -309,6 +352,7 @@ void loop() {
   if (otaIniciada) ArduinoOTA.handle();
   conectarMqttSePreciso();
   mqtt.loop();
+  enviarPareamentoSePreciso();
 
   if (pedidoZerarEnergia) {
     pedidoZerarEnergia = false;
