@@ -78,8 +78,22 @@ def broker(tmp_path):
     dynsec.chmod(0o644)
     conf = tmp_path / "mosquitto.conf"
     conf.write_text(f"listener {porta} 127.0.0.1\nallow_anonymous false\nuser root\nplugin {PLUGIN}\nplugin_opt_config_file {dynsec}\n")
-    processo = subprocess.Popen(["mosquitto", "-c", str(conf)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(0.6)
+    # Roda uma cópia do programa: no Ubuntu, o Mosquitto instalado em /usr/sbin é confinado pelo
+    # AppArmor e não consegue ler uma configuração fora de /etc/mosquitto.
+    binario = shutil.copy(shutil.which("mosquitto"), tmp_path / "mosquitto-de-teste")
+    registro = tmp_path / "mosquitto.log"
+    with open(registro, "w") as saida:
+        processo = subprocess.Popen([binario, "-c", str(conf)], stdout=saida, stderr=subprocess.STDOUT)
+
+    def ouvindo():
+        try:
+            socket.create_connection(("127.0.0.1", porta), timeout=0.5).close()
+            return True
+        except OSError:
+            return False
+    if not esperar(ouvindo, 5):
+        processo.kill()
+        pytest.fail("O Mosquitto de teste não subiu:\n" + registro.read_text())
     yield porta
     processo.terminate()
     processo.wait(5)
