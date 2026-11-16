@@ -9,7 +9,7 @@ def test_estado_e_historico_de_autorizacoes(cliente, plataforma):
     conta_pronta(cliente, plataforma, novidades=True)
     e = cliente.get("/api/privacidade").get_json()
     atuais = {f["id"]: f["aceito"] for f in e["finalidades"]}
-    assert atuais == {"termos": True, "privacidade": True, "consumo": True, "historico_longo": False, "novidades": True}
+    assert atuais == {"termos": True, "privacidade": True, "consumo": True, "historico_longo": False, "aparelhos": False, "novidades": True}
     assert cliente.put("/api/privacidade/termos", {"aceito": False}).status_code == 400   # não revogável: é sair da conta
     assert cliente.put("/api/privacidade/inexistente", {"aceito": True}).status_code in (400, 404)
     assert cliente.put("/api/privacidade/historico_longo", {"aceito": "sim"}).status_code == 400

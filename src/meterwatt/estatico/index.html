@@ -17,6 +17,112 @@
 <a class="pular" href="#conteudo">Pular para o conteúdo</a>
 <canvas id="particulas" aria-hidden="true"></canvas>
 
+<!-- ======================================================= página inicial (lançamento) -->
+<div id="area-inicio" class="inicio" hidden>
+  <header class="inicio-topo">
+    <a class="logo" href="#inicio" aria-label="MeterWatt, início"><span class="logo-raio" aria-hidden="true"></span>MeterWatt</a>
+    <a class="botao secundario" href="#entrar" id="inicio-entrar">Entrar</a>
+  </header>
+
+  <main id="conteudo-inicio" tabindex="-1">
+    <section data-rota="inicio" hidden>
+      <div class="heroi">
+        <div class="heroi-texto">
+          <h1>Sua casa gasta energia até dormindo. Descubra quanto.</h1>
+          <p class="heroi-sub">O MeterWatt é um medidor que vai no quadro de luz e mostra no celular, segundo a segundo, para onde a energia está indo: o gasto de agora, a previsão da conta e o que fica ligado sem ninguém usar.</p>
+          <div class="botoes">
+            <a class="botao primario" href="#inicio" data-rolar="fila">Entrar na lista de espera</a>
+            <a class="botao secundario" href="#inicio" data-rolar="calculadora">Calcular meu consumo fantasma</a>
+          </div>
+          <p class="dica">Em desenvolvimento por duas pessoas na FIAP. Ainda não está à venda: a lista de espera é para os primeiros testes.</p>
+        </div>
+        <div class="heroi-visor" aria-hidden="true">
+          <p class="relogio-rotulo">Uma casa agora</p>
+          <div class="relogio-visor" id="visor-demo"></div>
+          <p class="dica" id="demo-legenda">demonstração com dados simulados</p>
+        </div>
+      </div>
+
+      <section class="faixa-inicio" id="calculadora" aria-labelledby="calc-titulo">
+        <div class="faixa-cabeca">
+          <h2 id="calc-titulo">Quanto custa o que fica ligado sem ninguém usar?</h2>
+          <p>Marque o que fica na tomada o tempo todo na sua casa. Os watts são valores típicos de aparelhos em espera: se souber o do seu, corrija.</p>
+        </div>
+        <div class="calc">
+          <div class="calc-lista" id="calc-lista"></div>
+          <aside class="calc-resultado" aria-live="polite">
+            <p class="calc-watts" id="calc-watts">0 W</p>
+            <p class="calc-legenda">ligados dia e noite</p>
+            <p class="calc-ano" id="calc-ano">R$ 0,00 por ano</p>
+            <p class="calc-detalhe" id="calc-detalhe"></p>
+            <label class="calc-tarifa">Tarifa (R$ por kWh)<input id="calc-tarifa" inputmode="decimal" value="0,95"></label>
+            <div class="botoes">
+              <button type="button" class="secundario" id="calc-compartilhar">Compartilhar o resultado</button>
+              <a class="botao primario" href="#inicio" data-rolar="fila">Quero medir o valor real</a>
+            </div>
+            <p class="dica">É uma estimativa. Aparelhos antigos costumam gastar mais em espera, e geladeira e roteador não dá para desligar. O medidor mostra o número de verdade da sua casa.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="faixa-inicio" aria-labelledby="como-titulo">
+        <div class="faixa-cabeca"><h2 id="como-titulo">Como funciona</h2></div>
+        <ol class="passos-inicio">
+          <li><h3>Um eletricista instala</h3><p>O medidor fica no quadro de luz. O sensor abraça o fio de entrada, sem cortar nada. É serviço para profissional, com o disjuntor desligado.</p></li>
+          <li><h3>Você pareia pelo celular</h3><p>O medidor entra no Wi-Fi de casa e é ligado à sua conta com um código de 8 letras. Só a sua conta enxerga os dados dele.</p></li>
+          <li><h3>A casa aparece na tela</h3><p>Gasto de agora em watts e em reais por hora, previsão da conta do mês, consumo fantasma e aviso quando algo foge do normal.</p></li>
+        </ol>
+      </section>
+
+      <section class="faixa-inicio" aria-labelledby="dados-titulo">
+        <div class="faixa-cabeca">
+          <h2 id="dados-titulo">O consumo conta a rotina da casa. Por isso ele é seu.</h2>
+          <p>Dá para ver quando tem gente, quando todo mundo dorme e quando a casa está vazia. Tratamos isso como dado sensível desde o primeiro dia.</p>
+        </div>
+        <ul class="compromissos">
+          <li>Você baixa uma cópia de tudo ou apaga tudo, sozinho, pela tela de privacidade.</li>
+          <li>Sem anúncios, sem venda de dados e sem rastreadores de terceiros.</li>
+          <li>Verificação em duas etapas, e cada medidor com uma senha só dele.</li>
+        </ul>
+        <p><a href="#politica">Política de privacidade</a> <span aria-hidden="true">|</span> <a href="#termos">Termos de uso</a></p>
+      </section>
+
+      <section class="faixa-inicio fila" id="fila" aria-labelledby="fila-titulo">
+        <div class="faixa-cabeca">
+          <h2 id="fila-titulo">Lista de espera</h2>
+          <p>Os primeiros medidores vão para quem está na fila. Deixe o e-mail e avisamos quando abrir vaga.</p>
+          <p class="convite-aviso" id="convite-aviso" hidden>Você veio pelo convite de alguém. Quando você confirmar o e-mail, quem te convidou sobe na fila.</p>
+        </div>
+        <form id="form-fila" class="form-fila" novalidate>
+          <label>E-mail<input name="email" type="email" autocomplete="email" required></label>
+          <label class="check"><input type="checkbox" name="aceite" required> <span>Autorizo o MeterWatt a guardar meu e-mail só para avisar da abertura das vagas. Posso sair da lista quando quiser, pelo link que vem no e-mail.</span></label>
+          <p class="erro" role="alert"></p>
+          <button class="primario" type="submit">Entrar na lista</button>
+          <p class="sucesso" id="fila-sucesso" role="status" hidden></p>
+          <p class="dica" id="fila-total" hidden></p>
+        </form>
+      </section>
+    </section>
+
+    <section data-rota="fila" class="cartao-inicio" hidden>
+      <h1 id="fila-estado-titulo">Confirmando o seu lugar…</h1>
+      <div id="fila-estado"></div>
+    </section>
+
+    <section data-rota="sair-da-fila" class="cartao-inicio" hidden>
+      <h1>Sair da lista de espera</h1>
+      <div id="sair-estado">
+        <p class="texto">Ao confirmar, o seu e-mail é apagado da lista e você não recebe mais nada.</p>
+        <div class="botoes"><button type="button" class="primario perigo" id="botao-sair-fila">Sair da lista</button><a class="botao discreto" href="#inicio">Continuar na lista</a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="inicio-rodape">
+    <p>MeterWatt, projeto em desenvolvimento. <a href="#politica">Privacidade</a> <span aria-hidden="true">|</span> <a href="#termos">Termos</a> <span aria-hidden="true">|</span> <a href="#entrar">Entrar</a></p>
+  </footer>
+</div>
+
 <!-- ======================================================= entrada e cadastro -->
 <div id="area-publica" class="publica" hidden>
   <aside class="marca">
@@ -127,10 +233,13 @@
     <nav class="abas" aria-label="Seções">
       <a href="#painel" data-aba="painel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><span>Painel</span></a>
       <a href="#medidores" data-aba="medidores"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M9 17h6"/></svg><span>Medidores</span></a>
+      <a href="#aparelhos" data-aba="aparelhos"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg><span>Aparelhos</span></a>
       <a href="#seguranca" data-aba="seguranca"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6z"/></svg><span>Segurança</span></a>
       <a href="#privacidade" data-aba="privacidade"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span>Privacidade</span></a>
     </nav>
     <div class="conta">
+      <a href="#avisos" class="sino" id="sino" aria-label="Avisos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></svg><span class="sino-conta" id="sino-conta" hidden></span></a>
+      <a href="#plano" class="conta-plano" id="link-plano">Plano</a>
       <span class="conta-nome" id="nome-usuario"></span>
       <button type="button" class="discreto" data-acao="sair">Sair</button>
     </div>
@@ -209,6 +318,55 @@
       </div>
       <div id="lista-medidores" class="lista-medidores"></div>
       <p class="dica" id="medidores-dica">Leituras marcadas como <strong>simuladas</strong> vêm do simulador, não de um aparelho real.</p>
+    </section>
+
+    <!-- ----------------------------------------------- aparelhos (Detetive) -->
+    <section data-rota="aparelhos" hidden>
+      <div class="cabecalho-secao">
+        <h1>Detetive de aparelhos</h1>
+        <span class="etiqueta estimado">em teste</span>
+      </div>
+      <p class="texto">Cada aparelho que liga ou desliga muda a potência da casa de um jeito próprio. O Detetive observa esses degraus e agrupa os que se repetem. Você só precisa dizer o nome de cada um.</p>
+      <div id="aparelhos-conteudo"></div>
+      <details class="como">
+        <summary>O que ele consegue e o que não consegue</summary>
+        <p>Funciona bem com aparelhos que ligam e desligam de uma vez: geladeira, chuveiro, micro-ondas, ferro, bomba d'água, lâmpadas. Aparelhos de potência variável (ar-condicionado inverter, TV, notebook) não formam degraus limpos e podem não aparecer.</p>
+        <p>Dois aparelhos de potência parecida viram um grupo só. Os valores são estimativas feitas a partir do total da casa; não há um sensor em cada tomada. Um padrão aparece aqui depois de se repetir 3 vezes.</p>
+        <p>Os ciclos de cada aparelho ficam guardados por 90 dias. Para desligar o Detetive e apagar tudo o que ele guardou, use a chave em <a href="#privacidade">Privacidade</a>.</p>
+      </details>
+    </section>
+
+    <!-- ----------------------------------------------- avisos -->
+    <section data-rota="avisos" hidden>
+      <h1>Avisos</h1>
+      <article class="bloco">
+        <h2>Últimos avisos</h2>
+        <ul class="lista-avisos" id="lista-avisos"></ul>
+      </article>
+      <article class="bloco">
+        <h2>Receber também por e-mail</h2>
+        <p class="dica">Os avisos sempre aparecem aqui. Os e-mails levam totais de consumo (kWh e reais); desligue se preferir não ter isso na caixa de entrada.</p>
+        <ul class="lista-autorizacoes" id="avisos-config"></ul>
+      </article>
+    </section>
+
+    <!-- ----------------------------------------------- plano -->
+    <section data-rota="plano" hidden>
+      <h1>Plano</h1>
+      <div class="faixa-teste" id="plano-teste" hidden>Pagamento em modo de teste: nenhuma cobrança é feita de verdade.</div>
+      <div id="plano-conteudo"></div>
+    </section>
+
+    <section data-rota="pagamento-teste" hidden>
+      <h1>Pagamento de teste</h1>
+      <article class="bloco">
+        <p class="texto">Esta página faz o papel do site de pagamento enquanto o MeterWatt está em teste. <strong>Nenhum dinheiro é cobrado</strong> e nenhum dado de cartão é pedido.</p>
+        <p class="valor-grande" id="teste-valor"></p>
+        <div class="botoes">
+          <button type="button" class="primario" id="teste-aprovar">Aprovar o pagamento de teste</button>
+          <button type="button" class="secundario" id="teste-recusar">Recusar</button>
+        </div>
+      </article>
     </section>
 
     <!-- ----------------------------------------------- segurança -->
@@ -345,6 +503,10 @@
       <li><strong>Conta</strong> (nome, e-mail, senha protegida por Argon2id): para você entrar e para avisos de segurança. Base legal: execução do contrato (art. 7º, V).</li>
       <li><strong>Leituras dos medidores</strong> (tensão, corrente, potência, energia, sinal do Wi-Fi): para mostrar o painel, o histórico, a meta e o consumo fantasma. Elas revelam a rotina da casa (quando há gente, quando dorme, quando viaja). Por isso pedimos a sua autorização à parte, e você pode revogá-la. Base legal: consentimento (art. 7º, I).</li>
       <li><strong>Segurança</strong> (sessões abertas, tipo de navegador, início do endereço de rede, registro de atividade): para proteger a conta e mostrar a você o que aconteceu nela. Base legal: legítimo interesse e proteção do titular (art. 7º, IX). [ADVOGADO: confirmar.]</li>
+      <li><strong>Detetive de aparelhos</strong>, só se você ligar: quais aparelhos ligam e desligam, quando e quanto gastam. É mais revelador que o consumo total, por isso tem autorização separada. Ao desligar, tudo é apagado. Base legal: consentimento.</li>
+      <li><strong>Avisos</strong> (medidor sem sinal, meta, consumo fora do normal, resumo da semana): aparecem no aplicativo e, se você deixar, vão por e-mail com totais de consumo. Fazem parte do serviço que você autorizou ao permitir o tratamento do consumo.</li>
+      <li><strong>Assinatura</strong>: se você assinar um plano, guardamos a situação da assinatura e o valor. O pagamento é feito na página do Mercado Pago; nunca vemos nem guardamos o número do cartão. Base legal: execução do contrato. [ADVOGADO/CONTADOR: prazo de guarda dos registros fiscais.]</li>
+      <li><strong>Lista de espera</strong>: só o e-mail, para avisar da abertura das vagas, com a sua autorização. Sai pelo link que vem em cada e-mail. Quem não confirma o e-mail é apagado em 7 dias.</li>
       <li><strong>Novidades por e-mail</strong>, só se você marcar. Base legal: consentimento.</li>
     </ul>
 
@@ -368,7 +530,7 @@
     <p>Confirmar o tratamento, acessar e baixar os dados, corrigir, anonimizar ou apagar, revogar autorizações e saber com quem compartilhamos. Quase tudo funciona sozinho na tela <a href="#privacidade">Privacidade</a>. O resto, pelo e-mail acima, com resposta em até 15 dias.</p>
 
     <h2>Com quem compartilhamos</h2>
-    <p>Só com quem opera o serviço para nós: provedor de servidores e de envio de e-mail. [ADVOGADO e equipe: listar os fornecedores e os países onde ficam os servidores (art. 33).]</p>
+    <p>Só com quem opera o serviço para nós: provedor de servidores, de envio de e-mail e, para quem assina um plano, o Mercado Pago (que recebe o seu e-mail e o valor da assinatura). [ADVOGADO e equipe: listar os fornecedores e os países onde ficam os servidores (art. 33).]</p>
 
     <h2>Segurança</h2>
     <p>Conexão criptografada (HTTPS), senha guardada com Argon2id, verificação em duas etapas opcional, segredos cifrados no banco, cada medidor com usuário próprio no servidor de mensagens. Em caso de incidente que possa causar risco, avisamos você e a ANPD.</p>
@@ -391,6 +553,10 @@
     <p>Você responde pelo que acontece com a sua senha. Ative a verificação em duas etapas. Avise-nos se suspeitar de acesso indevido.</p>
     <h2>Uso proibido</h2>
     <p>Medir imóvel de outra pessoa sem a autorização dela, tentar acessar contas ou medidores de terceiros e sobrecarregar o serviço de propósito.</p>
+    <h2>Planos e pagamento</h2>
+    <p>O plano grátis não tem cobrança. O plano Casa é mensal, pago pelo Mercado Pago, e pode ser cancelado a qualquer momento na tela Plano: não há novas cobranças e o plano vale até o fim do período já pago. Cancelar ou voltar ao plano grátis não apaga medidores nem histórico. [ADVOGADO: arrependimento em 7 dias, reajuste, nota fiscal.]</p>
+    <h2>Avisos e estimativas</h2>
+    <p>Os avisos, a previsão da conta, o consumo fantasma e o Detetive de aparelhos são estimativas feitas a partir das leituras. Ajudam a acompanhar o consumo, mas podem errar e não substituem a conta da distribuidora nem a avaliação de um eletricista.</p>
     <h2>Disponibilidade</h2>
     <p>Este é um protótipo em teste. Pode ficar fora do ar e mudar sem aviso. [ADVOGADO: limitação de responsabilidade, plano pago, cancelamento, foro.]</p>
   </article>

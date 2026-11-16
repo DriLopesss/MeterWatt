@@ -27,6 +27,13 @@
  * PAREAMENTO COM O APLICATIVO (v3.2): o aplicativo mostra um código como "K7QM-2XPA".
  * Digitado na página, o medidor o envia ao servidor, que liga este medidor à conta.
  * O código fica só na RAM e vale 15 minutos.
+ *
+ * SENHA PRÓPRIA E CONEXÃO CRIPTOGRAFADA (v3.3):
+ *  - Cada medidor sorteia um segredo na primeira vez que liga e o envia no pareamento. Se o
+ *    servidor aceitar, o medidor passa a entrar com usuário e senha só dele. O usuário e a
+ *    senha MQTT da página ficam sendo só a "conta de pareamento".
+ *  - Com a porta 8883, a conexão com o servidor é criptografada (TLS) e o medidor confere
+ *    o certificado do servidor (veja ca_raiz.h). Na rede de casa, a porta 1883 continua valendo.
  *  - Com uma senha de atualização definida, o firmware pode ser atualizado pelo Wi-Fi
  *    (Arduino IDE > Ferramentas > Porta > porta de rede "mw-...").
  *
@@ -34,6 +41,7 @@
  * computador (tests/firmware). O primeiro teste na bancada está descrito no README.
  */
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <Preferences.h>
 #include <ArduinoOTA.h>
@@ -41,8 +49,9 @@
 #include "pzem_modbus.h"
 #include "ajustes.h"
 #include "pareamento.h"
+#include "ca_raiz.h"
 
-#define VERSAO_FW "3.2.0"
+#define VERSAO_FW "3.3.0"
 
 #ifndef USAR_PORTAL_WIFI
 #define USAR_PORTAL_WIFI 1
@@ -92,6 +101,7 @@ static_assert(sizeof(SENHA_PORTAL) >= 9 && sizeof(SENHA_PORTAL) <= 64,
 
 HardwareSerial& serialPzem = Serial2;
 WiFiClient rede;
+WiFiClientSecure redeSegura;       // usada quando a porta é a 8883
 PubSubClient mqtt(rede);
 Preferences memoria;
 ajustes::Ajustes cfg;              // o que está valendo agora (memória do ESP32 ou config.h)
@@ -116,6 +126,10 @@ char topicoStatus[64];
 char topicoComando[64];
 char topicoPareamento[64];
 pareamento::Estado pedidoPareamento;
+credencial::Estado cred;
+char segredo[33];                  // senha própria deste medidor (sorteada na primeira vez)
+bool pedidoReconectar = false;
+void salvarCredencial();
 
 unsigned long ultimoEnvio = 0;
 unsigned long ultimaTentativaMqtt = 0;
@@ -157,13 +171,56 @@ bool zerarEnergiaNoPzem() {
 
 void aoReceberMqtt(char* topico, byte* dados, unsigned int tamanho) {
   if (strcmp(topico, topicoComando) != 0) return;
-  if (pareamento::aoComando(&pedidoPareamento, dados, tamanho)) {
-    Serial.println("Pareamento: confirmado pelo servidor. O medidor ja aparece no aplicativo.");
-    return;
+  switch (pareamento::aoComando(&pedidoPareamento, dados, tamanho)) {
+    case pareamento::PAREADO:
+      Serial.println("Pareamento: confirmado pelo servidor. O medidor ja aparece no aplicativo.");
+      return;
+    case pareamento::PAREADO_CREDENCIAL:
+      Serial.println("Pareamento: confirmado. Este medidor passa a usar a senha propria.");
+      credencial::aoReceberCredencial(&cred);
+      salvarCredencial();
+      pedidoReconectar = true;       // reconecta fora desta função, já com a senha própria
+      return;
+    case pareamento::DESPAREADO:
+      Serial.println("Este medidor foi removido da conta. Para usar de novo, pareie com um codigo novo.");
+      credencial::aoDesparear(&cred);
+      salvarCredencial();
+      pedidoReconectar = true;
+      return;
+    default:
+      break;
   }
   const char* comando = "zerar_energia";
   if (tamanho == strlen(comando) && memcmp(dados, comando, tamanho) == 0) {
     pedidoZerarEnergia = true;
+  }
+}
+
+// ------------------------------------------------------------- senha própria
+
+// Fica numa área da memória separada dos ajustes: o BOOT de 5 segundos apaga o Wi-Fi e o
+// servidor, mas o medidor continua sendo o mesmo para a conta em que está pareado.
+void salvarCredencial() {
+  memoria.begin("mw-id", false);
+  memoria.putBool("propria", cred.propria);
+  memoria.end();
+}
+
+void carregarCredencial() {
+  credencial::limpar(&cred);
+  segredo[0] = '\0';
+  memoria.begin("mw-id", true);
+  memoria.getString("segredo", segredo, sizeof(segredo));
+  cred.propria = memoria.getBool("propria", false);
+  memoria.end();
+  if (!credencial::segredoValido(segredo)) {
+    const uint32_t aleatorio[4] = {esp_random(), esp_random(), esp_random(), esp_random()};
+    credencial::montarSegredo(aleatorio, segredo);
+    cred.propria = false;
+    memoria.begin("mw-id", false);
+    memoria.putString("segredo", segredo);
+    memoria.putBool("propria", false);
+    memoria.end();
   }
 }
 
@@ -268,8 +325,8 @@ void vigiarBotao() {
 
 void enviarPareamentoSePreciso() {
   if (!pareamento::deveEnviar(&pedidoPareamento, millis(), mqtt.connected())) return;
-  char json[48];
-  pareamento::montarMensagem(pedidoPareamento, json, sizeof(json));
+  char json[96];
+  pareamento::montarMensagem(pedidoPareamento, segredo, json, sizeof(json));
   if (mqtt.publish(topicoPareamento, json)) pareamento::marcarEnviado(&pedidoPareamento, millis());
 }
 
@@ -280,13 +337,23 @@ void conectarMqttSePreciso() {
   if (!ajustes::hostValido(cfg.host)) return;          // ainda sem servidor configurado
   if (millis() - ultimaTentativaMqtt < 5000) return;  // tenta a cada 5 s, sem travar
   ultimaTentativaMqtt = millis();
-  Serial.printf("MQTT: conectando a %s:%u...\n", cfg.host, (unsigned)cfg.porta);
-  if (mqtt.connect(idDispositivo, cfg.usuario, cfg.senha, topicoStatus, 0, true, "offline")) {
+  const bool tls = cfg.porta == 8883;
+  const bool propria = credencial::usarPropria(cred);
+  if (tls) mqtt.setClient(redeSegura); else mqtt.setClient(rede);
+  Serial.printf("MQTT: conectando a %s:%u%s com a %s...\n", cfg.host, (unsigned)cfg.porta, tls ? " (criptografado)" : "",
+                propria ? "senha propria" : "conta de pareamento");
+  if (mqtt.connect(idDispositivo, propria ? idDispositivo : cfg.usuario, propria ? segredo : cfg.senha,
+                   topicoStatus, 0, true, "offline")) {
+    credencial::aoConectar(&cred);
     mqtt.publish(topicoStatus, "online", true);
     mqtt.subscribe(topicoComando);
     Serial.println("MQTT: conectado");
   } else {
     Serial.printf("MQTT: falhou (estado %d)\n", mqtt.state());
+    if (credencial::aoFalhar(&cred, mqtt.state())) {
+      Serial.println("A senha propria foi recusada 3 vezes: o medidor pode ter sido removido da conta. "
+                     "Voltando para a conta de pareamento; gere um codigo novo no aplicativo.");
+    }
   }
 }
 
@@ -307,6 +374,8 @@ void setup() {
   serialPzem.begin(9600, SERIAL_8N1, PINO_RX_PZEM, PINO_TX_PZEM);
   pinMode(PINO_BOTAO, INPUT_PULLUP);
   carregarAjustes();
+  carregarCredencial();
+  redeSegura.setCACert(CA_RAIZ);
 
   mqtt.setServer(cfg.host, cfg.porta);
   mqtt.setBufferSize(512);
@@ -352,6 +421,11 @@ void loop() {
   if (otaIniciada) ArduinoOTA.handle();
   conectarMqttSePreciso();
   mqtt.loop();
+  if (pedidoReconectar) {
+    pedidoReconectar = false;
+    mqtt.disconnect();
+    ultimaTentativaMqtt = 0;
+  }
   enviarPareamentoSePreciso();
 
   if (pedidoZerarEnergia) {

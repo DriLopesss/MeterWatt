@@ -1,0 +1,6 @@
+# O Caddy pede e renova sozinho o certificado HTTPS (Let's Encrypt) para o domínio.
+# Os cabeçalhos de segurança (CSP, HSTS...) já saem do aplicativo.
+{$DOMINIO} {
+	encode zstd gzip
+	reverse_proxy app:8000
+}

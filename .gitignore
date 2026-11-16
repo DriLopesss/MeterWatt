@@ -14,3 +14,6 @@ instancia/
 *.sqlite3
 *.sqlite3-*
 *.key
+.simulador-*.segredo
+infra/.env
+meterwatt-demonstracao.html

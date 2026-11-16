@@ -41,13 +41,41 @@ int main() {
   CONFERE(pedidoPareamento.ativo && campoCodigo.valor == "");        // o campo é limpo: o código não fica na página
   CONFERE(nvs.count("codigo") == 0);                                  // e nunca vai para a memória
   girar(100);
-  CONFERE(pedidos() == 1 && publicadas.back().corpo == "{\"codigo\":\"K7QM-2XPA\"}" && !publicadas.back().retido);
+  CONFERE(std::string(segredo).size() == 32 && nvsId["segredo"] == segredo);          // sorteado na primeira vez e guardado
+  CONFERE(pedidos() == 1 && publicadas.back().corpo == std::string("{\"codigo\":\"K7QM-2XPA\",\"segredo\":\"") + segredo + "\"}" && !publicadas.back().retido);
   girar(31000);
   CONFERE(pedidos() == 2);                                            // repete a cada 30 s
   { char t[] = "meterwatt/mw-A1B2C3D4E5F6/comando"; byte r[] = {'p','a','r','e','a','d','o'}; mqtt.cb(t, r, 7); }
   CONFERE(!pedidoPareamento.ativo);
   girar(31000);
   CONFERE(pedidos() == 2);                                            // confirmado: parou de pedir
+
+  // 3c. Senha própria: o servidor confirma, o medidor reconecta com usuário = id e senha = segredo
+  auto comando = [](const char* texto) { char t[] = "meterwatt/mw-A1B2C3D4E5F6/comando"; std::string c(texto); mqtt.cb(t, (byte*)c.data(), (unsigned)c.size()); };
+  CONFERE(mqtt.usuario == "casa1" && !cred.propria);                  // até aqui, a conta da página
+  comando("pareado_credencial");
+  CONFERE(!cred.propria);                                             // sem pedido em andamento, ninguém liga a senha própria de fora
+  portal.enviar({{"codigo", "ABCD-EFGH"}}); girar(100);
+  comando("pareado_credencial");
+  CONFERE(cred.propria && nvsId["propria"] == "1");
+  girar(200);
+  CONFERE(mqtt.connected() && mqtt.usuario == "mw-A1B2C3D4E5F6" && mqtt.senha == segredo);
+  // porta 8883 = conexão criptografada, conferindo o certificado do servidor
+  CONFERE(cfg.porta == 8883 && mqtt.cliente == (Client*)&redeSegura && redeSegura.ca == CA_RAIZ);
+  portal.enviar({{"mqtt_porta", "1883"}}); girar(6000);
+  CONFERE(mqtt.connected() && mqtt.cliente == (Client*)&rede);          // porta 1883: sem criptografia (rede de casa)
+  portal.enviar({{"mqtt_porta", "8883"}}); girar(6000);
+  CONFERE(mqtt.connected() && mqtt.cliente == (Client*)&redeSegura && mqtt.usuario == "mw-A1B2C3D4E5F6");
+  // o servidor passa a recusar a senha própria (medidor removido da conta): depois de 3 recusas, volta para a conta da página
+  recusarLogin = 5; mqtt.disconnect(); int antes3 = mqtt.tentativas; girar(16000);
+  CONFERE(mqtt.tentativas - antes3 == 4 && mqtt.connected() && mqtt.usuario == "casa1" && cred.emProvisao && cred.propria);
+  recusarLogin = 0;
+  // "despareado" apaga a marca da senha própria; o segredo continua o mesmo para o próximo pareamento
+  std::string segredoAntes = segredo;
+  comando("despareado");
+  CONFERE(!cred.propria && nvsId["propria"] == "0" && segredoAntes == segredo);
+  girar(6000);
+  CONFERE(mqtt.connected() && mqtt.usuario == "casa1");
 
   // 4. Depois de reiniciar, vale o que foi salvo, não o config.h
   ajustes::copiar(cfg.host, "lixo", ajustes::TAM_HOST);
@@ -60,6 +88,9 @@ int main() {
   CONFERE(portal.rede == "MeterWatt-E5F6" && portal.senhaRede == SENHA_PORTAL);
   nivelBotao = LOW; girar(5300);
   CONFERE(reinicios >= 1 && nvs.empty() && portal.resets >= 1);
+  CONFERE(nvsId["segredo"] == segredoAntes);                          // a identidade do medidor sobrevive ao BOOT de 5 s
+  carregarCredencial();
+  CONFERE(segredoAntes == segredo);
   nivelBotao = HIGH;
 
   // 6. Sem Wi-Fi, a medição continua e nada quebra

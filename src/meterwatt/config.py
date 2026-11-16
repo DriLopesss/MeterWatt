@@ -63,6 +63,20 @@ class Config:
     retencao_conta_nao_confirmada_dias: int
     sessao_ociosa_horas: int
     sessao_maxima_dias: int
+    # planos e cobrança
+    pagamento_provedor: str = "desligado"        # desligado | simulado | mercadopago
+    mp_access_token: str | None = None
+    mp_webhook_segredo: str | None = None
+    plano_preco: float = 14.90                   # valor de exemplo: quem decide o preço são vocês
+    limite_medidores_gratis: int = 1
+    limite_medidores_pago: int = 5
+    # senha própria de cada medidor (Mosquitto com o plugin dynamic-security)
+    mqtt_dynsec: bool = False
+    mqtt_provisao_usuario: str | None = None
+    mqtt_provisao_senha: str | None = None
+    # cópias de segurança
+    backup_automatico: bool = False
+    backup_manter: int = 14
 
     @property
     def producao(self):
@@ -142,6 +156,22 @@ def carregar(env=None):
     except (ZoneInfoNotFoundError, ValueError):
         raise ConfiguracaoInvalida(f"Fuso horário desconhecido: {fuso}. No Windows, instale o pacote tzdata.") from None
 
+    provedor = env.get("MW_PAGAMENTO_PROVEDOR", "desligado" if producao else "simulado").strip().lower()
+    if provedor not in ("desligado", "simulado", "mercadopago"):
+        raise ConfiguracaoInvalida("MW_PAGAMENTO_PROVEDOR precisa ser 'desligado', 'simulado' ou 'mercadopago'.")
+    if producao and provedor == "simulado":
+        raise ConfiguracaoInvalida("Produção recusada: o pagamento simulado aprovaria assinaturas sem cobrar ninguém.")
+    if provedor == "mercadopago" and not (env.get("MW_MP_ACCESS_TOKEN") and env.get("MW_MP_WEBHOOK_SEGREDO")):
+        raise ConfiguracaoInvalida("Com MW_PAGAMENTO_PROVEDOR=mercadopago, defina MW_MP_ACCESS_TOKEN e MW_MP_WEBHOOK_SEGREDO.")
+    preco = _numero(env.get("MW_PLANO_PRECO"), 14.90)
+    if not 1 <= preco <= 1000:
+        raise ConfiguracaoInvalida("MW_PLANO_PRECO precisa estar entre 1 e 1000 reais.")
+    dynsec = _bool(env.get("MW_MQTT_DYNSEC"), False)
+    if dynsec and not (env.get("MQTT_USUARIO") and env.get("MQTT_SENHA")):
+        raise ConfiguracaoInvalida("Com MW_MQTT_DYNSEC=1, o servidor precisa de MQTT_USUARIO e MQTT_SENHA (o administrador do broker).")
+    if dynsec and bool(env.get("MW_MQTT_PROVISAO_USUARIO")) != bool(env.get("MW_MQTT_PROVISAO_SENHA")):
+        raise ConfiguracaoInvalida("Defina MW_MQTT_PROVISAO_USUARIO e MW_MQTT_PROVISAO_SENHA juntos.")
+
     tarifa = _numero(env.get("MW_TARIFA_PADRAO"))
     if tarifa is not None and not 0 < tarifa <= 10:
         raise ConfiguracaoInvalida("MW_TARIFA_PADRAO precisa estar entre 0 e 10 reais por kWh.")
@@ -180,4 +210,15 @@ def carregar(env=None):
         retencao_conta_nao_confirmada_dias=int(env.get("MW_RETENCAO_CONTA_NAO_CONFIRMADA_DIAS", "7")),
         sessao_ociosa_horas=int(env.get("MW_SESSAO_OCIOSA_HORAS", "24")),
         sessao_maxima_dias=int(env.get("MW_SESSAO_MAXIMA_DIAS", "14")),
+        pagamento_provedor=provedor,
+        mp_access_token=env.get("MW_MP_ACCESS_TOKEN") or None,
+        mp_webhook_segredo=env.get("MW_MP_WEBHOOK_SEGREDO") or None,
+        plano_preco=round(preco, 2),
+        limite_medidores_gratis=int(env.get("MW_LIMITE_MEDIDORES_GRATIS", "1")),
+        limite_medidores_pago=int(env.get("MW_LIMITE_MEDIDORES_PAGO", "5")),
+        mqtt_dynsec=dynsec,
+        mqtt_provisao_usuario=env.get("MW_MQTT_PROVISAO_USUARIO") or None,
+        mqtt_provisao_senha=env.get("MW_MQTT_PROVISAO_SENHA") or None,
+        backup_automatico=_bool(env.get("MW_BACKUP_AUTOMATICO"), producao),
+        backup_manter=max(1, int(env.get("MW_BACKUP_MANTER", "14"))),
     )

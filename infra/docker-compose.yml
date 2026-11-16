@@ -1,0 +1,61 @@
+# MeterWatt num servidor só: site (app), servidor de mensagens dos medidores (mosquitto)
+# e HTTPS automático (caddy). Passo a passo em docs/implantacao.md.
+#
+#   cd infra
+#   cp .env.exemplo .env      # preencha
+#   docker compose up -d --build
+#
+# NÃO TESTADO num servidor de verdade ainda: foi conferido peça por peça (veja a seção
+# "O que foi testado" do guia). O primeiro teste é de vocês, com um domínio.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MW_URL_PUBLICA: https://${DOMINIO:?defina DOMINIO no .env}
+      MQTT_HOST: mosquitto
+      MQTT_PORTA: "1883"          # rede interna do Docker; quem vem de fora usa a 8883, criptografada
+      MW_MQTT_DYNSEC: "1"
+    volumes:
+      - dados:/dados
+    depends_on:
+      - mosquitto
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/iniciar.sh"]
+    environment:
+      DOMINIO: ${DOMINIO}
+      MQTT_USUARIO: ${MQTT_USUARIO:?defina MQTT_USUARIO no .env}
+      MQTT_SENHA: ${MQTT_SENHA:?defina MQTT_SENHA no .env}
+    volumes:
+      - ./mosquitto/iniciar.sh:/iniciar.sh:ro
+      - mosquitto:/mosquitto/data
+      - caddy_dados:/caddy:ro     # só leitura: de onde vem o certificado
+    ports:
+      - "8883:8883"               # medidores (TLS). A 1883 NÃO é publicada para fora.
+    depends_on:
+      - caddy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      DOMINIO: ${DOMINIO}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_dados:/data
+      - caddy_config:/config
+
+volumes:
+  dados:
+  mosquitto:
+  caddy_dados:
+  caddy_config:

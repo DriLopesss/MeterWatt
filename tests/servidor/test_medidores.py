@@ -153,7 +153,7 @@ def test_consumo_fantasma(cliente, plataforma, relogio):
     _preencher_baldes(plataforma, mid, relogio.t - 7 * 86400, relogio.t, perfil)
     f = cliente.get("/api/fantasma").get_json()
     assert f["disponivel"] and f["watts"] == 60 and f["noites"] >= 6
-    assert f["kwh_mes"] == round(60 * 24 * 30 / 1000, 1) and f["custo_mes"] == f["kwh_mes"]
+    assert f["kwh_mes"] == 43.8 and f["custo_mes"] == 43.8 and f["custo_ano"] == 525.6      # 60 W x 8.760 h = 525,6 kWh por ano
     assert 0.15 < f["fatia_do_consumo"] < 0.25
 
 

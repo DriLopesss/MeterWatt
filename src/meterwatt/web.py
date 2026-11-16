@@ -42,6 +42,7 @@ def criar_app(plataforma):
 
     nome_cookie = "__Host-mw_sessao" if cfg.cookie_seguro else "mw_sessao"
     contas, medidores, privacidade = plataforma.contas, plataforma.medidores, plataforma.privacidade
+    alertas, detetive, pagamentos, espera = plataforma.alertas, plataforma.detetive, plataforma.pagamentos, plataforma.espera
 
     # ------------------------------------------------------------ apoio
 
@@ -173,7 +174,33 @@ def criar_app(plataforma):
             "finalidades": {f: {k: v for k, v in i.items()} for f, i in FINALIDADES.items()},
             "retencao": privacidade.regras_de_retencao(), "contato": privacidade.contato(),
             "email_de_teste": cfg.email_modo == "arquivo",
+            "plano": {"disponivel": pagamentos.provedor is not None, "preco_mensal": cfg.plano_preco,
+                      "limite_gratis": cfg.limite_medidores_gratis, "limite_pago": cfg.limite_medidores_pago},
+            "na_lista_de_espera": espera.total(),
         })
+
+    @app.get("/api/publico/saude")
+    def saude():
+        plataforma.db().execute("SELECT 1").fetchone()
+        return ok({"ok": True, "versao": VERSAO})
+
+    # ------------------------------------------------------------ lista de espera (página inicial)
+
+    @app.post("/api/espera")
+    def espera_entrar():
+        limite_de_formularios()
+        d = corpo()
+        espera.entrar(d.get("email"), d.get("aceite"), d.get("convite"), d.get("origem"))
+        return ok({"mensagem": "Quase lá: enviamos um link para o seu e-mail. Abra para confirmar o seu lugar na fila."}, 202)
+
+    @app.post("/api/espera/confirmar")
+    def espera_confirmar():
+        return ok(espera.confirmar(corpo().get("token")))
+
+    @app.post("/api/espera/sair")
+    def espera_sair():
+        espera.sair(corpo().get("token"))
+        return ok({"mensagem": "Pronto: o seu e-mail foi apagado da lista."})
 
     # ------------------------------------------------------------ conta
 
@@ -341,6 +368,72 @@ def criar_app(plataforma):
     @exige_sessao()
     def meta():
         return ok(medidores.meta(g.sessao))
+
+    # ------------------------------------------------------------ avisos
+
+    @app.get("/api/avisos")
+    @exige_sessao()
+    def avisos():
+        return ok(alertas.listar(g.sessao))
+
+    @app.post("/api/avisos/lidos")
+    @exige_sessao()
+    def avisos_lidos():
+        alertas.marcar_lidos(g.sessao)
+        return ok()
+
+    @app.put("/api/avisos/config/<tipo>")
+    @exige_sessao()
+    def avisos_config(tipo):
+        alertas.configurar(g.sessao, tipo, corpo().get("por_email"))
+        return ok(alertas.listar(g.sessao))
+
+    # ------------------------------------------------------------ Detetive de aparelhos
+
+    @app.get("/api/aparelhos")
+    @exige_sessao()
+    def aparelhos():
+        return ok(detetive.listar(g.sessao))
+
+    @app.patch("/api/aparelhos/<int:aparelho_id>")
+    @exige_sessao()
+    def aparelho_alterar(aparelho_id):
+        detetive.alterar(g.sessao, aparelho_id, corpo())
+        return ok(detetive.listar(g.sessao))
+
+    # ------------------------------------------------------------ plano e cobrança (cancelar é sempre possível)
+
+    @app.get("/api/plano")
+    @exige_sessao(liberado_sem_2fa=True)
+    def plano():
+        return ok(pagamentos.estado(g.sessao))
+
+    @app.post("/api/plano/assinar")
+    @exige_sessao(liberado_sem_2fa=True)
+    def plano_assinar():
+        return ok(pagamentos.assinar(g.sessao, ip()))
+
+    @app.post("/api/plano/atualizar")
+    @exige_sessao(liberado_sem_2fa=True)
+    def plano_atualizar():
+        return ok(pagamentos.atualizar(g.sessao))
+
+    @app.post("/api/plano/cancelar")
+    @exige_sessao(liberado_sem_2fa=True)
+    def plano_cancelar():
+        return ok(pagamentos.cancelar(g.sessao, ip()))
+
+    @app.post("/api/plano/pagamento-teste")
+    @exige_sessao(liberado_sem_2fa=True)
+    def plano_pagamento_teste():
+        d = corpo()
+        return ok(pagamentos.decidir_simulado(g.sessao, d.get("referencia"), d.get("aprovado") is True))
+
+    @app.post("/api/pagamentos/webhook/mercadopago")
+    def webhook_mercadopago():
+        # Sem sessão nem CSRF: quem chama é o Mercado Pago. A confiança vem da assinatura do cabeçalho.
+        status = pagamentos.webhook_mercadopago({k.lower(): v for k, v in request.headers.items()}, request.args, corpo())
+        return jsonify({"ok": status == 200}), status
 
     # ------------------------------------------------------------ privacidade (sempre liberado:
     # os direitos do titular não dependem da verificação em duas etapas)

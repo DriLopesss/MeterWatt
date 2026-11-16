@@ -10,7 +10,7 @@ from .seguranca import Cofre, Limitador, resumir_ip
 
 
 class Plataforma:
-    def __init__(self, cfg, mensageiro=None, relogio=time.time):
+    def __init__(self, cfg, mensageiro=None, relogio=time.time, provedor_de_pagamento=None):
         self.cfg = cfg
         self.relogio = relogio
         self.cofre = Cofre(cfg.chave_cripto)
@@ -37,12 +37,24 @@ class Plataforma:
         self.limite_exportar = Limitador(5, 60 * 60)
         self.limite_confirmacao = Limitador(5, 15 * 60)   # senha pedida de novo para ações sensíveis
 
+        # Senha própria por medidor: quem cria e apaga é o cliente MQTT, quando o broker
+        # usa o plugin dynamic-security (veja mqtt.py). Sem ele, ninguém faz nada.
+        self.credenciais = None
+
+        from .alertas import Alertas
         from .contas import Contas
+        from .detetive import Detetive
+        from .espera import ListaDeEspera
         from .medidores import Medidores
+        from .pagamentos import Pagamentos
         from .privacidade import Privacidade
         self.contas = Contas(self)
         self.medidores = Medidores(self)
         self.privacidade = Privacidade(self)
+        self.alertas = Alertas(self)
+        self.detetive = Detetive(self)
+        self.pagamentos = Pagamentos(self, provedor_de_pagamento)
+        self.espera = ListaDeEspera(self)
 
     # ------------------------------------------------------------ tempo
 

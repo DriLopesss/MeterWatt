@@ -142,6 +142,99 @@ MIGRACOES = [
         email_hmac TEXT NOT NULL
     );
     """,
+    # 2: avisos (alertas e resumo semanal)
+    """
+    CREATE TABLE avisos (
+        id INTEGER PRIMARY KEY,
+        usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        tipo TEXT NOT NULL,
+        chave TEXT NOT NULL,
+        criado_em REAL NOT NULL,
+        titulo TEXT NOT NULL,
+        texto TEXT NOT NULL,
+        lido_em REAL,
+        UNIQUE (usuario_id, chave)
+    );
+    CREATE INDEX avisos_usuario ON avisos(usuario_id, criado_em);
+
+    CREATE TABLE avisos_config (
+        usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        tipo TEXT NOT NULL,
+        por_email INTEGER NOT NULL CHECK (por_email IN (0, 1)),
+        PRIMARY KEY (usuario_id, tipo)
+    ) WITHOUT ROWID;
+    """,
+    # 3: Detetive de aparelhos
+    """
+    CREATE TABLE aparelhos (
+        id INTEGER PRIMARY KEY,
+        medidor_id TEXT NOT NULL REFERENCES medidores(id) ON DELETE CASCADE,
+        nome TEXT,
+        potencia_w REAL NOT NULL,
+        n_ciclos INTEGER NOT NULL DEFAULT 0,
+        criado_em REAL NOT NULL,
+        oculto INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX aparelhos_medidor ON aparelhos(medidor_id);
+
+    CREATE TABLE ciclos (
+        id INTEGER PRIMARY KEY,
+        medidor_id TEXT NOT NULL REFERENCES medidores(id) ON DELETE CASCADE,
+        aparelho_id INTEGER REFERENCES aparelhos(id) ON DELETE CASCADE,
+        inicio REAL NOT NULL,
+        fim REAL NOT NULL,
+        potencia_w REAL NOT NULL,
+        wh REAL NOT NULL
+    );
+    CREATE INDEX ciclos_medidor ON ciclos(medidor_id, inicio);
+    CREATE INDEX ciclos_aparelho ON ciclos(aparelho_id, inicio);
+
+    CREATE TABLE degraus_abertos (
+        id INTEGER PRIMARY KEY,
+        medidor_id TEXT NOT NULL REFERENCES medidores(id) ON DELETE CASCADE,
+        instante REAL NOT NULL,
+        delta_w REAL NOT NULL
+    );
+    CREATE INDEX degraus_medidor ON degraus_abertos(medidor_id, instante);
+    """,
+    # 4: assinaturas (planos e cobrança)
+    """
+    CREATE TABLE assinaturas (
+        id INTEGER PRIMARY KEY,
+        usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        provedor TEXT NOT NULL,
+        referencia TEXT NOT NULL UNIQUE,
+        id_externo TEXT UNIQUE,
+        status TEXT NOT NULL CHECK (status IN ('pendente', 'ativa', 'pausada', 'cancelada')),
+        valor REAL NOT NULL,
+        criada_em REAL NOT NULL,
+        atualizada_em REAL NOT NULL,
+        proxima_cobranca REAL,
+        valida_ate REAL,
+        link_pagamento TEXT
+    );
+    CREATE INDEX assinaturas_usuario ON assinaturas(usuario_id, criada_em);
+    """,
+    # 5: lista de espera (página de lançamento)
+    """
+    CREATE TABLE lista_espera (
+        id INTEGER PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        codigo TEXT NOT NULL UNIQUE,
+        token_hash TEXT NOT NULL UNIQUE,
+        indicado_por INTEGER REFERENCES lista_espera(id) ON DELETE SET NULL,
+        origem TEXT,
+        versao TEXT NOT NULL,
+        criado_em REAL NOT NULL,
+        ultimo_email REAL NOT NULL,
+        confirmado_em REAL
+    );
+    CREATE INDEX lista_espera_indicado ON lista_espera(indicado_por);
+    """,
+    # 6: senha própria de cada medidor no servidor de mensagens
+    """
+    ALTER TABLE medidores ADD COLUMN credencial_propria INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 

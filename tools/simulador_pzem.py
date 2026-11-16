@@ -17,6 +17,7 @@ import json
 import math
 import os
 import random
+import secrets
 import threading
 import time
 
@@ -92,31 +93,61 @@ def main():
     ap.add_argument("--falhas", action="store_true", help="de vez em quando simula o PZEM sem responder")
     ap.add_argument("--semente", type=int, default=None, help="para repetir a mesma sequência")
     ap.add_argument("--parear", metavar="CODIGO", default=None,
-                    help="código do aplicativo (ex.: K7QM-2XPA): pede o pareamento como o firmware 3.2 faz")
+                    help="código do aplicativo (ex.: K7QM-2XPA): pede o pareamento como o firmware faz")
+    ap.add_argument("--senha-propria", action="store_true",
+                    help="entra com a senha própria deste medidor simulado (depois de um pareamento que a cadastrou)")
     args = ap.parse_args()
 
     host = os.getenv("MQTT_HOST", "localhost")
     porta = int(os.getenv("MQTT_PORTA", "1883"))
     base = f"meterwatt/{args.id}"
 
-    cliente = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"simulador-{args.id}")
-    if os.getenv("MQTT_USUARIO"):
-        cliente.username_pw_set(os.getenv("MQTT_USUARIO"), os.getenv("MQTT_SENHA"))
-    cliente.will_set(f"{base}/status", "offline", retain=True)
+    # Como o firmware 3.3: o medidor sorteia um segredo uma vez e o guarda. Aqui ele fica num
+    # arquivo ao lado (ignorado pelo Git), para o simulador continuar sendo "o mesmo medidor".
+    arquivo_segredo = f".simulador-{args.id}.segredo"
+    if os.path.exists(arquivo_segredo):
+        segredo = open(arquivo_segredo, encoding="ascii").read().strip()
+    else:
+        segredo = secrets.token_hex(16)
+        with open(arquivo_segredo, "w", encoding="ascii") as f:
+            f.write(segredo)
+        os.chmod(arquivo_segredo, 0o600)
+
     pareado = threading.Event()
+    com_senha_propria = threading.Event()
+    if args.senha_propria:
+        com_senha_propria.set()
 
     def ao_receber(_c, _u, msg):
-        if msg.payload == b"pareado":
+        if msg.payload in (b"pareado", b"pareado_credencial"):
+            if msg.payload == b"pareado_credencial":
+                com_senha_propria.set()
             pareado.set()
             print("Pareamento confirmado pelo servidor: o medidor já aparece no aplicativo.")
 
-    cliente.on_message = ao_receber
-    cliente.connect(host, porta)
-    cliente.loop_start()
-    cliente.subscribe(f"{base}/comando")
-    cliente.publish(f"{base}/status", "online", retain=True)
+    def conectar():
+        # O id de cliente é o próprio id do medidor: a senha própria só vale com ele.
+        c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=args.id)
+        if com_senha_propria.is_set():
+            c.username_pw_set(args.id, segredo)
+        elif os.getenv("MQTT_USUARIO"):
+            c.username_pw_set(os.getenv("MQTT_USUARIO"), os.getenv("MQTT_SENHA"))
+        if os.getenv("MQTT_TLS", "").lower() in ("1", "sim", "true"):
+            c.tls_set()
+        c.will_set(f"{base}/status", "offline", retain=True)
+        c.on_message = ao_receber
+        c.on_connect = lambda cl, _u, _f, codigo, _p=None: (
+            cl.subscribe(f"{base}/comando"), cl.publish(f"{base}/status", "online", retain=True)) if codigo == 0 else print(
+            f"O servidor MQTT recusou a conexão ({codigo}). Confira usuário e senha"
+            + (", ou pareie de novo: a senha própria não vale mais." if com_senha_propria.is_set() else "."))
+        c.connect(host, porta)
+        c.loop_start()
+        return c
+
+    cliente = conectar()
+    time.sleep(0.5)
     if args.parear:
-        pedido = json.dumps({"codigo": args.parear.strip().upper()})
+        pedido = json.dumps({"codigo": args.parear.strip().upper(), "segredo": segredo})
         limite = time.time() + 15 * 60
         while not pareado.is_set() and time.time() < limite:   # igual ao firmware: repete a cada 30 s
             cliente.publish(f"{base}/pareamento", pedido, qos=1)
@@ -124,6 +155,14 @@ def main():
             pareado.wait(30)
         if not pareado.is_set():
             print("O servidor não confirmou em 15 minutos. Gere outro código no aplicativo.")
+        elif com_senha_propria.is_set():
+            print("O servidor cadastrou a senha própria deste medidor. Reconectando com ela...")
+            cliente.loop_stop()
+            cliente.disconnect()
+            time.sleep(1)
+            cliente = conectar()
+            time.sleep(0.5)
+            print("Nas próximas vezes, rode com --senha-propria (sem --parear).")
 
     casa = Casa(args.tensao, args.semente)
     inicio = time.time()

@@ -6,8 +6,8 @@ revisão antes de qualquer cliente real.
 from .erros import ErroDeNegocio
 from .seguranca import confere_senha, confere_totp, normalizar_codigo_backup
 
-VERSAO_TERMOS = "2026-11-13"
-VERSAO_PRIVACIDADE = "2026-11-13"
+VERSAO_TERMOS = "2026-11-16"
+VERSAO_PRIVACIDADE = "2026-11-16"
 
 FINALIDADES = {
     "termos": {
@@ -31,6 +31,13 @@ FINALIDADES = {
         "nome": "Histórico de até 2 anos",
         "descricao": ("Guardar o consumo de 5 em 5 minutos por até 2 anos, em vez de 90 dias, para comparar "
                       "meses e estações do ano."),
+        "obrigatorio": False, "revogavel": True, "versao": VERSAO_PRIVACIDADE,
+    },
+    "aparelhos": {
+        "nome": "Detetive de aparelhos",
+        "descricao": ("Analisar as leituras para descobrir quais aparelhos ligam e desligam, quando e quanto gastam. "
+                      "Isso revela mais da rotina da casa do que o consumo total. Ao desligar, tudo o que o Detetive "
+                      "guardou é apagado."),
         "obrigatorio": False, "revogavel": True, "versao": VERSAO_PRIVACIDADE,
     },
     "novidades": {
@@ -64,6 +71,11 @@ EVENTOS = {
     "consentimento": "Autorização alterada",
     "dados_exportados": "Cópia dos dados baixada",
     "consumo_apagado": "Dados de consumo apagados",
+    "assinatura_iniciada": "Assinatura iniciada (aguardando pagamento)",
+    "assinatura_ativada": "Assinatura ativada",
+    "assinatura_pausada": "Assinatura pausada",
+    "assinatura_cancelada": "Assinatura cancelada",
+    "backup": "Cópia de segurança",
 }
 
 
@@ -121,6 +133,8 @@ class Privacidade:
             self.registrar(conn, uid, finalidade, aceito, "painel")
             if finalidade == "consumo" and not aceito:
                 conn.execute("DELETE FROM codigos_pareamento WHERE usuario_id = ? AND usado_em IS NULL", (uid,))
+            if finalidade == "aparelhos" and not aceito:
+                self.p.detetive.apagar_tudo(conn, uid)
             self.p.auditar(conn, uid, "consentimento", f"{info['nome']}: {'autorizado' if aceito else 'revogado'}", ip)
 
     # ------------------------------------------------------------ direitos do titular
@@ -155,6 +169,10 @@ class Privacidade:
                  "rede": s["ip_resumido"], "navegador": s["navegador"]}
                 for s in conn.execute("SELECT * FROM sessoes WHERE usuario_id = ? AND etapa = 'completa'", (uid,))],
             "atividade": self.atividade(sessao, limite=10000),
+            "avisos": [{"quando": self.p.iso(a["criado_em"]), "titulo": a["titulo"], "texto": a["texto"]}
+                       for a in conn.execute("SELECT * FROM avisos WHERE usuario_id = ? ORDER BY criado_em", (uid,))],
+            "aparelhos_detectados": self.p.detetive.exportar(conn, uid),
+            "assinaturas": self.p.pagamentos.exportar(conn, uid),
         }
         for m in medidores:
             agregados = conn.execute(
@@ -218,6 +236,8 @@ class Privacidade:
                 conn.execute("DELETE FROM leituras WHERE medidor_id = ?", (mid,))
                 conn.execute("DELETE FROM consumo_5min WHERE medidor_id = ?", (mid,))
                 conn.execute("UPDATE medidores SET contador_wh = NULL, potencia_anterior = NULL WHERE id = ?", (mid,))
+            self.p.detetive.apagar_tudo(conn, uid)
+            conn.execute("DELETE FROM avisos WHERE usuario_id = ?", (uid,))     # os avisos citam valores de consumo
             self.p.auditar(conn, uid, "consumo_apagado", f"{len(ids)} medidor(es)", ip)
 
     def excluir_conta(self, sessao, senha, codigo=None, ip=None):
@@ -228,9 +248,13 @@ class Privacidade:
         uid = sessao["usuario_id"]
         with conn:
             u = self._confirmar_identidade(conn, uid, senha, codigo)
+            self.p.pagamentos.cancelar_antes_de_excluir(conn, uid)      # se a cobrança não parar, a conta não é excluída
+            medidores = [r["id"] for r in conn.execute("SELECT id FROM medidores WHERE usuario_id = ?", (uid,))]
             conn.execute("DELETE FROM usuarios WHERE id = ?", (uid,))   # o resto sai em cascata
             conn.execute("INSERT INTO exclusoes (instante, email_hmac) VALUES (?, ?)",
                          (self.p.agora(), self.p.cofre.hmac("exclusao:" + u["email"])))
+        for mid in medidores:
+            self.p.medidores.esquecer(mid)
         self.p.enviar_email(u["email"], "Sua conta no MeterWatt foi excluída", (
             f"Olá, {u['nome']}.\n\nA sua conta no MeterWatt foi excluída, com os medidores, as leituras de consumo, "
             "as sessões e as autorizações ligadas a ela.\n\nSe não foi você, responda este e-mail.\n"))
@@ -293,6 +317,12 @@ class Privacidade:
                 "DELETE FROM codigos_pareamento WHERE expira_em < ?", (agora - 86400,)).rowcount
             apagados["auditoria"] = conn.execute(
                 "DELETE FROM auditoria WHERE instante < ?", (agora - c.retencao_auditoria_dias * 86400,)).rowcount
+            apagados["ciclos_de_aparelhos"] = self.p.detetive.reter(conn, agora)
+            apagados["lista_de_espera"] = self.p.espera.reter(conn, agora)
+            apagados["avisos"] = conn.execute("DELETE FROM avisos WHERE criado_em < ?",
+                                              (agora - c.retencao_agregada_dias * 86400,)).rowcount
+            apagados["assinaturas_abandonadas"] = conn.execute(
+                "DELETE FROM assinaturas WHERE status = 'pendente' AND criada_em < ?", (agora - 7 * 86400,)).rowcount
             apagados["contas_nao_confirmadas"] = conn.execute(
                 "DELETE FROM usuarios WHERE email_confirmado_em IS NULL AND criado_em < ?",
                 (agora - c.retencao_conta_nao_confirmada_dias * 86400,)).rowcount

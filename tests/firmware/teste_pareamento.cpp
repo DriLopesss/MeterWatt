@@ -61,14 +61,20 @@ int main() {
   pareamento::marcarEnviado(&e, 1000);
   CONFERE(!pareamento::deveEnviar(&e, 20000, true));
   CONFERE(pareamento::deveEnviar(&e, 31000, true));
-  char msg[48];
-  pareamento::montarMensagem(e, msg, sizeof(msg));
-  CONFERE(std::strcmp(msg, "{\"codigo\":\"ABCD-EFGH\"}") == 0);
+  char msg[96];
+  int n = pareamento::montarMensagem(e, "0123456789abcdef0123456789abcdef", msg, sizeof(msg));
+  CONFERE(std::strcmp(msg, "{\"codigo\":\"ABCD-EFGH\",\"segredo\":\"0123456789abcdef0123456789abcdef\"}") == 0 && n < 96);
   const unsigned char outro[] = "zerar_energia";
-  CONFERE(!pareamento::aoComando(&e, outro, 13) && e.ativo);
+  CONFERE(pareamento::aoComando(&e, outro, 13) == pareamento::OUTRO_COMANDO && e.ativo);
   const unsigned char ok[] = "pareado";
-  CONFERE(pareamento::aoComando(&e, ok, 7) && !e.ativo && e.codigo[0] == '\0');
-  CONFERE(!pareamento::aoComando(&e, ok, 7));              // repetido: nada a fazer
+  CONFERE(pareamento::aoComando(&e, ok, 7) == pareamento::PAREADO && !e.ativo && e.codigo[0] == '\0');
+  CONFERE(pareamento::aoComando(&e, ok, 7) == pareamento::OUTRO_COMANDO);     // repetido: nada a fazer
+  const unsigned char okCred[] = "pareado_credencial";
+  CONFERE(pareamento::aoComando(&e, okCred, 18) == pareamento::OUTRO_COMANDO); // sem pedido em andamento, não vale
+  pareamento::iniciar(&e, "ABCD-EFGH", 1000);
+  CONFERE(pareamento::aoComando(&e, okCred, 18) == pareamento::PAREADO_CREDENCIAL && !e.ativo);
+  const unsigned char fora[] = "despareado";
+  CONFERE(pareamento::aoComando(&e, fora, 10) == pareamento::DESPAREADO);
 
   // 4. Expira em 15 minutos e apaga o código
   pareamento::iniciar(&e, "ABCD-EFGH", 5000);
@@ -78,6 +84,31 @@ int main() {
   // 5. millis() dá a volta (49 dias): a conta com unsigned continua certa
   pareamento::iniciar(&e, "ABCD-EFGH", 0xFFFFFF00UL);
   CONFERE(pareamento::deveEnviar(&e, 0x00000100UL, true));
+
+  // 6. Senha própria: só desiste depois de 3 recusas do servidor; rede fora do ar não conta
+  credencial::Estado c;
+  credencial::limpar(&c);
+  CONFERE(!credencial::usarPropria(c) && !credencial::aoFalhar(&c, 5));
+  credencial::aoReceberCredencial(&c);
+  CONFERE(credencial::usarPropria(c));
+  CONFERE(!credencial::aoFalhar(&c, -2) && !credencial::aoFalhar(&c, -4) && c.recusas == 0);
+  CONFERE(!credencial::aoFalhar(&c, 5) && !credencial::aoFalhar(&c, 4));
+  credencial::aoConectar(&c);
+  CONFERE(c.recusas == 0);                                  // conectou no meio: zera a contagem
+  CONFERE(!credencial::aoFalhar(&c, 5) && !credencial::aoFalhar(&c, 5) && credencial::aoFalhar(&c, 5));
+  CONFERE(!credencial::usarPropria(c) && c.propria && c.emProvisao);
+  credencial::aoReceberCredencial(&c);
+  CONFERE(credencial::usarPropria(c));
+  credencial::aoDesparear(&c);
+  CONFERE(!c.propria && !credencial::usarPropria(c));
+
+  // 7. Segredo: 32 letras e números, e só isso
+  const uint32_t aleatorio[4] = {0x1u, 0xABCDEF01u, 0xFFFFFFFFu, 0x0u};
+  char seg[33];
+  credencial::montarSegredo(aleatorio, seg);
+  CONFERE(std::strcmp(seg, "00000001abcdef01ffffffff00000000") == 0 && credencial::segredoValido(seg));
+  CONFERE(!credencial::segredoValido("") && !credencial::segredoValido("abc") && !credencial::segredoValido(nullptr));
+  CONFERE(!credencial::segredoValido("0000000Gabcdef01ffffffff00000000") && !credencial::segredoValido("00000001abcdef01ffffffff000000001"));
 
   std::printf("teste_pareamento: %s (%d falha(s))\n", falhas ? "FALHOU" : "ok", falhas);
   return falhas ? 1 : 0;
