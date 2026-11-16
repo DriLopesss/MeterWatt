@@ -202,7 +202,13 @@ Em desenvolvimento os e-mails (confirmação, senha) ficam em `src/instancia/cai
 - **Consumo fantasma**: quanto a casa gasta parada (madrugadas dos últimos 7 dias), em W, kWh e R$ por mês.
 - **Meta do mês**: previsão da conta até o fim do mês e quanto dá para gastar por dia para caber.
 - **Pareamento**: firmware 3.2 tem o campo "Código de pareamento" na página de configuração (toque rápido no BOOT reabre a página).
-- Produção: veja `src/meterwatt/.env.exemplo` e `infra/mosquitto-acl.exemplo`.
+- **Avisos e resumo semanal**: medidor sem sinal, meta, consumo fora do normal e um resumo toda segunda, no aplicativo e por e-mail.
+- **Detetive de aparelhos** (em teste): reconhece o que liga e desliga pelo degrau de potência. Precisa de autorização própria.
+- **Planos**: grátis com 1 medidor e plano Casa, com Mercado Pago em modo de teste (`MW_PAGAMENTO_PROVEDOR`). Em desenvolvimento há um pagamento de mentira.
+- **Página inicial**: calculadora de consumo fantasma e lista de espera com convite (`python -m meterwatt --lista-espera`).
+- **Senha própria por medidor** e conexão criptografada (firmware 3.3 + Mosquitto com dynamic-security).
+- **Backup cifrado**: `python -m meterwatt --backup` e `--restaurar ARQUIVO`.
+- Produção: veja [`docs/implantacao.md`](docs/implantacao.md) (Docker) e `infra/`.
 - Testes: `python -m pytest tests -q`.
 
 ## 🏆 Reconhecimento

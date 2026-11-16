@@ -35,7 +35,10 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 - Pareamento por código de 8 caracteres (31 símbolos, ~10¹² combinações), 15 minutos, no máximo 3 ativos por conta, guardado como HMAC. 10 códigos errados por aparelho em 15 min bloqueiam aquele aparelho.
 - Medidor que já é de outra conta não é transferido.
 - Mensagem de aparelho não pareado é descartada (nada é guardado). Mensagens acima de 2 KB, fora do formato ou mais rápidas que 0,8 s são ignoradas.
-- **Obrigatório antes de clientes**: usuário e senha por medidor no Mosquitto com ACL por tópico (`infra/mosquitto-acl.exemplo`) e TLS na porta 8883. Sem isso, quem tiver a senha MQTT pode se passar por qualquer medidor.
+- **Senha própria por medidor** (`MW_MQTT_DYNSEC=1`, Mosquitto com o plugin dynamic-security): no pareamento, o medidor manda um segredo de 128 bits que ele mesmo sorteou; o servidor cria no broker um usuário só dele, preso ao id de cliente dele, com permissão apenas para `meterwatt/<id>/...`. Antes de parear, o medidor usa uma conta de "provisão" que só consegue pedir pareamento. Remover o medidor apaga o usuário. Um código válido de outra conta nunca troca a senha de um medidor que já tem dono. Testado contra o Mosquitto 2.0.18.
+- **Conexão criptografada**: firmware 3.3 usa TLS na porta 8883 e confere o certificado do servidor (raiz da Let's Encrypt em `ca_raiz.h`). Não testado em placa.
+- Limite conhecido: quem extrair a senha de provisão de um medidor consegue derrubar a conexão de outro (conectando com o mesmo id), mas não ler nem enviar consumo.
+- Sem o dynamic-security (rede de casa), vale o esquema antigo: `infra/mosquitto-acl.exemplo`.
 
 ## Banco
 - SQLite com WAL, chaves estrangeiras e `secure_delete` (o que é apagado é sobrescrito). Arquivo com permissão 600.
@@ -44,10 +47,21 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 ## Produção
 `MW_MODO=producao` se recusa a subir sem chave de criptografia, sem HTTPS na URL pública, com cookie inseguro ou sem SMTP. Use atrás de Caddy ou nginx com HTTPS e `MW_CONFIAR_PROXY=1`. Faça backup do banco **e** da chave (separados).
 
+## Pagamentos
+- O número do cartão nunca passa pelo MeterWatt: a pessoa paga na página do Mercado Pago.
+- O aviso do Mercado Pago (webhook) só é aceito com a assinatura HMAC-SHA256 do cabeçalho `x-signature`; o conteúdo do aviso serve apenas para saber qual assinatura consultar na API.
+- O pagamento simulado é recusado em produção (aprovaria assinaturas sem cobrar).
+- Excluir a conta cancela a cobrança antes; se o cancelamento falhar, a conta não é excluída.
+
+## Cópias de segurança
+- Diárias, compactadas e cifradas com a `MW_CHAVE_CRIPTO` (arquivo com permissão 600). Restaurar nunca sobrescreve o banco em uso.
+- Levar as cópias para fora do servidor é tarefa de quem opera (veja `docs/implantacao.md`).
+
 ## Ainda falta
 - [ ] Pentest independente antes do lançamento.
 - [ ] Limitador de tentativas compartilhado (Redis) quando houver mais de um processo.
 - [ ] Verificar senhas vazadas (Have I Been Pwned, consulta k-anonymity).
-- [ ] Credenciais MQTT emitidas pelo servidor no pareamento, em vez de cadastradas à mão.
 - [ ] Alertas de login em aparelho novo.
-- [ ] Backup cifrado e automático, com teste de restauração.
+- [ ] Cópia automática dos backups para fora do servidor e ensaio de restauração.
+- [ ] Testar em placa: senha própria, TLS e a volta para a conta de pareamento.
+- [ ] Rodar o conjunto Docker num servidor de verdade.

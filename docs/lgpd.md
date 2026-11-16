@@ -12,7 +12,10 @@ A curva de consumo de uma casa mostra quando há gente, quando dorme, quando via
 | Política de privacidade | sim (ciência) | não | — |
 | Dados de consumo | sim no cadastro | **sim**: param as leituras novas e o pareamento | consentimento (art. 7º, I) [ADVOGADO: ou execução de contrato?] |
 | Histórico de 2 anos | não | sim | consentimento |
+| Detetive de aparelhos | não (desligado por padrão) | sim: **apaga** tudo o que ele guardou | consentimento |
 | Novidades por e-mail | não | sim | consentimento |
+| Lista de espera (só e-mail) | — | sim, pelo link de cada e-mail | consentimento |
+| Assinatura (situação e valor) | só para quem assina | cancelando | contrato [ADVOGADO/CONTADOR: guarda fiscal] |
 
 Cada decisão fica registrada com versão do texto, data e origem (cadastro ou painel). A pessoa vê o histórico.
 
@@ -37,6 +40,13 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 | Conta sem e-mail confirmado | 7 dias |
 | Sessões, links e códigos vencidos | 1 dia depois de vencer |
 | Registro de exclusão (HMAC do e-mail + data) | indefinido [ADVOGADO: definir] |
+
+## O que entrou no bloco 4
+- **Avisos**: fazem parte do serviço autorizado em "dados de consumo". Vão por e-mail com totais (kWh e reais); cada tipo tem uma chave para desligar o e-mail. Avisos são apagados com o consumo e em 90 dias.
+- **Detetive de aparelhos**: dado derivado mais invasivo que o total (qual aparelho, a que horas). Autorização separada, desligada por padrão; ciclos guardados por 90 dias; entra na cópia dos dados; some ao revogar, ao apagar o consumo e ao remover o medidor.
+- **Lista de espera**: só e-mail, com confirmação (duplo aceite). Quem não confirma é apagado em 7 dias. O link de saída apaga o registro. [ADVOGADO: definir até quando guardar os confirmados se o lançamento demorar.]
+- **Pagamento**: o Mercado Pago passa a ser operador (recebe e-mail e valor). Não guardamos dado de cartão. A referência enviada a ele é um código aleatório, não o e-mail nem o id da conta.
+- **Página inicial**: sem cookies e sem rastreadores. A origem da visita (`?o=instagram`) só é guardada junto do e-mail de quem entra na lista.
 
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).

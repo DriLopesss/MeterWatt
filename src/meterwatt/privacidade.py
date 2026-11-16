@@ -6,7 +6,7 @@ revisão antes de qualquer cliente real.
 from .erros import ErroDeNegocio
 from .seguranca import confere_senha, confere_totp, normalizar_codigo_backup
 
-VERSAO_TERMOS = "2026-11-13"
+VERSAO_TERMOS = "2026-11-16"
 VERSAO_PRIVACIDADE = "2026-11-16"
 
 FINALIDADES = {
