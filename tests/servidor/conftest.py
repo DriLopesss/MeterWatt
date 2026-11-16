@@ -156,3 +156,15 @@ def leitura_pzem(potencia, energia_wh, tensao=220.0, **extra):
          "potencia_w": potencia, "energia_wh": energia_wh, "frequencia_hz": 60.0, "fp": 0.95, "rssi": -60, "fw": "3.2.0"}
     d.update(extra)
     return json.dumps(d).encode()
+
+
+def preencher_baldes(plataforma, mid, inicio, fim, watts):
+    """Grava direto no banco o consumo de 5 em 5 minutos (dias de histórico sem esperar dias)."""
+    db = plataforma.db()
+    t = int(inicio // 300 * 300)
+    with db:
+        while t < fim:
+            w = watts(t) if callable(watts) else watts
+            db.execute("INSERT OR REPLACE INTO consumo_5min (medidor_id, inicio, n, soma_w, min_w, max_w, wh) VALUES (?, ?, 300, ?, ?, ?, ?)",
+                       (mid, t, w * 300, w, w, w * 300 / 3600))
+            t += 300

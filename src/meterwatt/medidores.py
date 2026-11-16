@@ -14,6 +14,7 @@ from .erros import ErroDeNegocio, NaoEncontrado
 from .seguranca import Limitador, normalizar_codigo_pareamento, novo_codigo_pareamento
 
 ID_VALIDO = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+SEGREDO_VALIDO = re.compile(r"^[A-Za-z0-9]{24,64}$")       # senha que o próprio medidor sorteia
 TEXTO_SIMPLES = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
 TAMANHO_MAXIMO_MENSAGEM = 2048
 INTERVALO_MINIMO_S = 0.8          # o firmware manda a cada 1 s; mais rápido que isso é descartado
@@ -157,18 +158,31 @@ class Medidores:
         if not self.p.consentimento(conn, uid, "consumo"):
             return "recusado"
         existente = conn.execute("SELECT usuario_id FROM medidores WHERE id = ?", (mid,)).fetchone()
-        with conn:
-            if existente and existente["usuario_id"] != uid:
+        if not existente:
+            total = conn.execute("SELECT COUNT(*) FROM medidores WHERE usuario_id = ?", (uid,)).fetchone()[0]
+            if total >= self.p.pagamentos.limite_de_medidores(conn, uid):
+                return "recusado"                 # o plano mudou entre gerar o código e parear
+        # Senha própria: o medidor sorteia um segredo e manda junto com o código. Se o broker
+        # aceita contas por aparelho, o servidor cadastra esse segredo como a senha dele.
+        # Nunca para um medidor de outra conta: isso trocaria a senha do aparelho de outra pessoa.
+        if existente and existente["usuario_id"] != uid:
+            with conn:
                 conn.execute("UPDATE codigos_pareamento SET usado_em = ? WHERE id = ?", (agora, linha["id"]))
                 self.p.auditar(conn, uid, "pareamento_recusado", mid)
-                return "recusado"
+            return "recusado"
+        segredo = dados.get("segredo")
+        propria = bool(self.p.credenciais and isinstance(segredo, str) and SEGREDO_VALIDO.match(segredo)
+                       and self.p.credenciais.registrar(mid, segredo))
+        with conn:
             conn.execute("UPDATE codigos_pareamento SET usado_em = ?, medidor_id = ? WHERE id = ?", (agora, mid, linha["id"]))
             if not existente:
                 conn.execute("INSERT INTO medidores (id, usuario_id, apelido, pareado_em, ultima_mensagem) VALUES (?, ?, ?, ?, ?)",
                              (mid, uid, f"Medidor {mid[-4:].upper()}", agora, agora))
                 self.p.auditar(conn, uid, "medidor_pareado", mid)
+            if propria:
+                conn.execute("UPDATE medidores SET credencial_propria = 1 WHERE id = ?", (mid,))
         self.limite_pareamento.zerar(mid)
-        self.p.publicar(f"meterwatt/{mid}/comando", "pareado")
+        self.p.publicar(f"meterwatt/{mid}/comando", "pareado_credencial" if propria else "pareado")
         return "pareado"
 
     def registrar_leitura(self, mid, dados):
@@ -236,6 +250,8 @@ class Medidores:
             conn.execute("UPDATE medidores SET ultima_mensagem = ?, ultima_gravacao = ?, status_mqtt = 'online', tipo = ?, fw = ?, "
                          "contador_wh = ?, potencia_anterior = ? WHERE id = ?",
                          (agora, agora, tipo, fw, contador, valor if tipo == "corrente" else None, mid))
+        if tipo == "pzem":
+            self.p.detetive.observar(conn, mid, m["usuario_id"], agora, potencia)
         return "gravada"
 
     # ------------------------------------------------------------ pareamento pelo painel
@@ -246,6 +262,13 @@ class Medidores:
         if not self.p.consentimento(conn, uid, "consumo"):
             raise ErroDeNegocio("Para parear um medidor, autorize o tratamento dos dados de consumo em Privacidade.",
                                 403, "sem_autorizacao")
+        total = conn.execute("SELECT COUNT(*) FROM medidores WHERE usuario_id = ?", (uid,)).fetchone()[0]
+        limite = self.p.pagamentos.limite_de_medidores(conn, uid)
+        if total >= limite:
+            if self.p.pagamentos.plano_de(conn, uid) == "casa":
+                raise ErroDeNegocio(f"A sua conta já tem {limite} medidores, o máximo do plano.", 403, "limite_plano")
+            raise ErroDeNegocio(f"O plano grátis permite {limite} medidor{'es' if limite != 1 else ''}. "
+                                "Para parear mais, assine o plano Casa.", 403, "limite_plano")
         agora = self.p.agora()
         ativos = conn.execute("SELECT COUNT(*) FROM codigos_pareamento WHERE usuario_id = ? AND usado_em IS NULL AND expira_em > ?",
                               (uid, agora)).fetchone()[0]
@@ -276,6 +299,13 @@ class Medidores:
             conn.execute("DELETE FROM medidores WHERE id = ?", (mid,))
             self.p.auditar(conn, sessao["usuario_id"], "medidor_removido", mid, ip)
         self.p.publicar(f"meterwatt/{mid}/comando", "despareado")
+        self.esquecer(mid)
+
+    def esquecer(self, mid):
+        """Depois que o medidor saiu de uma conta: apaga a senha dele no broker e o que havia na memória."""
+        self.p.detetive.detectores.pop(mid, None)
+        if self.p.credenciais:
+            self.p.credenciais.remover(mid)
 
     # ------------------------------------------------------------ painel
 
@@ -364,6 +394,9 @@ class Medidores:
     # ------------------------------------------------------------ recursos novos
 
     def fantasma(self, sessao):
+        return self.fantasma_de(sessao["usuario_id"])
+
+    def fantasma_de(self, uid):
         """Consumo fantasma: o que a casa gasta parada (aparelhos em espera, roteador, geladeira...).
 
         Para cada noite (0h às 5h) dos últimos 7 dias com pelo menos 80% dos intervalos de
@@ -371,9 +404,8 @@ class Medidores:
         Usar a mediana evita que uma noite atípica (luz cortada, viagem) distorça o número.
         """
         conn = self.p.db()
-        uid = sessao["usuario_id"]
         agora = self.p.agora()
-        tarifa = self.p.tarifa_de(sessao)
+        tarifa = self.p.tarifa_de(self._usuario(conn, uid))
         baldes_por_noite = (NOITE_FIM_H - NOITE_INICIO_H) * 3600 // BALDE_S
         por_medidor, watts_total, noites_usadas, estimado = [], 0.0, 0, False
         for m in conn.execute("SELECT id, apelido, tipo FROM medidores WHERE usuario_id = ? ORDER BY pareado_em", (uid,)).fetchall():
@@ -423,12 +455,14 @@ class Medidores:
         return max(1 / 24, (agora - primeiro) / 86400)
 
     def meta(self, sessao):
+        return self.meta_de(sessao["usuario_id"])
+
+    def meta_de(self, uid):
         """Meta do mês: quanto já gastou, a projeção até o fim do mês e se cabe na meta.
 
         Projeção = gasto do mês até agora + (média diária dos últimos 7 dias × dias que faltam).
         """
         conn = self.p.db()
-        uid = sessao["usuario_id"]
         agora = self.p.agora()
         u = self._usuario(conn, uid)
         tarifa = self.p.tarifa_de(u)

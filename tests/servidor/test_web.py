@@ -10,7 +10,7 @@ def test_cabecalhos_de_seguranca(cliente):
     assert h["Referrer-Policy"] == "no-referrer" and h["Cache-Control"] == "no-store"
     assert "camera=()" in h["Permissions-Policy"]
     info = r.get_json()
-    assert set(info["finalidades"]) == {"termos", "privacidade", "consumo", "historico_longo", "novidades"}
+    assert set(info["finalidades"]) == {"termos", "privacidade", "consumo", "historico_longo", "aparelhos", "novidades"}
 
 
 def test_cookie_httponly_samesite(cliente, plataforma):
