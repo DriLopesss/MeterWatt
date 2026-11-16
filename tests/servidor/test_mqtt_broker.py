@@ -18,7 +18,10 @@ from meterwatt.mensageiro import MensageiroMemoria
 from meterwatt.plataforma import Plataforma
 from meterwatt.web import criar_app
 
-PLUGIN = next(iter(glob.glob("/usr/lib/**/mosquitto_dynamic_security.so", recursive=True)), None)
+# Sem busca recursiva: em máquinas com muita coisa em /usr/lib ela não termina nunca.
+PLUGIN = next((c for padrao in ("/usr/lib/mosquitto_dynamic_security.so", "/usr/lib/*/mosquitto_dynamic_security.so",
+                                "/usr/lib64/mosquitto_dynamic_security.so", "/usr/local/lib/mosquitto_dynamic_security.so")
+               for c in glob.glob(padrao)), None)
 pytestmark = pytest.mark.skipif(not (shutil.which("mosquitto") and shutil.which("mosquitto_ctrl") and PLUGIN),
                                 reason="Mosquitto com dynamic-security não está instalado")
 MID = "mw-A1B2C3D4E5F6"

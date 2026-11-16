@@ -26,6 +26,7 @@ jobs:
       - run: sudo apt-get update -q && sudo apt-get install -y -q mosquitto && sudo systemctl stop mosquitto
       - run: pip install -r src/requirements.txt pytest
       - run: python -m pytest tests -q
+        timeout-minutes: 10
 
   protocolo:
     name: Testes do firmware no computador
