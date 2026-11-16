@@ -431,7 +431,7 @@ class Medidores:
         if not any(x["watts"] is not None for x in por_medidor):
             return {"disponivel": False, "medidores": por_medidor,
                     "motivo": "Precisamos de pelo menos 2 noites medidas (entre 0h e 5h) para calcular."}
-        kwh_mes = watts_total * 24 * 30 / 1000
+        kwh_mes = watts_total * 24 * 365 / 12 / 1000       # mês médio: um ano dividido por 12
         ids = [x["id"] for x in por_medidor if x["watts"] is not None]
         kwh_7d = self._wh_entre(conn, ids, agora - 7 * 86400, agora + 1) / 1000
         dias_medidos = self._dias_com_dados(conn, ids, agora)

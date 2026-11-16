@@ -140,10 +140,13 @@ function formulario(form, enviar) {
 /* ------------------------------------------------------------------ rotas */
 
 const ROTAS_PUBLICAS = new Set(["entrar", "cadastro", "enviado", "confirmar", "esqueci", "redefinir", "2fa"]);
-const ROTAS_APP = new Set(["painel", "medidores", "seguranca", "privacidade"]);
+const ROTAS_APP = new Set(["painel", "medidores", "aparelhos", "avisos", "plano", "pagamento-teste", "seguranca", "privacidade"]);
+const ROTAS_INICIO = new Set(["inicio", "fila", "convite", "sair-da-fila"]);
 const DOCUMENTOS = new Set(["politica", "termos"]);
 const TITULOS = { entrar: "Entrar", cadastro: "Criar conta", painel: "Painel", medidores: "Medidores", seguranca: "Segurança",
-  privacidade: "Privacidade", politica: "Política de privacidade", termos: "Termos de uso", "2fa": "Verificação" };
+  privacidade: "Privacidade", politica: "Política de privacidade", termos: "Termos de uso", "2fa": "Verificação",
+  inicio: "Energia que você enxerga", fila: "Lista de espera", "sair-da-fila": "Sair da lista", aparelhos: "Aparelhos",
+  avisos: "Avisos", plano: "Plano", "pagamento-teste": "Pagamento de teste" };
 
 function ir(rota) {
   if (location.hash !== `#${rota}`) location.hash = rota;
@@ -156,8 +159,13 @@ function pararTimers() {
 }
 
 async function mostrar() {
-  const [rota, token] = location.hash.replace(/^#\/?/, "").split("/");
-  const alvo = rota || (estado.eu ? "painel" : "entrar");
+  const [rotaBruta, token] = location.hash.replace(/^#\/?/, "").split("/");
+  let rota = rotaBruta;
+  if (rota === "convite") {            // link de convite: guarda o código e mostra a página inicial
+    estado.convite = token;
+    rota = "inicio";
+  }
+  const alvo = rota || (estado.eu ? "painel" : "inicio");
   pararTimers();
   fecharDialogos();
 
@@ -165,6 +173,7 @@ async function mostrar() {
   if (DOCUMENTOS.has(alvo)) area = estado.eu ? "app" : "publica";
   else if (ROTAS_PUBLICAS.has(alvo)) area = "publica";
   else if (ROTAS_APP.has(alvo)) area = "app";
+  else if (ROTAS_INICIO.has(alvo)) area = "inicio";
   else area = "erro";
 
   if (area === "app" && !estado.eu) return ir("entrar");
@@ -175,22 +184,26 @@ async function mostrar() {
   $("#area-publica").hidden = area !== "publica";
   $("#area-app").hidden = area !== "app";
   $("#area-erro").hidden = area !== "erro";
+  $("#area-inicio").hidden = area !== "inicio";
+  demo.ligar(alvo === "inicio");
   document.title = `${TITULOS[alvo] || "Página não encontrada"} | MeterWatt`;
   if (area === "erro") {
-    $("#area-erro .botao").setAttribute("href", estado.eu ? "#painel" : "#entrar");
-    $("#area-erro .botao").textContent = estado.eu ? "Voltar ao painel" : "Ir para a entrada";
+    $("#area-erro .botao").setAttribute("href", estado.eu ? "#painel" : "#inicio");
+    $("#area-erro .botao").textContent = estado.eu ? "Voltar ao painel" : "Ir para o início";
     return;
   }
 
-  const raiz = area === "app" ? $("#area-app") : $("#area-publica");
+  const raiz = area === "app" ? $("#area-app") : area === "inicio" ? $("#area-inicio") : $("#area-publica");
   $$("section[data-rota]", raiz).forEach((s) => { s.hidden = s.dataset.rota !== alvo; });
   $$(".abas a").forEach((a) => (a.dataset.aba === alvo ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
-  if (estado.rota !== null && estado.rota !== alvo) (area === "app" ? $("#conteudo-app") : $("#conteudo")).focus({ preventScroll: true });
+  if (estado.rota !== null && estado.rota !== alvo) $(area === "app" ? "#conteudo-app" : area === "inicio" ? "#conteudo-inicio" : "#conteudo").focus({ preventScroll: true });
   estado.rota = alvo;
   window.scrollTo({ top: 0 });
-  particulas.ligar(area === "publica");
+  particulas.ligar(area === "publica" || area === "inicio");
 
   const telas = { painel: telaPainel, medidores: telaMedidores, seguranca: telaSeguranca, privacidade: telaPrivacidade,
+    aparelhos: telaAparelhos, avisos: telaAvisos, plano: telaPlano, "pagamento-teste": () => telaPagamentoTeste(token),
+    inicio: telaInicio, fila: () => telaFila(token), "sair-da-fila": () => { estado.tokenFila = token; },
     confirmar: () => confirmarEmail(token), redefinir: () => { estado.tokenRedefinir = token; }, "2fa": tela2fa };
   if (DOCUMENTOS.has(alvo)) return mostrarDocumento(alvo, raiz);
   if (telas[alvo]) {
@@ -236,6 +249,7 @@ async function carregarEu() {
   estado.eu = await api("GET", "/api/conta/eu");
   estado.csrf = estado.eu.csrf;
   $("#nome-usuario").textContent = estado.eu.nome;
+  atualizarSino(estado.eu.avisos_nao_lidos);
   $("#faixa-2fa").hidden = !(estado.eu.exigir_2fa && !estado.eu.dois_fatores);
 }
 
@@ -660,7 +674,13 @@ async function removerMedidor(m) {
 async function abrirPareamento() {
   const d = $("#dialogo-parear");
   let r;
-  try { r = await api("POST", "/api/medidores/codigo"); } catch (e) { avisar(e.message, true); return; }
+  try {
+    r = await api("POST", "/api/medidores/codigo");
+  } catch (e) {
+    avisar(e.message, true);
+    if (e.codigo === "limite_plano") ir("plano");
+    return;
+  }
   const antes = new Set(estado.medidores.map((m) => m.id));
   const fimCodigo = Date.now() + r.validade_s * 1000;
   $("#parear-codigo").textContent = r.codigo;
@@ -872,6 +892,353 @@ function ligarPrivacidade() {
   });
 }
 
+/* ------------------------------------------------------------------ avisos */
+
+function atualizarSino(n) {
+  const conta = $("#sino-conta");
+  conta.hidden = !n;
+  conta.textContent = n > 9 ? "9+" : String(n || "");
+  $("#sino").setAttribute("aria-label", n ? `Avisos: ${n} não lido(s)` : "Avisos");
+}
+
+async function telaAvisos() {
+  desenharAvisos(await api("GET", "/api/avisos"));
+  if (estado.eu.avisos_nao_lidos) {
+    await api("POST", "/api/avisos/lidos");
+    estado.eu.avisos_nao_lidos = 0;
+    atualizarSino(0);
+  }
+}
+
+function desenharAvisos(r) {
+  $("#lista-avisos").replaceChildren(...(r.avisos.length ? r.avisos.map((a) => el("li", { class: a.lido ? null : "novo" },
+    el("div", {}, el("h3", {}, a.titulo), el("p", {}, a.texto)),
+    el("time", { datetime: a.quando }, fmt.quando(a.quando))))
+    : [el("li", { class: "vazio-linha" }, "Nenhum aviso por enquanto. Quando um medidor cair, a meta apertar ou o consumo fugir do normal, aparece aqui.")]));
+  $("#avisos-config").replaceChildren(...r.config.map((c) => el("li", {},
+    el("div", {}, el("h3", {}, c.nome), el("p", {}, c.descricao)),
+    el("button", { type: "button", class: "chave", role: "switch", "aria-checked": String(c.por_email), "aria-label": `${c.nome} por e-mail`,
+      onclick: async () => {
+        try { desenharAvisos(await api("PUT", `/api/avisos/config/${c.tipo}`, { por_email: !c.por_email })); } catch (e) { avisar(e.message, true); }
+      } }))));
+}
+
+/* ------------------------------------------------------------------ Detetive de aparelhos */
+
+async function telaAparelhos() {
+  await desenharAparelhos();
+  estado.timers.push(setInterval(() => { if (!document.hidden && !$("#aparelhos-conteudo form:not([hidden])")) desenharAparelhos().catch(() => {}); }, 15000));
+}
+
+async function desenharAparelhos() {
+  const r = await api("GET", "/api/aparelhos");
+  const caixa = $("#aparelhos-conteudo");
+  if (!r.autorizado) {
+    caixa.replaceChildren(el("div", { class: "vazio" },
+      el("h2", {}, "O Detetive está desligado"),
+      el("p", {}, "Saber qual aparelho ligou, e quando, revela mais da rotina da casa do que o consumo total. Por isso ele só funciona se você ligar, e tudo o que ele guardar é apagado quando você desligar."),
+      el("button", { class: "primario", type: "button", onclick: async () => {
+        try {
+          await api("PUT", "/api/privacidade/aparelhos", { aceito: true });
+          avisar("Detetive ligado. Os primeiros aparelhos aparecem depois de se repetirem 3 vezes.");
+          await desenharAparelhos();
+        } catch (e) { avisar(e.message, true); }
+      } }, "Ligar o Detetive")));
+    return;
+  }
+  if (!r.tem_medidor_compativel) {
+    caixa.replaceChildren(el("div", { class: "vazio" }, el("h2", {}, "Esperando um medidor"),
+      el("p", {}, "O Detetive precisa de um medidor de potência (PZEM) enviando leituras a cada 1 ou 2 segundos.")));
+    return;
+  }
+  if (!r.aparelhos.length) {
+    caixa.replaceChildren(el("div", { class: "vazio" }, el("h2", {}, "Observando a casa"),
+      el("p", {}, r.em_estudo ? `${r.em_estudo} padrão(ões) em observação. Cada um aparece aqui depois de se repetir ${r.ciclos_para_aparecer} vezes.`
+        : "Ainda não vimos nenhum aparelho ligar e desligar. Deixe o medidor funcionando por algumas horas.")));
+    return;
+  }
+  caixa.replaceChildren(el("div", { class: "lista-aparelhos" }, r.aparelhos.map(cartaoAparelho)));
+  if (r.em_estudo) caixa.append(el("p", { class: "dica" }, `Mais ${r.em_estudo} padrão(ões) em observação.`));
+}
+
+function cartaoAparelho(a) {
+  const campo = el("input", { value: a.nome || "", maxlength: "40", placeholder: "ex.: Geladeira", "aria-label": "Nome do aparelho" });
+  const form = el("form", { class: "renomear", hidden: true, onsubmit: async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("PATCH", `/api/aparelhos/${a.id}`, { nome: campo.value });
+      avisar("Nome salvo.");
+      await desenharAparelhos();
+    } catch (e) { avisar(e.message, true); }
+  } }, campo, el("button", { class: "secundario", type: "submit" }, "Salvar nome"),
+  el("button", { class: "discreto", type: "button", onclick: () => { form.hidden = true; } }, "Cancelar"));
+  const dado = (rotulo, valor) => el("div", {}, el("dt", {}, rotulo), el("dd", {}, valor));
+  return el("article", { class: `aparelho${a.ligado_agora ? " ligado" : ""}` },
+    el("div", { class: "medidor-topo" },
+      el("h2", {}, el("span", { class: "ponto", "aria-hidden": "true" }), a.nome || `Aparelho de ${fmt.num(a.potencia_w)} W`),
+      a.ligado_agora ? el("span", { class: "etiqueta ligado" }, "ligado agora") : null),
+    !a.nome && a.palpite ? el("p", { class: "dica" }, `Pela potência e pelo tempo ligado, parece ${a.palpite}. É só um palpite: dê o nome certo.`) : null,
+    el("dl", { class: "medidas" },
+      dado("Potência", `${fmt.num(a.potencia_w)} W`),
+      dado("Ligou na semana", `${a.vezes_na_semana} vez(es)`),
+      dado("Fica ligado", a.duracao_media_min >= 90 ? `${fmt.num(a.duracao_media_min / 60, 1)} h`
+        : a.duracao_media_min < 1 ? `${Math.round(a.duracao_media_min * 60)} s` : `${fmt.num(a.duracao_media_min, a.duracao_media_min < 10 ? 1 : 0)} min`),
+      dado("Por mês", a.kwh_mes != null ? fmt.kwh(a.kwh_mes) : "—"),
+      dado("Custo por mês", a.custo_mes != null ? fmt.reais(a.custo_mes) : "—"),
+      dado("Última vez", a.ultima_vez ? fmt.relativo(a.ultima_vez) : "—")),
+    form,
+    el("div", { class: "medidor-acoes" },
+      el("button", { type: "button", class: "discreto", onclick: () => { form.hidden = false; campo.focus(); } }, a.nome ? "Renomear" : "Dar um nome"),
+      el("button", { type: "button", class: "discreto", onclick: async () => {
+        const ok = await confirmar({ titulo: "Isso não é um aparelho?", semSenha: true, botao: "Esconder",
+          texto: "O grupo some da lista. O consumo total da casa não muda." });
+        if (!ok) return;
+        try { await api("PATCH", `/api/aparelhos/${a.id}`, { oculto: true }); await desenharAparelhos(); } catch (e) { avisar(e.message, true); }
+      } }, "Não é um aparelho")));
+}
+
+/* ------------------------------------------------------------------ plano e cobrança */
+
+async function telaPlano() {
+  let r = await api("GET", "/api/plano");
+  if (r.assinatura && r.assinatura.status === "pendente") r = await api("POST", "/api/plano/atualizar");   // voltando da página de pagamento
+  desenharPlano(r);
+}
+
+function desenharPlano(r) {
+  $("#plano-teste").hidden = !r.modo_teste;
+  estado.eu.plano = r.plano;
+  const caixa = $("#plano-conteudo");
+  if (!r.disponivel) {
+    caixa.replaceChildren(el("div", { class: "vazio" }, el("h2", {}, "Sem cobrança por enquanto"),
+      el("p", {}, `O MeterWatt está em fase de testes e a assinatura ainda não foi ligada. Cada conta pode ter até ${r.limite_pago} medidores.`)));
+    return;
+  }
+  const a = r.assinatura;
+  const ativa = r.plano === "casa";
+  const medidores = (n) => `${n} medidor${n === 1 ? "" : "es"}`;
+  const acao = () => {
+    if (a && a.status === "ativa") {
+      return [el("p", { class: "valor-sub" }, a.proxima_cobranca ? `Próxima cobrança em ${fmt.quando(a.proxima_cobranca).split(",")[0]}.` : "Assinatura ativa."),
+        el("button", { class: "secundario perigo", type: "button", onclick: cancelarPlano }, "Cancelar assinatura")];
+    }
+    if (a && a.status === "cancelada" && ativa) {
+      return [el("p", { class: "valor-sub" }, `Assinatura cancelada. O plano Casa continua valendo até ${fmt.quando(a.valida_ate).split(",")[0]}, sem novas cobranças.`)];
+    }
+    return [a && a.status === "pendente" ? el("p", { class: "valor-sub" }, "Há um pagamento esperando você terminar.") : null,
+      el("button", { class: "primario", type: "button", onclick: assinarPlano }, a && a.status === "pendente" ? "Continuar o pagamento" : "Assinar o plano Casa")];
+  };
+  caixa.replaceChildren(el("div", { class: "planos" },
+    el("article", { class: `bloco plano${ativa ? "" : " vigente"}` },
+      el("h2", {}, "Grátis"), el("p", { class: "valor-grande" }, "R$ 0"),
+      el("ul", {}, el("li", {}, medidores(r.limite_gratis)), el("li", {}, "Painel, meta do mês, consumo fantasma e avisos"), el("li", {}, "Privacidade completa: cópia, exclusão e duas etapas")),
+      ativa ? null : el("p", { class: "atual-marca" }, "Seu plano atual")),
+    el("article", { class: `bloco plano destaque${ativa ? " vigente" : ""}` },
+      el("h2", {}, "Casa"), el("p", { class: "valor-grande" }, `${fmt.reais(r.preco_mensal)} `, el("small", {}, "por mês")),
+      el("ul", {}, el("li", {}, `Até ${medidores(r.limite_pago)}: casa, edícula, ar-condicionado em circuito separado`), el("li", {}, "Tudo do plano grátis"), el("li", {}, "Cancele quando quiser, aqui mesmo")),
+      ativa ? el("p", { class: "atual-marca" }, "Seu plano atual") : null,
+      ...acao())),
+  el("p", { class: "dica" }, `Você tem ${medidores(r.medidores)} na conta. O pagamento é feito na página do Mercado Pago: o MeterWatt nunca vê o número do cartão. `
+    + "Se cancelar, nada é apagado: os medidores e o histórico continuam, só não dá para parear além do limite do plano grátis."));
+}
+
+async function assinarPlano(ev) {
+  ev.target.disabled = true;
+  try {
+    const r = await api("POST", "/api/plano/assinar");
+    const destino = new URL(r.link, location.href);
+    if (destino.origin === location.origin) location.hash = destino.hash;      // página de pagamento de teste
+    else if (destino.protocol === "https:") location.href = destino.href;      // página do Mercado Pago
+    else throw new Error("O endereço de pagamento veio em formato inesperado.");
+  } catch (e) {
+    avisar(e.message, true);
+    ev.target.disabled = false;
+  }
+}
+
+async function cancelarPlano() {
+  const ok = await confirmar({ titulo: "Cancelar a assinatura?", semSenha: true, botao: "Cancelar assinatura",
+    texto: "Não haverá novas cobranças. O plano Casa continua até o fim do período já pago. Nenhum medidor e nenhum dado são apagados." });
+  if (!ok) return;
+  try {
+    desenharPlano(await api("POST", "/api/plano/cancelar"));
+    avisar("Assinatura cancelada.");
+  } catch (e) { avisar(e.message, true); }
+}
+
+function telaPagamentoTeste(referencia) {
+  estado.referenciaTeste = referencia;
+  $("#teste-valor").textContent = estado.info ? `${fmt.reais(estado.info.plano.preco_mensal)} por mês (de mentira)` : "";
+}
+
+function ligarPagamentoTeste() {
+  const decidir = async (aprovado) => {
+    try {
+      const r = await api("POST", "/api/plano/pagamento-teste", { referencia: estado.referenciaTeste, aprovado });
+      avisar(r.plano === "casa" ? "Pagamento de teste aprovado: plano Casa ativo." : "Pagamento de teste recusado.");
+      ir("plano");
+    } catch (e) { avisar(e.message, true); ir("plano"); }
+  };
+  $("#teste-aprovar").addEventListener("click", () => decidir(true));
+  $("#teste-recusar").addEventListener("click", () => decidir(false));
+}
+
+/* ------------------------------------------------------------------ página inicial */
+
+/* Valores típicos de consumo em espera, em watts. São referências arredondadas (etiquetas de
+ * fabricantes e medições públicas); cada casa é diferente, e é por isso que a página deixa corrigir. */
+const APARELHOS_EM_ESPERA = [
+  ["Roteador Wi-Fi e modem (sempre ligados)", 10, 1],
+  ["TV na tomada, desligada no controle", 1, 1],
+  ["Decodificador de TV ou TV box", 8, 0],
+  ["Videogame em modo de espera", 8, 0],
+  ["Micro-ondas com relógio", 2, 1],
+  ["Computador em suspensão, com monitor", 4, 0],
+  ["Caixa de som, soundbar ou home theater", 4, 0],
+  ["Assistente de voz ou caixinha inteligente", 3, 0],
+  ["Ar-condicionado split em espera", 2, 0],
+  ["Carregador na tomada, sem o celular", 0.3, 2],
+  ["Impressora ligada sem imprimir", 3, 0],
+  ["Cafeteira, air fryer ou forno com painel aceso", 1, 0],
+];
+
+const demo = (() => {
+  let timer = 0, valor = 412;
+  const visorDemo = { atual: "", caixa: () => $("#visor-demo") };
+  function mostrarDemo(texto) {
+    const caixa = visorDemo.caixa();
+    if (visorDemo.atual.length !== texto.length || !caixa.children.length) {
+      caixa.replaceChildren(...[...texto].map((c) => el("span", { class: "digito" }, el("span", {}, c))), el("span", { class: "relogio-unidade" }, "W"));
+    } else {
+      [...texto].forEach((c, i) => {
+        if (c === visorDemo.atual[i]) return;
+        const casa = caixa.children[i], velho = casa.firstElementChild, novo = el("span", { class: semMovimento ? "" : "entra" }, c);
+        if (semMovimento) { velho.replaceWith(novo); return; }
+        velho.className = "sai";
+        casa.append(novo);
+        setTimeout(() => velho.remove(), 450);
+      });
+    }
+    visorDemo.atual = texto;
+  }
+  const roteiro = [[412, "geladeira e luzes"], [1712, "micro-ondas ligou"], [1698, "micro-ondas ligou"], [398, "micro-ondas desligou"], [5810, "alguém entrou no banho"],
+    [5795, "alguém entrou no banho"], [405, "banho acabou"], [262, "geladeira desligou"], [74, "madrugada: só o consumo fantasma"], [71, "madrugada: só o consumo fantasma"]];
+  let passo = 0;
+  function andar() {
+    const [w, legenda] = roteiro[passo % roteiro.length];
+    passo++;
+    valor = w + Math.round((Math.random() - 0.5) * 6);
+    mostrarDemo(String(valor));
+    $("#demo-legenda").textContent = `${legenda} (demonstração com dados simulados)`;
+  }
+  return {
+    ligar(sim) {
+      clearInterval(timer);
+      timer = 0;
+      if (!sim) return;
+      andar();
+      timer = setInterval(() => { if (!document.hidden) andar(); }, 2600);
+    },
+  };
+})();
+
+function calcular() {
+  let watts = 0;
+  $$("#calc-lista .calc-item").forEach((item) => {
+    watts += Number(item.dataset.qtd) * (numeroDigitado($("input", item).value) || 0);
+  });
+  const tarifa = numeroDigitado($("#calc-tarifa").value);
+  const kwhMes = watts * 24 * 365 / 12 / 1000;          // mês médio: um ano dividido por 12
+  const valido = Number.isFinite(tarifa) && tarifa > 0 && tarifa <= 10;
+  $("#calc-watts").textContent = `${fmt.num(watts, watts % 1 ? 1 : 0)} W`;
+  $("#calc-ano").textContent = valido ? `${fmt.reais(kwhMes * 12 * tarifa)} por ano` : "Informe a tarifa";
+  $("#calc-detalhe").textContent = `${fmt.num(kwhMes, 1)} kWh por mês${valido ? `, ou ${fmt.reais(kwhMes * tarifa)} em cada conta de luz` : ""}.`;
+  estado.calculo = { watts, ano: valido ? kwhMes * 12 * tarifa : null };
+}
+
+function ligarInicio() {
+  $("#calc-lista").replaceChildren(...APARELHOS_EM_ESPERA.map(([nome, w, qtd]) => {
+    const conta = el("output", {}, String(qtd));
+    const item = el("div", { class: "calc-item", "data-qtd": String(qtd) });
+    const mudar = (d) => {
+      const n = Math.max(0, Math.min(9, Number(item.dataset.qtd) + d));
+      item.dataset.qtd = String(n);
+      conta.textContent = String(n);
+      calcular();
+    };
+    item.append(el("span", { class: "calc-nome" }, nome),
+      el("label", { class: "calc-w" }, el("input", { inputmode: "decimal", value: String(w).replace(".", ","), "aria-label": `Watts em espera: ${nome}`, oninput: calcular }), " W"),
+      el("div", { class: "calc-qtd" },
+        el("button", { type: "button", class: "discreto", "aria-label": `Menos um: ${nome}`, onclick: () => mudar(-1) }, "−"), conta,
+        el("button", { type: "button", class: "discreto", "aria-label": `Mais um: ${nome}`, onclick: () => mudar(1) }, "+")));
+    return item;
+  }));
+  $("#calc-tarifa").addEventListener("input", calcular);
+  calcular();
+  $$("[data-rolar]").forEach((a) => a.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    const alvo = document.getElementById(a.dataset.rolar);
+    alvo.scrollIntoView({ behavior: semMovimento ? "auto" : "smooth", block: "start" });
+    if (a.dataset.rolar === "fila") setTimeout(() => $("#form-fila [name=email]").focus({ preventScroll: true }), 400);
+  }));
+  $("#calc-compartilhar").addEventListener("click", async () => {
+    const c = estado.calculo;
+    const texto = `Fiz a conta do consumo fantasma lá de casa: ${fmt.num(c.watts, c.watts % 1 ? 1 : 0)} W ligados o dia inteiro sem ninguém usar`
+      + `${c.ano != null ? `, uns ${fmt.reais(c.ano)} por ano` : ""}. Faça a sua:`;
+    const url = `${location.origin}/?o=calculadora`;
+    try {
+      if (navigator.share) await navigator.share({ title: "Consumo fantasma", text: texto, url });
+      else { await navigator.clipboard.writeText(`${texto} ${url}`); avisar("Texto copiado. É só colar onde quiser."); }
+    } catch { /* a pessoa fechou a janela de compartilhar */ }
+  });
+  formulario($("#form-fila"), async (d, form) => {
+    const origem = new URLSearchParams(location.search).get("o");
+    const r = await api("POST", "/api/espera", { email: d.email, aceite: !!d.aceite, convite: estado.convite || null, origem });
+    form.reset();
+    $("#fila-sucesso").textContent = r.mensagem;
+    $("#fila-sucesso").hidden = false;
+  });
+  $("#botao-sair-fila").addEventListener("click", async () => {
+    try {
+      const r = await api("POST", "/api/espera/sair", { token: estado.tokenFila });
+      $("#sair-estado").replaceChildren(el("p", { class: "texto-grande" }, r.mensagem), el("p", {}, el("a", { href: "#inicio" }, "Voltar ao início")));
+    } catch (e) {
+      $("#sair-estado").replaceChildren(el("p", { class: "texto-grande" }, e.message), el("p", {}, el("a", { href: "#inicio" }, "Voltar ao início")));
+    }
+  });
+}
+
+function telaInicio() {
+  $("#inicio-entrar").textContent = estado.eu ? "Abrir o painel" : "Entrar";
+  $("#inicio-entrar").setAttribute("href", estado.eu ? "#painel" : "#entrar");
+  $("#convite-aviso").hidden = !estado.convite;
+  const n = estado.info ? estado.info.na_lista_de_espera : 0;
+  $("#fila-total").hidden = n < 10;                       // fila vazia não ajuda ninguém a decidir
+  $("#fila-total").textContent = `${n} pessoas já confirmaram o lugar na fila.`;
+}
+
+async function telaFila(token) {
+  const titulo = $("#fila-estado-titulo"), caixa = $("#fila-estado");
+  titulo.textContent = "Confirmando o seu lugar…";
+  caixa.replaceChildren();
+  try {
+    const r = await api("POST", "/api/espera/confirmar", { token });
+    titulo.textContent = `Você é o número ${r.posicao} da fila`;
+    const campo = el("input", { value: r.link_de_convite, readonly: true, "aria-label": "Seu link de convite" });
+    caixa.replaceChildren(
+      el("p", { class: "texto-grande" }, `E-mail confirmado. São ${r.total} pessoa(s) na lista${r.indicados ? `, e ${r.indicados} veio(vieram) pelo seu convite` : ""}.`),
+      el("p", { class: "texto" }, "Quer subir na fila? Cada pessoa que entrar pelo seu link e confirmar o e-mail passa você para a frente de quem convidou menos."),
+      el("div", { class: "renomear" }, campo, el("button", { class: "primario", type: "button", onclick: async () => {
+        try { await navigator.clipboard.writeText(r.link_de_convite); avisar("Link copiado."); } catch { campo.select(); }
+      } }, "Copiar link")),
+      el("p", { class: "dica" }, "Guarde o e-mail que você recebeu: o link dele mostra a sua posição atualizada e também serve para sair da lista."),
+      el("p", {}, el("a", { href: "#inicio" }, "Voltar ao início")));
+  } catch (e) {
+    titulo.textContent = "Não deu para confirmar";
+    caixa.replaceChildren(el("p", { class: "texto-grande" }, e.message), el("p", {}, el("a", { href: "#inicio" }, "Voltar ao início")));
+  }
+}
+
 /* ------------------------------------------------------------------ diálogos */
 
 function fecharDialogos() {
@@ -1006,12 +1373,15 @@ async function iniciar() {
   ligarPreferencias();
   ligarSeguranca();
   ligarPrivacidade();
+  ligarInicio();
+  ligarPagamentoTeste();
   $("#botao-parear").addEventListener("click", abrirPareamento);
   $$('[data-acao="sair"]').forEach((b) => b.addEventListener("click", sair));
   addEventListener("hashchange", mostrar);
   try {
     estado.info = await api("GET", "/api/publico/info");
     $("#aviso-teste").hidden = !estado.info.email_de_teste;
+    $("#link-plano").hidden = !estado.info.plano.disponivel;
   } catch { /* segue sem as informações públicas */ }
   try {
     await carregarEu();

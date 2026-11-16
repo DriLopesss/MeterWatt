@@ -152,3 +152,17 @@ def test_apagar_consumo_apaga_os_avisos(cliente, plataforma, relogio):
     plataforma.alertas.verificar()
     assert cliente.post("/api/privacidade/apagar-consumo", {"senha": SENHA}).status_code == 200
     assert avisos(cliente)["avisos"] == []
+
+
+def test_resumo_nao_compara_com_semana_medida_pela_metade(cliente, plataforma, relogio):
+    zona = plataforma.cfg.zona
+    segunda = datetime(2026, 11, 16, 9, 0, tzinfo=zona).timestamp()
+    relogio.t = segunda
+    conta_pronta(cliente, plataforma)
+    mid = parear(cliente, plataforma)
+    semana = plataforma.inicio_do_dia(segunda, 7)
+    preencher_baldes(plataforma, mid, semana - 86400, plataforma.inicio_do_dia(segunda), 200)   # o medidor chegou um dia antes
+    plataforma.db().execute("UPDATE medidores SET ultima_mensagem = ?", (segunda,)).connection.commit()
+    assert plataforma.alertas.verificar() == 1
+    texto = avisos(cliente)["avisos"][0]["texto"]
+    assert "33,6 kWh" in texto and "semana anterior" not in texto

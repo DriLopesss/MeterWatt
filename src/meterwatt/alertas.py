@@ -156,6 +156,13 @@ class Alertas:
             f"Entre {h1} e {h2} a casa gastou {_n(atual / 1000, 2)} kWh. O normal para esse horário, nos últimos dias, "
             f"é perto de {_n(normal / 1000, 2)} kWh. Vale conferir se algum aparelho ficou ligado sem querer."))
 
+    def _cobertura(self, conn, ids, inicio, fim):
+        """Fração do período em que o medidor mais presente esteve medindo (0 a 1)."""
+        marcadores = ",".join("?" * len(ids))
+        maior = conn.execute(f"SELECT MAX(n) FROM (SELECT COUNT(*) AS n FROM consumo_5min WHERE medidor_id IN ({marcadores}) "
+                             "AND inicio >= ? AND inicio < ? GROUP BY medidor_id)", (*ids, inicio, fim)).fetchone()[0] or 0
+        return maior / max(1, (fim - inicio) / 300)
+
     def _resumo(self, conn, uid):
         zona = self.p.cfg.zona
         agora = self.p.agora()
@@ -174,7 +181,9 @@ class Alertas:
                   f"{self.p.dia_local(fim - 3600)[8:]}/{self.p.dia_local(fim - 3600)[5:7]}, a casa gastou {_n(wh / 1000)} kWh"
                   + (f", cerca de {_reais(wh / 1000 * tarifa)}." if tarifa is not None else ".")]
         anterior = self.p.medidores._wh_entre(conn, ids, self.p.inicio_do_dia(agora, 14), inicio)
-        if anterior > 0:
+        # Só compara semanas medidas quase por inteiro: meia semana contra uma inteira dá um número sem sentido.
+        if (anterior > 0 and self._cobertura(conn, ids, self.p.inicio_do_dia(agora, 14), inicio) >= 0.8
+                and self._cobertura(conn, ids, inicio, fim) >= 0.8):
             variacao = (wh - anterior) / anterior * 100
             if abs(variacao) < 3:
                 linhas.append("Praticamente igual à semana anterior.")
