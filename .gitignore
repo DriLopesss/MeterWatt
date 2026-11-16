@@ -16,3 +16,4 @@ instancia/
 *.key
 .simulador-*.segredo
 infra/.env
+meterwatt-demonstracao.html
