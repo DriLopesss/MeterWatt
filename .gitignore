@@ -14,3 +14,5 @@ instancia/
 *.sqlite3
 *.sqlite3-*
 *.key
+.simulador-*.segredo
+infra/.env

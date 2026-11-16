@@ -63,17 +63,22 @@ static int nivelBotao = HIGH;
 inline void pinMode(int, int) {}
 inline int digitalRead(int) { return nivelBotao; }
 // memória do ESP32 (Preferences)
-static std::map<std::string, std::string> nvs;
+// `nvs` são os ajustes (área "meterwatt"); `nvsId` é a identidade do medidor (área "mw-id")
+static std::map<std::string, std::string> nvs, nvsId;
 struct Preferences {
-  bool soLeitura = true;
-  bool begin(const char*, bool ro) { soLeitura = ro; return true; } void end() {}
-  bool isKey(const char* k) { return nvs.count(k) > 0; }
-  size_t getString(const char* k, char* v, size_t max) { if (!nvs.count(k)) return 0; std::strncpy(v, nvs[k].c_str(), max - 1); v[max - 1] = 0; return std::strlen(v); }
-  uint16_t getUShort(const char* k, uint16_t padrao) { return nvs.count(k) ? (uint16_t)std::stoi(nvs[k]) : padrao; }
-  size_t putString(const char* k, const char* v) { if (soLeitura) { std::printf("ERRO: gravou em modo leitura\n"); return 0; } nvs[k] = v; return 1; }
-  size_t putUShort(const char* k, uint16_t v) { if (soLeitura) return 0; nvs[k] = std::to_string(v); return 2; }
-  bool clear() { nvs.clear(); return true; }
+  bool soLeitura = true; std::map<std::string, std::string>* m = &nvs;
+  bool begin(const char* area, bool ro) { soLeitura = ro; m = std::string(area) == "meterwatt" ? &nvs : &nvsId; return true; } void end() {}
+  bool isKey(const char* k) { return m->count(k) > 0; }
+  size_t getString(const char* k, char* v, size_t max) { if (!m->count(k)) return 0; std::strncpy(v, (*m)[k].c_str(), max - 1); v[max - 1] = 0; return std::strlen(v); }
+  uint16_t getUShort(const char* k, uint16_t padrao) { return m->count(k) ? (uint16_t)std::stoi((*m)[k]) : padrao; }
+  bool getBool(const char* k, bool padrao) { return m->count(k) ? (*m)[k] == "1" : padrao; }
+  size_t putString(const char* k, const char* v) { if (soLeitura) { std::printf("ERRO: gravou em modo leitura\n"); return 0; } (*m)[k] = v; return 1; }
+  size_t putUShort(const char* k, uint16_t v) { if (soLeitura) return 0; (*m)[k] = std::to_string(v); return 2; }
+  size_t putBool(const char* k, bool v) { if (soLeitura) { std::printf("ERRO: gravou em modo leitura\n"); return 0; } (*m)[k] = v ? "1" : "0"; return 1; }
+  bool clear() { m->clear(); return true; }
 };
+static uint32_t sementeAleatoria = 0x1000;
+inline uint32_t esp_random() { return sementeAleatoria += 0x01234567; }
 // atualização pelo Wi-Fi
 typedef int ota_error_t;
 struct OtaFalso {
@@ -100,17 +105,25 @@ struct WiFiManager {
   // o celular envia o formulário
   void enviar(std::map<std::string, std::string> v) { for (auto* c : campos) if (v.count(c->id)) c->valor = v[c->id]; if (salvar) salvar(); }
 };
-struct WiFiClient {};
+struct Client {};
+struct WiFiClient : Client {};
+struct WiFiClientSecure : Client { const char* ca = nullptr; void setCACert(const char* c) { ca = c; } };
 struct Publicacao { std::string topico, corpo; bool retido; };
 static std::vector<Publicacao> publicadas;
 static std::vector<std::string> assinados;
+static int recusarLogin = 0;        // 0 = aceita; senão, o estado MQTT devolvido para a senha própria (4 ou 5)
 struct PubSubClient {
   bool conectado = false; void (*cb)(char*, byte*, unsigned int) = nullptr; std::string lwt; size_t buf = 256;
-  PubSubClient(WiFiClient&) {}
+  Client* cliente = nullptr; std::string usuario, senha; int estado = 0, tentativas = 0;
+  PubSubClient(Client& c) : cliente(&c) {}
+  void setClient(Client& c) { cliente = &c; }
   void setServer(const char*, int) {} void setBufferSize(size_t n) { buf = n; }
   void setCallback(void (*f)(char*, byte*, unsigned int)) { cb = f; }
-  bool connect(const char*, const char*, const char*, const char* t, int, bool, const char*) { lwt = t; conectado = true; return true; }
-  bool connected() { return conectado; } int state() { return 0; } void loop() {} void disconnect() { conectado = false; desconexoes++; } int desconexoes = 0;
+  bool connect(const char* id, const char* u, const char* s, const char* t, int, bool, const char*) {
+    tentativas++; usuario = u; senha = s; lwt = t;
+    if (recusarLogin && usuario == id) { estado = recusarLogin; conectado = false; return false; }
+    estado = 0; conectado = true; return true; }
+  bool connected() { return conectado; } int state() { return estado; } void loop() {} void disconnect() { conectado = false; desconexoes++; } int desconexoes = 0;
   bool subscribe(const char* t) { assinados.push_back(t); return true; }
   bool publish(const char* t, const char* p, bool r = false) {
     if (strlen(t) + strlen(p) + 5 > buf) { std::printf("ERRO: mensagem maior que o buffer MQTT\n"); return false; }

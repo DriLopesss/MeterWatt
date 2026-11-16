@@ -6,4 +6,4 @@ este pacote é o produto: cada pessoa tem uma conta e só vê os próprios medid
 Rodar a partir da pasta src:  python -m meterwatt
 """
 
-VERSAO = "0.1.0"
+VERSAO = "0.2.0"
