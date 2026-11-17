@@ -11,6 +11,7 @@
 <link rel="preload" href="/estatico/fontes/unbounded-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/estatico/fontes/jetbrains-mono-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/estatico/app.css">
+<script src="/estatico/economia-calculo.js" defer></script>
 <script src="/estatico/app.js" defer></script>
 </head>
 <body data-tela="carregando">
@@ -234,14 +235,16 @@
       <a href="#painel" data-aba="painel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><span>Painel</span></a>
       <a href="#medidores" data-aba="medidores"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M9 17h6"/></svg><span>Medidores</span></a>
       <a href="#aparelhos" data-aba="aparelhos"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg><span>Aparelhos</span></a>
-      <a href="#seguranca" data-aba="seguranca"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6z"/></svg><span>Segurança</span></a>
-      <a href="#privacidade" data-aba="privacidade"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span>Privacidade</span></a>
+      <a href="#economia" data-aba="economia"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7l6.5 6.5 4-4L21 17"/><path d="M15 17h6v-6"/></svg><span>Economia</span></a>
+      <a href="#seguranca" data-aba="seguranca" class="so-tela-grande"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6z"/></svg><span>Segurança</span></a>
+      <a href="#privacidade" data-aba="privacidade" class="so-tela-grande"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span>Privacidade</span></a>
+      <a href="#conta" data-aba="conta" class="so-celular"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Conta</span></a>
     </nav>
     <div class="conta">
       <a href="#avisos" class="sino" id="sino" aria-label="Avisos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></svg><span class="sino-conta" id="sino-conta" hidden></span></a>
-      <a href="#plano" class="conta-plano" id="link-plano">Plano</a>
+      <a href="#plano" class="conta-plano so-tela-grande" id="link-plano">Plano</a>
       <span class="conta-nome" id="nome-usuario"></span>
-      <button type="button" class="discreto" data-acao="sair">Sair</button>
+      <button type="button" class="discreto so-tela-grande" data-acao="sair">Sair</button>
     </div>
   </header>
 
@@ -295,12 +298,15 @@
             <p>Olhamos as madrugadas (0h às 5h) dos últimos 7 dias. Em cada uma, pegamos os 5 minutos de menor consumo: é o que fica ligado mesmo com a casa parada. Usamos a mediana das noites, para uma noite fora do normal não distorcer. Precisa de pelo menos 2 noites quase completas.</p>
             <p>Entram aqui aparelhos em espera, carregadores na tomada, roteador, decodificador e o ciclo mínimo da geladeira. Parte disso é inevitável; o resto costuma sumir com um filtro de linha com interruptor.</p>
           </details>
+          <a class="link-acao" href="#economia/fantasma">Simular quanto dá para cortar</a>
         </article>
 
         <article class="bloco bloco-dias">
           <h2>Últimos 14 dias</h2>
           <div class="barras" id="barras-dias" role="img" aria-label="Consumo por dia"></div>
         </article>
+
+        <article class="bloco bloco-economia" id="bloco-economia" hidden></article>
       </div>
 
       <div class="vazio" id="painel-vazio" hidden>
@@ -367,6 +373,50 @@
           <button type="button" class="secundario" id="teste-recusar">Recusar</button>
         </div>
       </article>
+    </section>
+
+    <!-- ----------------------------------------------- E se eu…? (simulador de economia) -->
+    <section data-rota="economia" hidden>
+      <div class="eco-cabeca">
+        <h1>E se eu…?</h1>
+        <p class="texto">Mexa nos hábitos da casa e veja na hora quanto muda na conta. As contas usam o que o MeterWatt mediu na sua casa. Onde ainda não há medição, entram valores típicos, que você pode corrigir.</p>
+      </div>
+      <div class="eco-grade">
+        <aside class="eco-lado" aria-label="Economia simulada">
+          <div class="eco-placar" id="eco-placar">
+            <p class="eco-placar-rotulo">Com estes ajustes, você economiza</p>
+            <div class="relogio-visor eco-visor" id="visor-economia" role="img"></div>
+            <p class="eco-placar-sub" id="eco-placar-sub"></p>
+          </div>
+          <div class="eco-tarifa" id="eco-tarifa"></div>
+          <p class="so-leitor" id="eco-anuncio" aria-live="polite"></p>
+        </aside>
+        <div class="eco-principal">
+          <article class="bloco eco-plano" id="eco-plano"></article>
+          <div class="eco-cartoes" id="eco-cartoes"></div>
+        </div>
+      </div>
+      <details class="como eco-como">
+        <summary>Como calculamos</summary>
+        <p>A economia de cada ideia é a potência do aparelho vezes o tempo a menos que ele fica ligado. A potência e o tempo de uso do chuveiro e da geladeira vêm do Detetive de aparelhos. O consumo em espera vem das madrugadas, como no consumo fantasma. Um mês, aqui, é a média de um ano: 365 dias divididos por 12.</p>
+        <p>Banho mais curto e chuveiro na posição verão, juntos, não somam simplesmente: um banho mais curto já na posição verão economiza menos que as duas ideias separadas. O total desconta essa diferença.</p>
+        <p>Os valores em reais usam a tarifa por kWh informada. A conta de luz também tem bandeira tarifária e impostos que mudam de mês a mês, então trate o resultado como estimativa.</p>
+        <p>Para conferir se a economia aconteceu, comparamos o consumo por dia nas duas semanas antes de a ação entrar no plano com os dias depois. Só entram dias medidos quase por inteiro, e são precisos pelo menos 5 de cada lado. Calor, visitas e férias também mudam o consumo, então olhe o resultado com isso em mente.</p>
+      </details>
+    </section>
+
+    <section data-rota="conta" hidden>
+      <h1>Conta</h1>
+      <p class="texto" id="conta-quem"></p>
+      <nav class="lista-conta" aria-label="Conta">
+        <a href="#avisos"><span>Avisos</span><span class="lista-conta-extra" id="conta-avisos"></span></a>
+        <a href="#plano" id="conta-plano"><span>Plano</span><span class="lista-conta-extra" id="conta-plano-atual"></span></a>
+        <a href="#seguranca"><span>Segurança</span><span class="lista-conta-extra">senha e verificação em duas etapas</span></a>
+        <a href="#privacidade"><span>Privacidade e seus dados</span><span class="lista-conta-extra">autorizações, cópia e exclusão</span></a>
+        <a href="#politica"><span>Política de privacidade</span></a>
+        <a href="#termos"><span>Termos de uso</span></a>
+      </nav>
+      <div><button type="button" class="secundario" data-acao="sair">Sair da conta</button></div>
     </section>
 
     <!-- ----------------------------------------------- segurança -->
@@ -505,6 +555,7 @@
       <li><strong>Segurança</strong> (sessões abertas, tipo de navegador, início do endereço de rede, registro de atividade): para proteger a conta e mostrar a você o que aconteceu nela. Base legal: legítimo interesse e proteção do titular (art. 7º, IX). [ADVOGADO: confirmar.]</li>
       <li><strong>Detetive de aparelhos</strong>, só se você ligar: quais aparelhos ligam e desligam, quando e quanto gastam. É mais revelador que o consumo total, por isso tem autorização separada. Ao desligar, tudo é apagado. Base legal: consentimento.</li>
       <li><strong>Avisos</strong> (medidor sem sinal, meta, consumo fora do normal, resumo da semana): aparecem no aplicativo e, se você deixar, vão por e-mail com totais de consumo. Fazem parte do serviço que você autorizou ao permitir o tratamento do consumo.</li>
+      <li><strong>Plano de economia</strong> (aba Economia): as ideias que você marcar e os números que você ajustar, como banhos por semana e minutos de uso. Servem para estimar a economia e conferir, depois, se ela aconteceu. Ficam até você tirar do plano, apagar o consumo ou excluir a conta. Fazem parte do serviço que você autorizou ao permitir o tratamento do consumo.</li>
       <li><strong>Assinatura</strong>: se você assinar um plano, guardamos a situação da assinatura e o valor. O pagamento é feito na página do Mercado Pago; nunca vemos nem guardamos o número do cartão. Base legal: execução do contrato. [ADVOGADO/CONTADOR: prazo de guarda dos registros fiscais.]</li>
       <li><strong>Lista de espera</strong>: só o e-mail, para avisar da abertura das vagas, com a sua autorização. Sai pelo link que vem em cada e-mail. Quem não confirma o e-mail é apagado em 7 dias.</li>
       <li><strong>Novidades por e-mail</strong>, só se você marcar. Base legal: consentimento.</li>

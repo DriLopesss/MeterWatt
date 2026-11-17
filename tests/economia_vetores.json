@@ -1,0 +1,281 @@
+{
+ "_leia": "Casos conferidos pelos testes em Python (tests/servidor/test_economia.py) e em JavaScript (tests/web/teste_economia.js). Os valores esperados foram calculados à parte, pelas fórmulas escritas por extenso.",
+ "acoes": [
+  {
+   "nome": "banho 2 min a menos, chuveiro de 5.400 W, 14 banhos por semana",
+   "tipo": "banho_curto",
+   "parametros": {
+    "minutos_a_menos": 2,
+    "potencia_w": 5400,
+    "banhos_semana": 14,
+    "minutos_banho": 9
+   },
+   "kwh_mes": 10.95
+  },
+  {
+   "nome": "metade dos banhos na posição verão",
+   "tipo": "chuveiro_verao",
+   "parametros": {
+    "porcentagem": 50,
+    "potencia_w": 5400,
+    "potencia_verao_w": 3000,
+    "banhos_semana": 14,
+    "minutos_banho": 9
+   },
+   "kwh_mes": 10.95
+  },
+  {
+   "nome": "cortar 25 W de espera por 20 horas por dia",
+   "tipo": "fantasma",
+   "parametros": {
+    "watts_cortados": 25,
+    "horas_dia": 20
+   },
+   "kwh_mes": 15.208333
+  },
+  {
+   "nome": "zero horas: nada muda",
+   "tipo": "fantasma",
+   "parametros": {
+    "watts_cortados": 25,
+    "horas_dia": 0
+   },
+   "kwh_mes": 0
+  },
+  {
+   "nome": "trocar geladeira de 60 por 35 kWh por mês",
+   "tipo": "geladeira",
+   "parametros": {
+    "kwh_mes_atual": 60,
+    "kwh_mes_nova": 35,
+    "preco": 2500
+   },
+   "kwh_mes": 25
+  },
+  {
+   "nome": "geladeira nova gasta mais: economia zero, não negativa",
+   "tipo": "geladeira",
+   "parametros": {
+    "kwh_mes_atual": 30,
+    "kwh_mes_nova": 45,
+    "preco": null
+   },
+   "kwh_mes": 0
+  },
+  {
+   "nome": "ar-condicionado de 900 W, 1 hora a menos por dia",
+   "tipo": "usar_menos",
+   "parametros": {
+    "potencia_w": 900,
+    "minutos_dia": 60
+   },
+   "kwh_mes": 27.375
+  },
+  {
+   "nome": "campos a mais são ignorados",
+   "tipo": "usar_menos",
+   "parametros": {
+    "potencia_w": 1300,
+    "minutos_dia": 5,
+    "qualquer": "coisa"
+   },
+   "kwh_mes": 3.295139
+  },
+  {
+   "nome": "banho não pode ficar com zero minutos",
+   "tipo": "banho_curto",
+   "parametros": {
+    "minutos_a_menos": 9,
+    "potencia_w": 5400,
+    "banhos_semana": 14,
+    "minutos_banho": 9
+   },
+   "erro_campo": "minutos_a_menos"
+  },
+  {
+   "nome": "posição verão precisa gastar menos",
+   "tipo": "chuveiro_verao",
+   "parametros": {
+    "porcentagem": 50,
+    "potencia_w": 5400,
+    "potencia_verao_w": 5400,
+    "banhos_semana": 14,
+    "minutos_banho": 9
+   },
+   "erro_campo": "potencia_verao_w"
+  },
+  {
+   "nome": "texto no lugar de número",
+   "tipo": "usar_menos",
+   "parametros": {
+    "potencia_w": "900",
+    "minutos_dia": 60
+   },
+   "erro_campo": "potencia_w"
+  },
+  {
+   "nome": "verdadeiro/falso no lugar de número",
+   "tipo": "fantasma",
+   "parametros": {
+    "watts_cortados": true,
+    "horas_dia": 20
+   },
+   "erro_campo": "watts_cortados"
+  },
+  {
+   "nome": "campo faltando",
+   "tipo": "fantasma",
+   "parametros": {
+    "watts_cortados": 10
+   },
+   "erro_campo": "horas_dia"
+  },
+  {
+   "nome": "fora do limite",
+   "tipo": "banho_curto",
+   "parametros": {
+    "minutos_a_menos": 2,
+    "potencia_w": 50000,
+    "banhos_semana": 14,
+    "minutos_banho": 9
+   },
+   "erro_campo": "potencia_w"
+  },
+  {
+   "nome": "preço é obrigatório só se vier: faltando também vale",
+   "tipo": "geladeira",
+   "parametros": {
+    "kwh_mes_atual": 50,
+    "kwh_mes_nova": 30
+   },
+   "kwh_mes": 20
+  },
+  {
+   "nome": "ação desconhecida",
+   "tipo": "trocar_de_casa",
+   "parametros": {},
+   "erro_campo": null
+  }
+ ],
+ "totais": [
+  {
+   "nome": "banho mais curto e posição verão juntos (desconta a sobreposição)",
+   "acoes": [
+    {
+     "tipo": "banho_curto",
+     "parametros": {
+      "minutos_a_menos": 2,
+      "potencia_w": 5400,
+      "banhos_semana": 14,
+      "minutos_banho": 9
+     }
+    },
+    {
+     "tipo": "chuveiro_verao",
+     "parametros": {
+      "porcentagem": 50,
+      "potencia_w": 5400,
+      "potencia_verao_w": 3000,
+      "banhos_semana": 14,
+      "minutos_banho": 9
+     }
+    }
+   ],
+   "kwh_mes": 19.466667
+  },
+  {
+   "nome": "ações independentes somam",
+   "acoes": [
+    {
+     "tipo": "fantasma",
+     "parametros": {
+      "watts_cortados": 25,
+      "horas_dia": 20
+     }
+    },
+    {
+     "tipo": "usar_menos",
+     "parametros": {
+      "potencia_w": 900,
+      "minutos_dia": 60
+     }
+    }
+   ],
+   "kwh_mes": 42.583333
+  },
+  {
+   "nome": "tudo junto",
+   "acoes": [
+    {
+     "tipo": "banho_curto",
+     "parametros": {
+      "minutos_a_menos": 2,
+      "potencia_w": 5400,
+      "banhos_semana": 14,
+      "minutos_banho": 9
+     }
+    },
+    {
+     "tipo": "chuveiro_verao",
+     "parametros": {
+      "porcentagem": 50,
+      "potencia_w": 5400,
+      "potencia_verao_w": 3000,
+      "banhos_semana": 14,
+      "minutos_banho": 9
+     }
+    },
+    {
+     "tipo": "fantasma",
+     "parametros": {
+      "watts_cortados": 25,
+      "horas_dia": 20
+     }
+    },
+    {
+     "tipo": "usar_menos",
+     "parametros": {
+      "potencia_w": 900,
+      "minutos_dia": 60
+     }
+    }
+   ],
+   "kwh_mes": 62.05
+  },
+  {
+   "nome": "nenhuma ação",
+   "acoes": [],
+   "kwh_mes": 0
+  }
+ ],
+ "meses_para_pagar": [
+  {
+   "nome": "geladeira de R$ 2.500 que economiza 25 kWh a R$ 0,92",
+   "preco": 2500,
+   "kwh_mes": 25,
+   "tarifa": 0.92,
+   "meses": 108.695652
+  },
+  {
+   "nome": "sem preço",
+   "preco": null,
+   "kwh_mes": 25,
+   "tarifa": 0.92,
+   "meses": null
+  },
+  {
+   "nome": "sem economia",
+   "preco": 2500,
+   "kwh_mes": 0,
+   "tarifa": 0.92,
+   "meses": null
+  },
+  {
+   "nome": "sem tarifa",
+   "preco": 2500,
+   "kwh_mes": 25,
+   "tarifa": null,
+   "meses": null
+  }
+ ]
+}

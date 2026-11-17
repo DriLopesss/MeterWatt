@@ -121,6 +121,7 @@ class Alertas:
                      f"Já foram {_reais(m['gasto_ate_agora'])}.")
             if m["folga_diaria"] is not None and m["folga_diaria"] > 0:
                 texto += f" Para caber na meta, o limite é {_reais(m['folga_diaria'])} por dia até o fim do mês."
+            texto += " Na aba Economia dá para simular onde cortar."
             return self.criar(uid, "meta", f"meta:acima:{mes}", "A previsão passou da meta do mês", texto)
         return self.criar(uid, "meta", f"meta:atencao:{mes}", "A conta está chegando perto da meta", (
             f"A previsão para este mês é {_reais(m['projecao'])}, mais de 90% da sua meta de {_reais(m['meta'])}. "
@@ -205,6 +206,19 @@ class Alertas:
         meta = self.p.medidores.meta_de(uid)
         if meta.get("meta") and not meta.get("sem_tarifa"):
             linhas.append(f"Previsão da conta do mês: {_reais(meta['projecao'])}, para uma meta de {_reais(meta['meta'])}.")
+        v = self.p.economia.verificacao_de(uid)
+        if v and v["pronto"] and v["total"] and v["total"]["variacao"] is not None:
+            desde = datetime.fromisoformat(v["desde"]).strftime("%d/%m")
+            variacao = v["total"]["variacao"]
+            if abs(variacao) < 0.02:
+                linhas.append(f"Plano de economia: desde {desde}, o consumo por dia ficou praticamente igual ao das duas semanas antes.")
+            elif variacao < 0:
+                reais = v["total"]["reais_mes"]
+                linhas.append(f"Plano de economia: desde {desde}, a casa gastou {_n(-variacao * 100, 0)}% menos por dia"
+                              + (f", cerca de {_reais(reais)} por mês." if reais else "."))
+            else:
+                linhas.append(f"Plano de economia: desde {desde}, a casa gastou {_n(variacao * 100, 0)}% mais por dia que nas duas "
+                              "semanas antes. Calor, visitas e férias mudam o consumo: vale olhar a aba Economia.")
         return self.criar(uid, "resumo_semanal", f"resumo:{self.p.dia_local(fim)}", "Resumo da semana", " ".join(linhas))
 
     # ------------------------------------------------------------ telas
