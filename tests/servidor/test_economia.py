@@ -106,7 +106,7 @@ def test_com_medicao_e_detetive_usa_a_casa(cliente, plataforma, relogio):
     por_id = {a["id"]: a for a in e["aparelhos"]}
     assert set(por_id) == {ids["tv"], ids["micro"]}
     assert por_id[ids["tv"]]["minutos_dia"] == 240.0 and por_id[ids["micro"]]["minutos_dia"] == 6.0
-    assert por_id[ids["micro"]]["rotulo"] == "Aparelho de 1300 W"
+    assert por_id[ids["micro"]]["rotulo"] == "Aparelho de 1.300 W"
 
 
 def test_chuveiro_com_nome_tem_preferencia(cliente, plataforma, relogio):

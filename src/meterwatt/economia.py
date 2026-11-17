@@ -132,6 +132,11 @@ def _r(v, casas):
     return None if v is None else round(v, casas)
 
 
+def _rotulo(nome, potencia_w):
+    """Nome do aparelho, ou "Aparelho de 1.300 W" como na tela do Detetive."""
+    return nome or f"Aparelho de {round(potencia_w):,} W".replace(",", ".")
+
+
 class Economia:
     def __init__(self, plataforma):
         self.p = plataforma
@@ -218,7 +223,7 @@ class Economia:
                 continue
             saida["aparelhos"].append({
                 "id": a["id"], "nome": a["nome"], "palpite": a["palpite"], "potencia_w": a["potencia_w"],
-                "rotulo": a["nome"] or f"Aparelho de {a['potencia_w']} W",
+                "rotulo": _rotulo(a["nome"], a["potencia_w"]),
                 "minutos_dia": round(a["duracao_media_min"] * a["vezes_na_semana"] / 7, 1),
             })
         return saida
@@ -279,7 +284,7 @@ class Economia:
         if tipo == "usar_menos":
             if aparelho is not None:
                 chave = f"usar_menos:{aparelho['id']}"
-                nome = aparelho["nome"] or f"Aparelho de {round(aparelho['potencia_w'])} W"
+                nome = _rotulo(aparelho["nome"], aparelho["potencia_w"])
             else:
                 nome = _limpar_nome(dados.get("nome"))
                 if not nome:

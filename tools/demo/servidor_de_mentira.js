@@ -195,7 +195,7 @@
   const TITULOS_ECO = { banho_curto: "Banho mais curto", chuveiro_verao: "Chuveiro na posição verão", fantasma: "Cortar o consumo em espera",
     geladeira: "Trocar a geladeira", usar_menos: "Usar menos" };
   const r2 = (v, c = 2) => (v == null ? null : Math.round(v * 10 ** c) / 10 ** c);
-  const nomeAparelho = (a) => a.nome || `Aparelho de ${a.potencia} W`;
+  const nomeAparelho = (a) => a.nome || `Aparelho de ${a.potencia.toLocaleString("pt-BR")} W`;
   const minutosPorDia = (a) => (a.ciclo ? 1440 * a.ciclo[0] / (a.ciclo[0] + a.ciclo[1]) : a.janelas.reduce((s, [x, y]) => s + y - x, 0));
 
   function baseEconomia() {

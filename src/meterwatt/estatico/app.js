@@ -1406,7 +1406,8 @@ function grupoFantasma() {
 function linhasUsarMenos() {
   const d = eco.dados, linhas = [], vistas = new Set();
   const por = (l) => { if (!vistas.has(l.chave)) { vistas.add(l.chave); linhas.push(l); } };
-  d.aparelhos.forEach((a) => por({ chave: `usar_menos:${a.id}`, nome: a.rotulo, aparelho_id: a.id, potencia_w: a.potencia_w, minutos_dia: a.minutos_dia, fonte: "detetive" }));
+  d.aparelhos.forEach((a) => por({ chave: `usar_menos:${a.id}`, nome: a.rotulo, semNome: !a.nome, aparelho_id: a.id, potencia_w: a.potencia_w,
+    minutos_dia: a.minutos_dia, fonte: "detetive" }));
   d.plano.filter((a) => a.tipo === "usar_menos").forEach((a) => por(a.aparelho_id
     ? { chave: a.chave, nome: a.nome, aparelho_id: a.aparelho_id, potencia_w: a.parametros.potencia_w, fonte: "detetive" }
     : { chave: a.chave, nome: a.nome, potencia_w: a.parametros.potencia_w, editavel: true }));
@@ -1464,7 +1465,8 @@ function linhaUsarMenos(linha) {
     topo = el("div", { class: "eco-campos" }, el("label", {}, "Aparelho", nome), el("label", {}, "Potência (W)", potencia));
   } else {
     topo = el("div", { class: "eco-linha-topo" }, el("h3", {}, v.nome),
-      linha.editavel ? el("label", { class: "eco-potencia" }, potencia, "W") : el("span", { class: "eco-linha-info" }, `${fmt.num(linha.potencia_w)} W`),
+      linha.editavel ? el("label", { class: "eco-potencia" }, potencia, "W")
+        : linha.semNome ? null : el("span", { class: "eco-linha-info" }, `${fmt.num(linha.potencia_w)} W`),   // sem nome, o título já diz a potência
       linha.fonte ? el("span", { class: "etiqueta" }, ECO_FONTES[linha.fonte]) : null);
   }
   const tirar = linha.id && !planoPorChave(linha.chave)
@@ -1482,8 +1484,9 @@ function grupoUsarMenos() {
   const linhas = linhasUsarMenos();
   const presentes = new Set(linhas.map((l) => l.chave));
   const d = eco.dados;
+  const semNome = linhas.some((l) => l.semNome);
   const intro = linhas.length
-    ? "Menos minutos por dia de um aparelho que puxa bastante energia."
+    ? `Menos minutos por dia de um aparelho que puxa bastante energia.${semNome ? " Dê nome aos aparelhos na aba Aparelhos para reconhecer cada um aqui." : ""}`
     : d.detetive_ligado
       ? "O Detetive ainda não separou aparelhos da sua casa. Escolha um para simular:"
       : "Com o Detetive de aparelhos ligado, os aparelhos medidos na sua casa aparecem aqui. Por enquanto, escolha um para simular:";
