@@ -165,7 +165,7 @@ class Detetive:
             geral = conn.execute("SELECT AVG(fim - inicio) AS duracao, MAX(fim) AS ultimo FROM ciclos WHERE aparelho_id = ?", (a["id"],)).fetchone()
             duracao_min = (semana["duracao"] or geral["duracao"] or 0) / 60
             dias = max(1.0, min(7.0, (agora - semana["primeiro"]) / 86400)) if semana["primeiro"] else None
-            kwh_mes = (semana["wh"] or 0) / 1000 / dias * 30 if dias else None
+            kwh_mes = (semana["wh"] or 0) / 1000 / dias * 365 / 12 if dias else None
             ligado = conn.execute(
                 "SELECT 1 FROM degraus_abertos WHERE medidor_id = ? AND instante >= ? AND ABS(delta_w - ?) <= ?",
                 (a["medidor_id"], agora - CICLO_MAXIMO_S, a["potencia_w"], max(AGRUPAR_W, AGRUPAR_RELATIVO * a["potencia_w"]))).fetchone()

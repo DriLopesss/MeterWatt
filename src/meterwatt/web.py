@@ -401,6 +401,28 @@ def criar_app(plataforma):
         detetive.alterar(g.sessao, aparelho_id, corpo())
         return ok(detetive.listar(g.sessao))
 
+    # ------------------------------------------------------------ E se eu…? (simulador e plano de economia)
+
+    @app.get("/api/economia")
+    @exige_sessao()
+    def economia():
+        return ok(plataforma.economia.estado(g.sessao))
+
+    @app.get("/api/economia/resumo")
+    @exige_sessao()
+    def economia_resumo():
+        return ok(plataforma.economia.resumo(g.sessao))
+
+    @app.post("/api/economia/plano")
+    @exige_sessao()
+    def economia_salvar():
+        return ok(plataforma.economia.salvar(g.sessao, corpo(), ip()))
+
+    @app.delete("/api/economia/plano/<int:acao_id>")
+    @exige_sessao()
+    def economia_remover(acao_id):
+        return ok(plataforma.economia.remover(g.sessao, acao_id, ip()))
+
     # ------------------------------------------------------------ plano e cobrança (cancelar é sempre possível)
 
     @app.get("/api/plano")

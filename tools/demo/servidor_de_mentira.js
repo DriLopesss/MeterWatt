@@ -3,6 +3,11 @@
  * Responde às mesmas chamadas /api/... do servidor de verdade, com uma casa inventada.
  * Nada sai do navegador e nada é guardado: recarregar a página volta tudo ao começo.
  * Os números são SIMULADOS. Não use esta página como prova de medição.
+ *
+ * A história da casa: o medidor chegou há 21 dias. Há 7 dias a família pôs no plano de economia
+ * banhos 2 minutos mais curtos e o corte de parte do consumo em espera; antes disso, os banhos
+ * duravam 11 minutos e a casa deixava 96 W ligados de madrugada. É isso que o "Deu certo?" mostra.
+ * As contas do plano usam economia-calculo.js, o mesmo arquivo do aplicativo.
  */
 "use strict";
 (() => {
@@ -21,6 +26,10 @@
     { id: 4, nome: null, potencia: 110, janelas: [[19 * 60, 23 * 60]] },                                                  // TV
   ];
   const FANTASMA_W = 74;
+  const MEDIDOR_DESDE = agora() - 21 * DIA;
+  const PLANO_DESDE = agora() - 7 * DIA;
+  // Antes do plano: banhos de 11 minutos (2 a mais, 2 por dia, 5.400 W) e 22 W a mais em espera.
+  const ANTES_DO_PLANO_KWH = (5400 * 2 * 2 / 60 + 22 * 24) / 1000;
   function ligado(ap, t) {
     const minuto = (t - inicioDoDia(t)) / 60;
     if (ap.ciclo) return (t / 60) % (ap.ciclo[0] + ap.ciclo[1]) < ap.ciclo[0];
@@ -41,19 +50,34 @@
     return wh;
   }
   function kwhDoDia(inicio) {
-    if (!cacheDia.has(inicio)) cacheDia.set(inicio, whEntre(inicio, inicio + DIA) / 1000 * (0.9 + ruido(inicio / DIA) * 0.25));
+    if (!cacheDia.has(inicio)) {
+      const extra = inicio + DIA <= inicioDoDia(PLANO_DESDE) ? ANTES_DO_PLANO_KWH : 0;
+      cacheDia.set(inicio, whEntre(inicio, inicio + DIA) / 1000 * (0.9 + ruido(inicio / DIA) * 0.25) + extra);
+    }
     return cacheDia.get(inicio);
   }
+  // Dia medido por inteiro? O dia do pareamento (pela metade) e o de hoje não contam.
+  const kwhMedido = (inicio) => (inicio > inicioDoDia(MEDIDOR_DESDE) && inicio < inicioDoDia(agora()) ? kwhDoDia(inicio) : 0);
   const kwhHoje = () => whEntre(inicioDoDia(agora()), agora()) / 1000;
 
   /* ---------------- o que a pessoa mexe na demonstração ---------------- */
   const E = {
     dentro: true, tarifa: 0.92, meta: 180, plano: "gratis", assinatura: null, avisosLidos: false,
-    medidores: [{ id: "mw-DEMO0001", apelido: "Casa", pareado: agora() - 9 * DIA }],
-    aceites: { termos: true, privacidade: true, consumo: true, historico_longo: false, aparelhos: false, novidades: false },
+    medidores: [{ id: "mw-DEMO0001", apelido: "Casa", pareado: MEDIDOR_DESDE }],
+    aceites: { termos: true, privacidade: true, consumo: true, historico_longo: false, aparelhos: true, novidades: false },
     porEmail: { medidor_offline: true, meta: true, consumo_incomum: true, resumo_semanal: true },
     pareando: null, ocultos: new Set(),
-    atividade: [["Entrada na conta", 0.02], ["Tarifa ou meta alteradas", 2.1], ["Medidor pareado (mw-DEMO0001)", 9], ["E-mail confirmado", 9.01], ["Conta criada", 9.02]],
+    atividade: [["Entrada na conta", 0.02], ["Tarifa ou meta alteradas", 2.1],
+      ["Plano de economia alterado", 7, "Cortar o consumo em espera: no plano"], ["Plano de economia alterado", 7.001, "Banho mais curto: no plano"],
+      ["Autorização alterada", 20.5, "Detetive de aparelhos: autorizado"], ["Medidor pareado (mw-DEMO0001)", 21], ["E-mail confirmado", 21.01], ["Conta criada", 21.02]],
+    // Plano de economia: começa com o que a família pôs há 7 dias.
+    economia: [
+      { id: 1, tipo: "banho_curto", chave: "banho_curto", nome: null, aparelho_id: null, criada: PLANO_DESDE,
+        parametros: { minutos_a_menos: 2, potencia_w: 5400, banhos_semana: 14, minutos_banho: 11 } },
+      { id: 2, tipo: "fantasma", chave: "fantasma", nome: null, aparelho_id: null, criada: PLANO_DESDE + 60,
+        parametros: { watts_cortados: 30, horas_dia: 20 } },
+    ],
+    ecoId: 2,
   };
   const FINALIDADES = {
     termos: ["Termos de uso", "Aceite das regras de uso do serviço.", true, false],
@@ -112,7 +136,7 @@
     const hoje = inicioDoDia(agora()), saida = [];
     for (let i = n - 1; i >= 0; i--) {
       const inicio = inicioDoDia(hoje - i * DIA + 3600);
-      const kwh = i === 0 ? kwhHoje() : (i <= 8 ? kwhDoDia(inicio) : 0);       // o medidor "chegou" há 9 dias
+      const kwh = i === 0 ? kwhHoje() : kwhMedido(inicio);
       saida.push({ dia: diaLocal(inicio), kwh: Math.round(kwh * 1000) / 1000, custo: E.tarifa == null ? null : Math.round(kwh * E.tarifa * 100) / 100 });
     }
     return { dias: saida, tarifa_kwh: E.tarifa };
@@ -157,7 +181,7 @@
     const lista = APARELHOS.filter((a) => !E.ocultos.has(a.id)).map((a) => {
       const minutosPorDia = a.ciclo ? 1440 * a.ciclo[0] / (a.ciclo[0] + a.ciclo[1]) : a.janelas.reduce((s, [x, y]) => s + y - x, 0);
       const vezes = a.ciclo ? Math.round(7 * 1440 / (a.ciclo[0] + a.ciclo[1])) : a.janelas.length * 7;
-      const kwhMes = a.potencia * minutosPorDia / 60 / 1000 * 30;
+      const kwhMes = a.potencia * minutosPorDia / 60 / 1000 * 365 / 12;
       let ultima = t;
       if (!ligado(a, t)) for (let x = t; x > t - DIA; x -= 60) if (ligado(a, x)) { ultima = x; break; }
       return { id: a.id, nome: a.nome, palpite: PALPITES[a.id], medidor: "Casa", potencia_w: a.potencia, ciclos_total: vezes, vezes_na_semana: vezes,
@@ -166,14 +190,113 @@
     });
     return { autorizado: true, aparelhos: lista, em_estudo: 1, tem_medidor_compativel: true, ciclos_para_aparecer: 3 };
   }
+
+  /* ---------------- E se eu…? ---------------- */
+  const TITULOS_ECO = { banho_curto: "Banho mais curto", chuveiro_verao: "Chuveiro na posição verão", fantasma: "Cortar o consumo em espera",
+    geladeira: "Trocar a geladeira", usar_menos: "Usar menos" };
+  const r2 = (v, c = 2) => (v == null ? null : Math.round(v * 10 ** c) / 10 ** c);
+  const nomeAparelho = (a) => a.nome || `Aparelho de ${a.potencia.toLocaleString("pt-BR")} W`;
+  const minutosPorDia = (a) => (a.ciclo ? 1440 * a.ciclo[0] / (a.ciclo[0] + a.ciclo[1]) : a.janelas.reduce((s, [x, y]) => s + y - x, 0));
+
+  function baseEconomia() {
+    const saida = { tarifa_kwh: E.tarifa, consumo_kwh_dia: null, detetive_ligado: false, medidores: 0,
+      chuveiro: { potencia_w: 5500, banhos_semana: 14, minutos_banho: 10, fonte: "tipico", aparelho_id: null },
+      fantasma: { watts: 40, fonte: "tipico" }, geladeira: { kwh_mes: 50, potencia_w: null, fonte: "tipico", aparelho_id: null }, aparelhos: [] };
+    if (!E.aceites.consumo) return saida;
+    saida.medidores = E.medidores.length;
+    const semana = dias(8).dias.slice(0, 7).filter((d) => d.kwh > 0);
+    if (semana.length) saida.consumo_kwh_dia = r2(semana.reduce((s, d) => s + d.kwh, 0) / semana.length, 3);
+    saida.fantasma = { watts: FANTASMA_W, fonte: "medido" };
+    saida.detetive_ligado = E.aceites.aparelhos;
+    if (!E.aceites.aparelhos) return saida;
+    const visiveis = APARELHOS.filter((a) => !E.ocultos.has(a.id));
+    const chuveiro = visiveis.find((a) => /chuveiro/i.test(a.nome || "")) || visiveis.find((a) => a.potencia >= 2500);
+    if (chuveiro) saida.chuveiro = { potencia_w: chuveiro.potencia, banhos_semana: chuveiro.janelas.length * 7,
+      minutos_banho: r2(minutosPorDia(chuveiro) / chuveiro.janelas.length, 1), fonte: "detetive", aparelho_id: chuveiro.id };
+    const geladeira = visiveis.find((a) => /geladeira|freezer/i.test(a.nome || "")) || visiveis.find((a) => a.ciclo && a.potencia >= 60 && a.potencia < 400);
+    if (geladeira) saida.geladeira = { kwh_mes: r2(geladeira.potencia * minutosPorDia(geladeira) / 60 / 1000 * 365 / 12, 1), potencia_w: geladeira.potencia,
+      fonte: "detetive", aparelho_id: geladeira.id };
+    saida.aparelhos = visiveis.filter((a) => a !== chuveiro && a !== geladeira && a.potencia < 2500).map((a) => ({ id: a.id, nome: a.nome,
+      palpite: PALPITES[a.id], potencia_w: a.potencia, rotulo: nomeAparelho(a), minutos_dia: r2(minutosPorDia(a), 1) }));
+    return saida;
+  }
+
+  function planoEconomia() {
+    return E.economia.map((a) => ({ id: a.id, tipo: a.tipo, chave: a.chave, titulo: TITULOS_ECO[a.tipo], nome: a.nome, aparelho_id: a.aparelho_id,
+      parametros: a.parametros, kwh_mes: r2(MWEconomia.kwhMes(a.tipo, a.parametros), 3), desde: iso(a.criada) }));
+  }
+
+  function totaisEconomia() {
+    const kwh = MWEconomia.totalKwhMes(E.economia);
+    return { kwh_mes: r2(kwh), reais_mes: E.tarifa == null ? null : r2(kwh * E.tarifa), reais_ano: E.tarifa == null ? null : r2(kwh * 12 * E.tarifa) };
+  }
+
+  // Dias medidos por inteiro antes (14 dias) e depois do dia em que a ação entrou no plano.
+  function janelas(inicio) {
+    const dia0 = inicioDoDia(inicio), antes = [], depois = [];
+    for (let d = inicioDoDia(dia0 - 14 * DIA + 3600); d < dia0; d = inicioDoDia(d + DIA + 3600)) if (kwhMedido(d) > 0) antes.push(kwhMedido(d));
+    for (let d = inicioDoDia(dia0 + DIA + 3600); d < inicioDoDia(agora()); d = inicioDoDia(d + DIA + 3600)) if (kwhMedido(d) > 0) depois.push(kwhMedido(d));
+    return [antes, depois];
+  }
+
+  function verificacaoEconomia() {
+    if (!E.economia.length || !E.aceites.consumo) return null;
+    const inicio = Math.min(...E.economia.map((a) => a.criada));
+    const [antes, depois] = janelas(inicio);
+    const pronto = antes.length >= 5 && depois.length >= 5;
+    const saida = { desde: iso(inicio), pronto, dias_antes: antes.length, dias_depois: depois.length, minimo: 5, total: null, itens: [] };
+    if (!pronto) return saida;
+    const media = (l) => l.reduce((s, x) => s + x, 0) / l.length;
+    const a = media(antes), d = media(depois);
+    saida.total = { antes_kwh_dia: r2(a), depois_kwh_dia: r2(d), variacao: r2((d - a) / a, 3),
+      reais_mes: E.tarifa == null ? null : r2((a - d) * 365 / 12 * E.tarifa) };
+    const pronta = (acoes) => acoes.length && janelas(Math.min(...acoes.map((x) => x.criada))).every((l) => l.length >= 5);
+    // Só as ações da história da casa têm medição antes e depois; as postas hoje ainda não.
+    if (E.aceites.aparelhos && pronta(E.economia.filter((x) => x.tipo === "banho_curto" || x.tipo === "chuveiro_verao"))) {
+      saida.itens.push({ rotulo: "Chuveiro (verão e inverno)", unidade: "kWh por dia", antes: r2(5400 * 22 / 60 / 1000), depois: r2(5400 * 18 / 60 / 1000) });
+    }
+    if (pronta(E.economia.filter((x) => x.tipo === "fantasma"))) saida.itens.push({ rotulo: "Consumo em espera", unidade: "W", antes: FANTASMA_W + 22, depois: FANTASMA_W });
+    return saida;
+  }
+
+  function estadoEconomia() {
+    return { ...baseEconomia(), plano: planoEconomia(), plano_total: totaisEconomia(), verificacao: verificacaoEconomia(), maximo_no_plano: 12 };
+  }
+
+  function salvarEconomia(corpo) {
+    const tipo = corpo.tipo;
+    const v = MWEconomia.validar(tipo, corpo.parametros);
+    if (!v.ok) return [400, { erro: v.erro, codigo: "parametro_invalido" }];
+    if (!(MWEconomia.kwhMes(tipo, v.p) > 0)) return [400, { erro: "Com esses valores não há economia. Ajuste antes de pôr no plano.", codigo: "sem_economia" }];
+    let chave = tipo, nome = null, aparelho = null;
+    if ((tipo === "usar_menos" || tipo === "geladeira") && corpo.aparelho_id != null) {
+      aparelho = APARELHOS.find((a) => a.id === corpo.aparelho_id);
+      if (!aparelho) return [404, { erro: "Aparelho não encontrado.", codigo: null }];
+    }
+    if (tipo === "usar_menos") {
+      if (aparelho) { chave = `usar_menos:${aparelho.id}`; nome = nomeAparelho(aparelho); }
+      else {
+        nome = String(corpo.nome || "").normalize("NFC").split(/\s+/).filter(Boolean).join(" ");
+        if (!nome || nome.length > 40) return [400, { erro: "Dê um nome ao aparelho, com até 40 caracteres.", codigo: "parametro_invalido" }];
+        chave = `usar_menos:outro:${nome.toLowerCase()}`;
+      }
+    }
+    const existente = E.economia.find((a) => a.chave === chave);
+    if (!existente && E.economia.length >= 12) return [400, { erro: "O plano já tem 12 ações. Tire alguma antes de pôr outra.", codigo: null }];
+    if (existente) Object.assign(existente, { parametros: v.p, nome, aparelho_id: aparelho ? aparelho.id : null });
+    else E.economia.push({ id: ++E.ecoId, tipo, chave, nome, aparelho_id: aparelho ? aparelho.id : null, criada: agora(), parametros: v.p });
+    E.atividade.unshift(["Plano de economia alterado", 0, `${TITULOS_ECO[tipo]}${nome ? ` (${nome})` : ""}: no plano`]);
+    return [200, estadoEconomia()];
+  }
+
   function plano() {
     return { disponivel: true, modo_teste: true, plano: E.plano, preco_mensal: 14.9, limite_gratis: 1, limite_pago: 5, medidores: E.medidores.length,
       assinatura: E.assinatura };
   }
   function privacidade() {
-    const desde = iso(agora() - 9 * DIA);
+    const desde = iso(MEDIDOR_DESDE);
     return { finalidades: Object.entries(FINALIDADES).map(([id, [nome, descricao, obrigatorio, revogavel]]) => ({ id, nome, descricao, obrigatorio, revogavel,
-      aceito: E.aceites[id], versao_aceita: "2026-11-16", versao_vigente: "2026-11-16", desde })), historico: [], retencao: RETENCAO,
+      aceito: E.aceites[id], versao_aceita: "2026-11-17", versao_vigente: "2026-11-17", desde })), historico: [], retencao: RETENCAO,
       controlador: null, email_privacidade: null, encarregado: null };
   }
   function eu() {
@@ -188,7 +311,7 @@
     const partes = rota.split("/").filter(Boolean).slice(1);          // sem o "api"
     const chave = `${metodo} /${partes.join("/")}`;
     if (chave === "GET /publico/info") {
-      return [200, { versao: "demonstração", modo: "demonstracao", exigir_2fa: false, termos_versao: "2026-11-16", privacidade_versao: "2026-11-16",
+      return [200, { versao: "demonstração", modo: "demonstracao", exigir_2fa: false, termos_versao: "2026-11-16", privacidade_versao: "2026-11-17",
         finalidades: {}, retencao: RETENCAO, contato: { controlador: null, email_privacidade: null, encarregado: null }, email_de_teste: false,
         plano: { disponivel: true, preco_mensal: 14.9, limite_gratis: 1, limite_pago: 5 }, na_lista_de_espera: 0 }];
     }
@@ -234,6 +357,19 @@
       return [200, aparelhos()];
     }
 
+    if (chave === "GET /economia") return [200, estadoEconomia()];
+    if (chave === "GET /economia/resumo") {
+      return [200, { acoes: E.economia.length, ...totaisEconomia(), verificacao: E.economia.length ? verificacaoEconomia() : null }];
+    }
+    if (chave === "POST /economia/plano") return salvarEconomia(corpo);
+    if (metodo === "DELETE" && partes[0] === "economia" && partes[1] === "plano") {
+      const acao = E.economia.find((a) => a.id === Number(partes[2]));
+      if (!acao) return [404, { erro: "Ação não encontrada.", codigo: null }];
+      E.economia = E.economia.filter((a) => a !== acao);
+      E.atividade.unshift(["Plano de economia alterado", 0, `${TITULOS_ECO[acao.tipo]}${acao.nome ? ` (${acao.nome})` : ""}: fora do plano`]);
+      return [200, estadoEconomia()];
+    }
+
     if (chave === "GET /plano" || chave === "POST /plano/atualizar") return [200, plano()];
     if (chave === "POST /plano/assinar") {
       E.assinatura = { status: "pendente", valor: 14.9, desde: iso(agora()), proxima_cobranca: null, valida_ate: null, link_pagamento: "#pagamento-teste/demonstracao" };
@@ -247,7 +383,7 @@
 
     if (chave === "GET /privacidade") return [200, privacidade()];
     if (chave === "GET /privacidade/atividade") {
-      return [200, { atividade: E.atividade.map(([descricao, diasAtras]) => ({ quando: iso(agora() - diasAtras * DIA), evento: "demo", descricao, detalhe: null, rede: null })) }];
+      return [200, { atividade: E.atividade.map(([descricao, diasAtras, detalhe = null]) => ({ quando: iso(agora() - diasAtras * DIA), evento: "demo", descricao, detalhe, rede: null })) }];
     }
     if (chave === "POST /privacidade/exportar") {
       return [200, { observacao: "Arquivo de demonstração: dados simulados.", conta: { nome: "Visitante" }, autorizacoes: E.aceites, consumo_por_dia: dias(14).dias }, "meterwatt-demonstracao.json"];
@@ -255,7 +391,7 @@
     if (partes[0] === "privacidade" && metodo === "PUT" && partes[1] in FINALIDADES) {
       if (!FINALIDADES[partes[1]][3]) return [400, { erro: "Esta autorização faz parte do uso do serviço. Para deixar de usá-lo, exclua a conta.", codigo: null }];
       E.aceites[partes[1]] = corpo.aceito === true;
-      E.atividade.unshift([`Autorização alterada (${FINALIDADES[partes[1]][0]}: ${corpo.aceito ? "autorizado" : "revogado"})`, 0]);
+      E.atividade.unshift(["Autorização alterada", 0, `${FINALIDADES[partes[1]][0]}: ${corpo.aceito ? "autorizado" : "revogado"}`]);
       return [200, privacidade()];
     }
     return NAO_NA_DEMO;

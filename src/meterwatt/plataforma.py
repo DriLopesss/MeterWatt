@@ -44,6 +44,7 @@ class Plataforma:
         from .alertas import Alertas
         from .contas import Contas
         from .detetive import Detetive
+        from .economia import Economia
         from .espera import ListaDeEspera
         from .medidores import Medidores
         from .pagamentos import Pagamentos
@@ -55,6 +56,7 @@ class Plataforma:
         self.detetive = Detetive(self)
         self.pagamentos = Pagamentos(self, provedor_de_pagamento)
         self.espera = ListaDeEspera(self)
+        self.economia = Economia(self)
 
     # ------------------------------------------------------------ tempo
 

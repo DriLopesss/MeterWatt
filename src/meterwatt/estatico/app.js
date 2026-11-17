@@ -140,13 +140,15 @@ function formulario(form, enviar) {
 /* ------------------------------------------------------------------ rotas */
 
 const ROTAS_PUBLICAS = new Set(["entrar", "cadastro", "enviado", "confirmar", "esqueci", "redefinir", "2fa"]);
-const ROTAS_APP = new Set(["painel", "medidores", "aparelhos", "avisos", "plano", "pagamento-teste", "seguranca", "privacidade"]);
+const ROTAS_APP = new Set(["painel", "medidores", "aparelhos", "economia", "conta", "avisos", "plano", "pagamento-teste", "seguranca", "privacidade"]);
+// No celular, estas telas ficam dentro da aba "Conta".
+const DENTRO_DE_CONTA = new Set(["conta", "seguranca", "privacidade", "plano", "avisos", "pagamento-teste"]);
 const ROTAS_INICIO = new Set(["inicio", "fila", "convite", "sair-da-fila"]);
 const DOCUMENTOS = new Set(["politica", "termos"]);
 const TITULOS = { entrar: "Entrar", cadastro: "Criar conta", painel: "Painel", medidores: "Medidores", seguranca: "Segurança",
   privacidade: "Privacidade", politica: "Política de privacidade", termos: "Termos de uso", "2fa": "Verificação",
   inicio: "Energia que você enxerga", fila: "Lista de espera", "sair-da-fila": "Sair da lista", aparelhos: "Aparelhos",
-  avisos: "Avisos", plano: "Plano", "pagamento-teste": "Pagamento de teste" };
+  avisos: "Avisos", plano: "Plano", "pagamento-teste": "Pagamento de teste", economia: "E se eu…?", conta: "Conta" };
 
 function ir(rota) {
   if (location.hash !== `#${rota}`) location.hash = rota;
@@ -195,7 +197,10 @@ async function mostrar() {
 
   const raiz = area === "app" ? $("#area-app") : area === "inicio" ? $("#area-inicio") : $("#area-publica");
   $$("section[data-rota]", raiz).forEach((s) => { s.hidden = s.dataset.rota !== alvo; });
-  $$(".abas a").forEach((a) => (a.dataset.aba === alvo ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
+  $$(".abas a").forEach((a) => {
+    const atual = a.dataset.aba === alvo || (a.dataset.aba === "conta" && DENTRO_DE_CONTA.has(alvo));
+    if (atual) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
   if (estado.rota !== null && estado.rota !== alvo) $(area === "app" ? "#conteudo-app" : area === "inicio" ? "#conteudo-inicio" : "#conteudo").focus({ preventScroll: true });
   estado.rota = alvo;
   window.scrollTo({ top: 0 });
@@ -203,6 +208,7 @@ async function mostrar() {
 
   const telas = { painel: telaPainel, medidores: telaMedidores, seguranca: telaSeguranca, privacidade: telaPrivacidade,
     aparelhos: telaAparelhos, avisos: telaAvisos, plano: telaPlano, "pagamento-teste": () => telaPagamentoTeste(token),
+    economia: () => telaEconomia(token), conta: telaConta,
     inicio: telaInicio, fila: () => telaFila(token), "sair-da-fila": () => { estado.tokenFila = token; },
     confirmar: () => confirmarEmail(token), redefinir: () => { estado.tokenRedefinir = token; }, "2fa": tela2fa };
   if (DOCUMENTOS.has(alvo)) return mostrarDocumento(alvo, raiz);
@@ -339,45 +345,56 @@ async function sair() {
   try { await api("POST", "/api/conta/sair"); } catch { /* sai mesmo assim */ }
   estado.eu = null;
   estado.csrf = null;
+  eco.valores = {};          // o que foi ajustado no "E se eu…?" não passa para a próxima conta
+  eco.extras = [];
   ir("entrar");
 }
 
 /* ------------------------------------------------------------------ painel */
 
-const visor = {
-  atual: "",
-  mostrar(texto, unidade) {
-    const caixa = $("#visor-agora");
-    const chave = `${texto}|${unidade}`;
-    if (chave === this.atual) return;
-    const antigo = this.atual.split("|")[0];
-    this.atual = chave;
-    const larguraIgual = antigo.length === texto.length && caixa.children.length;
-    if (!larguraIgual) {
-      caixa.replaceChildren(...[...texto].map((c) => el("span", { class: `digito${c === " " ? " vazio" : ""}` }, el("span", {}, c === " " ? "" : c))),
-        el("span", { class: "relogio-unidade" }, unidade));
-      caixa.setAttribute("aria-label", `${texto.trim()} ${unidade}`);
-      return;
-    }
-    [...texto].forEach((c, i) => {
-      if (c === antigo[i]) return;
-      const casa = caixa.children[i];
-      const velho = casa.firstElementChild;
-      const novo = el("span", { class: semMovimento ? "" : "entra" }, c === " " ? "" : c);
-      if (semMovimento) { velho.replaceWith(novo); return; }
-      velho.className = "sai";
-      casa.append(novo);
-      setTimeout(() => velho.remove(), 450);
-    });
-    caixa.lastElementChild.textContent = unidade;
-    caixa.setAttribute("aria-label", `${texto.trim()} ${unidade}`);
-  },
-};
+/* O "relógio de luz": dígitos que viram quando o número muda. Serve ao painel, à página
+ * inicial e ao "E se eu…?". `prefixo` aparece antes dos dígitos (ex.: "R$"). */
+function criarVisor(caixa) {
+  let atual = { texto: "", unidade: "", prefixo: "" };
+  return {
+    mostrar(texto, unidade, prefixo = "") {
+      if (texto === atual.texto && unidade === atual.unidade && prefixo === atual.prefixo) return;
+      const casas = $$(".digito", caixa);
+      if (texto.length !== atual.texto.length || prefixo !== atual.prefixo || casas.length !== texto.length) {
+        caixa.replaceChildren(
+          ...(prefixo ? [el("span", { class: "relogio-prefixo" }, prefixo)] : []),
+          ...[...texto].map((c) => el("span", { class: /[.,]/.test(c) ? "digito sinal" : "digito" }, el("span", {}, c))),
+          el("span", { class: "relogio-unidade" }, unidade));
+      } else {
+        [...texto].forEach((c, i) => {
+          if (c === atual.texto[i]) return;
+          const velho = casas[i].lastElementChild;
+          const novo = el("span", { class: semMovimento ? "" : "entra" }, c);
+          if (semMovimento) { velho.replaceWith(novo); return; }
+          $$(".sai", casas[i]).forEach((x) => x.remove());          // arrastando rápido, não acumula
+          velho.className = "sai";
+          casas[i].append(novo);
+          setTimeout(() => velho.remove(), 450);
+        });
+        $(".relogio-unidade", caixa).textContent = unidade;
+      }
+      atual = { texto, unidade, prefixo };
+      caixa.setAttribute("aria-label", `${prefixo} ${texto} ${unidade}`.trim());
+    },
+  };
+}
+
+const visor = criarVisor($("#visor-agora"));
 
 async function telaPainel() {
   await Promise.all([atualizarAgora(), atualizarMeta(), atualizarFantasma(), atualizarDias()]);
+  await atualizarEconomiaPainel().catch(() => {});
   estado.timers.push(setInterval(() => { if (!document.hidden) atualizarAgora().catch(() => {}); }, 2000));
-  estado.timers.push(setInterval(() => { if (!document.hidden) { atualizarMeta().catch(() => {}); atualizarFantasma().catch(() => {}); } }, 60000));
+  estado.timers.push(setInterval(() => {
+    if (document.hidden) return;
+    atualizarMeta().catch(() => {});
+    atualizarFantasma().then(atualizarEconomiaPainel).catch(() => {});
+  }, 60000));
   const f = $("#form-preferencias");
   f.elements.meta_mensal_reais.value = estado.eu.meta_mensal_reais != null ? fmt.num(estado.eu.meta_mensal_reais, 2) : "";
   f.elements.tarifa_kwh.value = estado.eu.tarifa_kwh != null ? fmt.num(estado.eu.tarifa_kwh, 4) : "";
@@ -447,6 +464,7 @@ async function atualizarMeta() {
 
 async function atualizarFantasma() {
   const f = await api("GET", "/api/fantasma");
+  estado.fantasma = f;
   const caixa = $("#fantasma-conteudo");
   if (!f.disponivel) {
     caixa.replaceChildren(el("p", { class: "fantasma-texto" },
@@ -997,6 +1015,728 @@ function cartaoAparelho(a) {
       } }, "Não é um aparelho")));
 }
 
+/* ------------------------------------------------------------------ E se eu…? (simulador de economia) */
+
+/* Como a tela funciona:
+ * - Cada "ideia" é uma ação que pode entrar no plano. As fórmulas estão em economia-calculo.js,
+ *   as mesmas do servidor. A ideia lê os próprios parâmetros e sabe se já está no plano (`salva`).
+ * - O que a pessoa ajusta fica em eco.valores, por chave. Assim a tela pode ser redesenhada
+ *   inteira depois de salvar sem perder nada do que foi arrastado.
+ * - O placar soma as ideias com economia, descontando a sobreposição de banho e posição verão,
+ *   do mesmo jeito que o servidor soma o plano. */
+
+const ECO_APARELHOS = [
+  { nome: "Ar-condicionado", potencia_w: 900 },
+  { nome: "Ferro de passar", potencia_w: 1100 },
+  { nome: "Secador de cabelo", potencia_w: 1800 },
+  { nome: "Aquecedor", potencia_w: 1500 },
+];
+const ECO_FONTES = { detetive: "medido pelo Detetive", medido: "medido nas madrugadas", tipico: "valor típico", ajustado: "ajustado por você",
+  plano: "como no seu plano" };
+const eco = { dados: null, valores: {}, extras: [], ideias: [], grupos: [], visor: null, timer: 0, anuncio: 0, ajustarAberto: false, nExtras: 0, nControles: 0 };
+
+const limitar = (v, [min, max]) => Math.min(max, Math.max(min, v));
+const limparNome = (nome) => String(nome || "").normalize("NFC").split(/\s+/).filter(Boolean).join(" ");
+const chaveOutro = (nome) => `usar_menos:outro:${limparNome(nome).toLowerCase()}`;
+const diaMes = (iso) => new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+const minutos = (m) => `${fmt.num(m, Number.isInteger(m) ? 0 : 1)} min`;
+const chaveDe = (ideia) => (typeof ideia.chave === "function" ? ideia.chave() : ideia.chave);
+const planoPorChave = (chave) => eco.dados.plano.find((a) => a.chave === chave) || null;
+const emDinheiro = (kwh) => (eco.dados.tarifa_kwh != null ? fmt.reais(kwh * eco.dados.tarifa_kwh) : fmt.kwh(kwh));
+
+function valorDe(chave, inicial) {
+  if (!eco.valores[chave]) eco.valores[chave] = inicial();
+  return eco.valores[chave];
+}
+
+async function telaEconomia(foco) {
+  eco.visor = eco.visor || criarVisor($("#visor-economia"));
+  aplicarEconomia(await api("GET", "/api/economia"));
+  const alvo = foco && $(`.eco-grupo[data-grupo="${CSS.escape(foco)}"]`);
+  if (alvo) {
+    alvo.scrollIntoView({ block: "start" });
+    const primeiro = $("input, button", alvo);
+    if (primeiro) primeiro.focus({ preventScroll: true });
+  }
+}
+
+/* Redesenha a tela a partir do que veio do servidor. `focoChave`: ideia que recebe o foco. */
+function aplicarEconomia(dados, focoChave = null) {
+  eco.dados = dados;
+  prepararChuveiro();
+  desenharIdeias();
+  desenharPlanoEconomia();
+  desenharTarifaEconomia();
+  atualizarPlacar();
+  if (focoChave) {
+    const caixa = $(`[data-chave="${CSS.escape(focoChave)}"]`);
+    const alvo = caixa && ($(".eco-acoes button", caixa) || $("input", caixa));
+    if (alvo) alvo.focus({ preventScroll: true });
+  }
+}
+
+/* ---------- peças de montar */
+
+/* Controle deslizante com rótulo e valor ao lado. */
+function controle({ rotulo, min, max, passo = 1, valor, texto, aoMudar }) {
+  const id = `eco-c${++eco.nControles}`;
+  const entrada = el("input", { type: "range", id, min, max, step: passo });
+  const saida = el("output", { for: id });
+  entrada.value = valor;
+  const pintar = () => {
+    const v = Number(entrada.value);
+    const mn = Number(entrada.min), mx = Number(entrada.max);
+    saida.textContent = texto(v);
+    entrada.setAttribute("aria-valuetext", texto(v));
+    entrada.style.setProperty("--p", `${mx > mn ? ((v - mn) / (mx - mn)) * 100 : 0}%`);
+    entrada.disabled = mx <= mn;
+  };
+  entrada.addEventListener("input", () => { pintar(); aoMudar(Number(entrada.value)); });
+  entrada.addEventListener("change", anunciarPlacar);
+  pintar();
+  return {
+    raiz: el("div", { class: "eco-controle" }, el("label", { for: id }, rotulo), saida, entrada),
+    entrada,
+    novoMaximo(max) {         // muda o limite sem redesenhar (o foco continua onde está)
+      entrada.max = max;
+      if (Number(entrada.value) > max) { entrada.value = max; aoMudar(max); }
+      pintar();
+    },
+  };
+}
+
+function novaIdeia(def) {
+  const ideia = { aparelho_id: null, ...def, dom: {}, r: null };
+  ideia.salva = planoPorChave(chaveDe(ideia));
+  eco.ideias.push(ideia);
+  return ideia;
+}
+
+/* O pedaço de uma ideia: título opcional, controles, efeito e o rodapé com economia e botões. */
+function blocoIdeia(ideia, { titulo = null, filhos = [] }) {
+  ideia.dom.ganho = el("p", { class: "eco-ganho" });
+  ideia.dom.acoes = el("div", { class: "eco-acoes" });
+  ideia.dom.erro = el("p", { class: "erro", role: "alert" });
+  ideia.dom.raiz = el("div", { class: "eco-sub", "data-chave": chaveDe(ideia) },
+    titulo ? el("h3", {}, titulo) : null, ...filhos,
+    el("div", { class: "eco-rodape" }, ideia.dom.ganho, ideia.dom.acoes), ideia.dom.erro);
+  return ideia.dom.raiz;
+}
+
+function grupo({ id, titulo, fonte = null, contexto, filhos }) {
+  const etiqueta = el("span", { class: `etiqueta${fonte === "tipico" ? " estimado" : ""}` }, fonte ? ECO_FONTES[fonte] : "");
+  etiqueta.hidden = !fonte;
+  const caixa = el("article", { class: "eco-grupo", "data-grupo": id },
+    el("div", { class: "eco-grupo-topo" }, el("h2", {}, titulo), etiqueta),
+    contexto, ...filhos);
+  caixa.etiqueta = etiqueta;
+  return caixa;
+}
+
+function calcularIdeia(ideia) {
+  const parametros = ideia.ler();
+  if (!parametros) return { ok: false, inativa: true, kwh: 0 };
+  const v = MWEconomia.validar(ideia.tipo, parametros);
+  if (!v.ok) return { ok: false, erro: v.erro, kwh: 0 };
+  return { ok: true, p: v.p, kwh: MWEconomia.kwhMes(ideia.tipo, v.p) };
+}
+
+function recalcular(ideia) {
+  const r = calcularIdeia(ideia);
+  ideia.r = r;
+  const { ganho, erro } = ideia.dom;
+  ganho.toggleAttribute("data-zero", !(r.kwh > 0));
+  const tarifa = eco.dados.tarifa_kwh;
+  ganho.replaceChildren(...(tarifa != null
+    ? [el("strong", {}, fmt.reais(r.kwh * tarifa)), " por mês", el("small", {}, fmt.kwh(r.kwh))]
+    : [el("strong", {}, fmt.kwh(r.kwh)), " por mês"]));
+  erro.textContent = r.ok || r.inativa ? "" : r.erro;
+  ideia.dom.raiz.toggleAttribute("data-inativa", !!r.inativa);
+  desenharAcoes(ideia);
+  return r;
+}
+
+function mudouDoSalvo(ideia) {
+  const s = ideia.salva, r = ideia.r;
+  if (!s || !r || !r.ok) return false;
+  return Object.keys(r.p).some((k) => {
+    const a = r.p[k], b = s.parametros[k];
+    return a == null || b == null ? a != b : Math.abs(a - b) > 1e-6;   // eslint-disable-line eqeqeq
+  });
+}
+
+function desenharAcoes(ideia) {
+  const s = ideia.salva, r = ideia.r;
+  const pode = r.ok && r.kwh > 0;
+  const mudou = mudouDoSalvo(ideia);
+  const marca = `${s ? s.id : ""}|${pode}|${mudou}`;
+  ideia.dom.raiz.toggleAttribute("data-no-plano", !!s);
+  if (ideia.dom.acoes.dataset.marca === marca) return;          // nada mudou: não troca os botões
+  ideia.dom.acoes.dataset.marca = marca;
+  ideia.dom.acoes.replaceChildren(...[
+    s ? el("span", { class: "selo-plano" }, `No plano desde ${diaMes(s.desde)}`) : null,
+    pode && (!s || mudou) ? el("button", { type: "button", class: "verde", onclick: (ev) => salvarIdeia(ideia, ev.currentTarget) },
+      s ? "Atualizar o plano" : "Vou tentar") : null,
+    s ? el("button", { type: "button", class: "discreto", onclick: (ev) => removerIdeia(ideia, ev.currentTarget) }, "Tirar do plano") : null,
+  ].filter(Boolean));       // replaceChildren escreveria "null" na tela
+}
+
+function tituloDe(ideia) {
+  if (ideia.tipo !== "usar_menos") return ideia.titulo;
+  return `Usar menos (${limparNome(ideia.nomeAtual())})`;
+}
+
+async function salvarIdeia(ideia, botao) {
+  const r = calcularIdeia(ideia);
+  if (!r.ok) { ideia.dom.erro.textContent = r.erro || ""; return; }
+  const corpo = { tipo: ideia.tipo, parametros: r.p };
+  if (ideia.aparelho_id) corpo.aparelho_id = ideia.aparelho_id;
+  let chave = chaveDe(ideia);
+  if (ideia.tipo === "usar_menos" && !ideia.aparelho_id) {
+    corpo.nome = limparNome(ideia.nomeAtual());
+    if (!corpo.nome) {
+      ideia.dom.erro.textContent = "Dê um nome ao aparelho para pôr no plano.";
+      if (ideia.dom.nome) ideia.dom.nome.focus();
+      return;
+    }
+    chave = chaveOutro(corpo.nome);
+  }
+  const titulo = tituloDe(ideia);
+  const jaEstava = !!planoPorChave(chave);
+  botao.disabled = true;
+  try {
+    const novo = await api("POST", "/api/economia/plano", corpo);
+    if (chave !== chaveDe(ideia)) {          // linha "Outro aparelho": passa a ser a linha do plano
+      eco.valores[chave] = { ...eco.valores[chaveDe(ideia)], nome: corpo.nome };
+      eco.extras = eco.extras.filter((x) => x.id !== ideia.extraId);
+    }
+    avisar(jaEstava ? `Plano atualizado: ${titulo}.` : `“${titulo}” entrou no plano. Daqui a alguns dias dá para conferir se a economia apareceu.`);
+    aplicarEconomia(novo, chave);
+  } catch (e) {
+    ideia.dom.erro.textContent = e.message;
+    botao.disabled = false;
+  }
+}
+
+async function removerIdeia(ideia, botao) {
+  const titulo = tituloDe(ideia);
+  botao.disabled = true;
+  try {
+    const novo = await api("DELETE", `/api/economia/plano/${ideia.salva.id}`);
+    // Um aparelho com nome dado pela pessoa continua na lista, para dar para voltar atrás.
+    if (ideia.tipo === "usar_menos" && !ideia.aparelho_id && !eco.extras.some((x) => x.chave === chaveDe(ideia))) {
+      eco.extras.push({ id: `x${++eco.nExtras}`, chave: chaveDe(ideia), nome: limparNome(ideia.nomeAtual()), potencia_w: ideia.r.p ? ideia.r.p.potencia_w : 1000, editavel: true });
+    }
+    avisar(`“${titulo}” saiu do plano.`);
+    aplicarEconomia(novo, chaveDe(ideia));
+  } catch (e) {
+    ideia.dom.erro.textContent = e.message;
+    botao.disabled = false;
+  }
+}
+
+/* ---------- os cartões */
+
+function desenharIdeias() {
+  eco.ideias = [];
+  eco.grupos = [];
+  $("#eco-cartoes").replaceChildren(grupoChuveiro(), grupoFantasma(), grupoUsarMenos(), grupoGeladeira());
+  eco.grupos.forEach((atualizar) => atualizar());
+}
+
+/* Banho mais curto e posição verão dividem os dados do chuveiro (do Detetive ou típicos).
+ * Com o chuveiro no plano, valem os dados que foram para o plano; `daMedicao` volta para a
+ * medição mais recente (que muda justamente quando a pessoa passa a tomar banhos mais curtos). */
+function prepararChuveiro(daMedicao = false) {
+  if (eco.valores.chuveiro && !daMedicao) return;
+  const d = eco.dados, C = MWEconomia.CAMPOS.chuveiro_verao;
+  const verao = daMedicao ? null : planoPorChave("chuveiro_verao");
+  const salvo = daMedicao ? null : (planoPorChave("banho_curto") || verao || {}).parametros;
+  const base = salvo || d.chuveiro;
+  const c = {
+    potencia_w: limitar(base.potencia_w, C.potencia_w),
+    banhos_semana: limitar(base.banhos_semana, C.banhos_semana),
+    minutos_banho: limitar(base.minutos_banho, C.minutos_banho),
+  };
+  c.potencia_verao_w = verao ? verao.parametros.potencia_verao_w : estimarVerao(c.potencia_w);
+  c.verao_estimado = !verao;
+  const igual = ["potencia_w", "banhos_semana", "minutos_banho"].every((k) => Math.abs(c[k] - d.chuveiro[k]) < 1e-6);
+  c.fonte = igual ? d.chuveiro.fonte : "plano";
+  eco.valores.chuveiro = c;
+}
+
+// Sem medição da posição verão: costuma ficar perto de 55% da inverno.
+const estimarVerao = (p) => limitar(Math.round((p * 0.55) / 100) * 100, [300, p - 100]);
+
+function grupoChuveiro() {
+  const c = eco.valores.chuveiro, C = MWEconomia.CAMPOS.chuveiro_verao;
+  const maxMenos = () => Math.max(0, Math.min(10, Math.ceil(c.minutos_banho) - 1));
+  const vb = valorDe("banho_curto", () => {
+    const s = planoPorChave("banho_curto");
+    return { minutos_a_menos: s ? s.parametros.minutos_a_menos : Math.min(2, maxMenos()) };
+  });
+  const vv = valorDe("chuveiro_verao", () => {
+    const s = planoPorChave("chuveiro_verao");
+    return { porcentagem: s ? s.parametros.porcentagem : 50 };
+  });
+  const banho = novaIdeia({ chave: "banho_curto", tipo: "banho_curto", titulo: "Banho mais curto",
+    ler: () => ({ minutos_a_menos: vb.minutos_a_menos, potencia_w: c.potencia_w, banhos_semana: c.banhos_semana, minutos_banho: c.minutos_banho }) });
+  const verao = novaIdeia({ chave: "chuveiro_verao", tipo: "chuveiro_verao", titulo: "Chuveiro na posição verão",
+    ler: () => ({ porcentagem: vv.porcentagem, potencia_w: c.potencia_w, potencia_verao_w: c.potencia_verao_w, banhos_semana: c.banhos_semana, minutos_banho: c.minutos_banho }) });
+
+  const contexto = el("p", { class: "eco-contexto" });
+  const medicao = el("p", { class: "eco-nota" });
+  const efeitoBanho = el("p", { class: "eco-efeito" });
+  const efeitoVerao = el("p", { class: "eco-efeito" });
+  const juntas = el("p", { class: "eco-nota" });
+  const erroAjuste = el("p", { class: "erro", role: "alert" });
+  let caixa = null;
+
+  const atualizar = () => {
+    contexto.textContent = `Seu chuveiro: ${fmt.num(c.potencia_w)} W, ${fmt.num(c.banhos_semana, Number.isInteger(c.banhos_semana) ? 0 : 1)} banhos por semana, ${minutos(c.minutos_banho)} cada.`;
+    caixa.etiqueta.textContent = ECO_FONTES[c.fonte];
+    caixa.etiqueta.className = `etiqueta${c.fonte === "tipico" ? " estimado" : ""}`;
+    const b = eco.dados.chuveiro;
+    medicao.hidden = !(c.fonte === "plano" && b.fonte === "detetive");
+    if (!medicao.hidden) {
+      medicao.replaceChildren(`A medição mais recente: ${fmt.num(b.potencia_w)} W, ${fmt.num(b.banhos_semana)} banhos por semana, ${minutos(b.minutos_banho)} cada. `,
+        el("button", { type: "button", class: "link", onclick: () => {
+          prepararChuveiro(true);
+          desenharIdeias();
+          atualizarPlacar();
+          const alvo = $('[data-chave="banho_curto"] input[type=range]');
+          if (alvo) alvo.focus();
+        } }, "Usar a medição"));
+    }
+    const rb = recalcular(banho), rv = recalcular(verao);
+    efeitoBanho.textContent = vb.minutos_a_menos > 0
+      ? `O banho de ${minutos(c.minutos_banho)} passa a ${minutos(Math.round((c.minutos_banho - vb.minutos_a_menos) * 10) / 10)}.`
+      : "Arraste para ver quanto alguns minutos a menos economizam.";
+    const n = Math.round((c.banhos_semana * vv.porcentagem) / 100);
+    efeitoVerao.textContent = `${fmt.num(n)} de ${fmt.num(Math.round(c.banhos_semana))} banhos por semana na posição verão, que usa cerca de ${fmt.num(c.potencia_verao_w)} W${c.verao_estimado ? " (estimativa)" : ""}.`;
+    const soma = rb.kwh + rv.kwh;
+    const total = rb.ok && rv.ok ? MWEconomia.totalKwhMes([{ tipo: "banho_curto", parametros: rb.p }, { tipo: "chuveiro_verao", parametros: rv.p }]) : soma;
+    juntas.hidden = !(rb.kwh > 0 && rv.kwh > 0 && soma - total > 0.005);
+    juntas.textContent = `Juntas, as duas economizam ${emDinheiro(total)} por mês, e não ${emDinheiro(soma)}: um banho mais curto na posição verão economiza menos. O placar já desconta isso.`;
+    agendarPlacar();
+  };
+
+  const cBanho = controle({ rotulo: "Minutos a menos em cada banho", min: 0, max: maxMenos(), valor: vb.minutos_a_menos,
+    texto: (v) => `${fmt.num(v)} min`, aoMudar: (v) => { vb.minutos_a_menos = v; atualizar(); } });
+  const cVerao = controle({ rotulo: "Banhos na posição verão", min: 0, max: 100, passo: 10, valor: vv.porcentagem,
+    texto: (v) => `${v}%`, aoMudar: (v) => { vv.porcentagem = v; atualizar(); } });
+
+  // Corrigir os dados do chuveiro: vale para as duas ideias.
+  const campo = (rotulo, chave, casas) => {
+    const entrada = el("input", { inputmode: "decimal", autocomplete: "off" });
+    entrada.value = fmt.num(c[chave], Number.isInteger(c[chave]) ? 0 : casas);
+    entrada.addEventListener("input", () => {
+      const n = numeroDigitado(entrada.value);
+      const [min, max] = C[chave];
+      if (n == null || Number.isNaN(n) || n < min || n > max) {
+        entrada.setAttribute("aria-invalid", "true");
+        erroAjuste.textContent = `${rotulo}: use um número de ${fmt.num(min)} a ${fmt.num(max)}.`;
+        return;
+      }
+      entrada.removeAttribute("aria-invalid");
+      erroAjuste.textContent = "";
+      c[chave] = n;
+      c.fonte = "ajustado";
+      if (chave === "potencia_verao_w") c.verao_estimado = false;
+      if (chave === "potencia_w" && c.verao_estimado) {
+        c.potencia_verao_w = estimarVerao(n);
+        caixaVerao.value = fmt.num(c.potencia_verao_w);
+      }
+      cBanho.novoMaximo(maxMenos());
+      atualizar();
+    });
+    return entrada;
+  };
+  const caixaVerao = campo("Potência na posição verão", "potencia_verao_w", 0);
+  const ajustar = el("details", { class: "eco-ajustar", open: eco.ajustarAberto },
+    el("summary", {}, "Corrigir os dados do chuveiro"),
+    el("div", { class: "eco-campos" },
+      el("label", {}, "Potência (W)", campo("Potência", "potencia_w", 0)),
+      el("label", {}, "Na posição verão (W)", caixaVerao),
+      el("label", {}, "Banhos por semana", campo("Banhos por semana", "banhos_semana", 1)),
+      el("label", {}, "Minutos por banho", campo("Minutos por banho", "minutos_banho", 1))),
+    erroAjuste,
+    el("p", { class: "dica" }, "A potência vem gravada no chuveiro ou na caixa, como 5.500 W. Somando os banhos de todo mundo da casa."));
+  ajustar.addEventListener("toggle", () => { eco.ajustarAberto = ajustar.open; });
+
+  caixa = grupo({ id: "chuveiro", titulo: "Chuveiro", fonte: c.fonte, contexto, filhos: [medicao,
+    blocoIdeia(banho, { titulo: "Banho mais curto", filhos: [cBanho.raiz, efeitoBanho] }),
+    blocoIdeia(verao, { titulo: "Chuveiro na posição verão", filhos: [cVerao.raiz, efeitoVerao] }),
+    juntas, ajustar] });
+  eco.grupos.push(atualizar);
+  return caixa;
+}
+
+function grupoFantasma() {
+  const f = eco.dados.fantasma;
+  const w = Math.round(f.watts);
+  const v = valorDe("fantasma", () => {
+    const s = planoPorChave("fantasma");
+    return s ? { ...s.parametros } : { watts_cortados: Math.round(w * 0.3), horas_dia: 20 };
+  });
+  const maximo = Math.max(Math.min(3000, Math.max(10, w)), Math.ceil(v.watts_cortados));
+  const ideia = novaIdeia({ chave: "fantasma", tipo: "fantasma", titulo: "Cortar o consumo em espera", ler: () => ({ ...v }) });
+  const efeito = el("p", { class: "eco-efeito" });
+  const atualizar = () => {
+    recalcular(ideia);
+    efeito.textContent = v.watts_cortados > 0 && v.horas_dia > 0
+      ? `Desligar ${fmt.num(v.watts_cortados)} W de aparelhos em espera, ${fmt.num(v.horas_dia)} horas por dia.`
+      : "Arraste para ver quanto dá para cortar.";
+    agendarPlacar();
+  };
+  const cw = controle({ rotulo: "Watts em espera para desligar", min: 0, max: maximo, passo: 1, valor: v.watts_cortados,
+    texto: (x) => `${fmt.num(x)} W`, aoMudar: (x) => { v.watts_cortados = x; atualizar(); } });
+  const ch = controle({ rotulo: "Horas por dia desligados", min: 0, max: 24, valor: v.horas_dia,
+    texto: (x) => `${x} h`, aoMudar: (x) => { v.horas_dia = x; atualizar(); } });
+  const contexto = el("p", { class: "eco-contexto" }, f.fonte === "medido"
+    ? `Com a casa parada, ${fmt.num(w)} W ficam ligados o tempo todo: aparelhos em espera, carregadores, roteador.`
+    : `Ainda sem madrugadas medidas na sua casa. Usamos ${fmt.num(w)} W, um valor típico de aparelhos em espera.`);
+  eco.grupos.push(atualizar);
+  return grupo({ id: "fantasma", titulo: "Consumo em espera", fonte: f.fonte, contexto, filhos: [
+    blocoIdeia(ideia, { filhos: [cw.raiz, ch.raiz, efeito,
+      el("p", { class: "dica" }, "Um filtro de linha com interruptor para TV, som, videogame e carregadores costuma resolver a maior parte. Roteador e geladeira ficam ligados.")] })] });
+}
+
+/* Linhas do "Usar menos": aparelhos do Detetive, os que estão no plano e os que a pessoa acrescentou. */
+function linhasUsarMenos() {
+  const d = eco.dados, linhas = [], vistas = new Set();
+  const por = (l) => { if (!vistas.has(l.chave)) { vistas.add(l.chave); linhas.push(l); } };
+  d.aparelhos.forEach((a) => por({ chave: `usar_menos:${a.id}`, nome: a.rotulo, semNome: !a.nome, aparelho_id: a.id, potencia_w: a.potencia_w,
+    minutos_dia: a.minutos_dia, fonte: "detetive" }));
+  d.plano.filter((a) => a.tipo === "usar_menos").forEach((a) => por(a.aparelho_id
+    ? { chave: a.chave, nome: a.nome, aparelho_id: a.aparelho_id, potencia_w: a.parametros.potencia_w, fonte: "detetive" }
+    : { chave: a.chave, nome: a.nome, potencia_w: a.parametros.potencia_w, editavel: true }));
+  eco.extras.forEach(por);
+  return linhas;
+}
+
+function acrescentarAparelho(modelo) {
+  const id = `x${++eco.nExtras}`;
+  const extra = modelo
+    ? { id, chave: chaveOutro(modelo.nome), nome: modelo.nome, potencia_w: modelo.potencia_w, editavel: true }
+    : { id, chave: `usar_menos:novo:${id}`, nome: "", potencia_w: 1000, editavel: true, temporaria: true };
+  eco.extras.push(extra);
+  desenharIdeias();
+  const caixa = $(`[data-chave="${CSS.escape(extra.chave)}"]`);
+  const alvo = caixa && $(modelo ? "input[type=range]" : "input", caixa);
+  if (alvo) alvo.focus();
+}
+
+function linhaUsarMenos(linha) {
+  const v = valorDe(linha.chave, () => {
+    const s = planoPorChave(linha.chave);
+    return { minutos_dia: s ? s.parametros.minutos_dia : 0, potencia_w: s ? s.parametros.potencia_w : linha.potencia_w, nome: linha.nome };
+  });
+  if (!linha.editavel) v.potencia_w = linha.potencia_w;
+  const ideia = novaIdeia({ chave: linha.chave, tipo: "usar_menos", titulo: "Usar menos", aparelho_id: linha.aparelho_id || null,
+    extraId: linha.id, nomeAtual: () => v.nome,
+    ler: () => ({ potencia_w: v.potencia_w, minutos_dia: v.minutos_dia }) });
+  const medido = linha.minutos_dia != null;
+  const maximo = Math.max(medido ? Math.min(240, Math.max(30, Math.ceil(linha.minutos_dia / 5) * 5)) : 180, Math.ceil(v.minutos_dia));
+  const efeito = el("p", { class: "eco-efeito" });
+  const atualizar = () => {
+    recalcular(ideia);
+    efeito.textContent = medido ? `Uso medido: cerca de ${minutos(Math.round(linha.minutos_dia))} por dia.` : "";
+    efeito.hidden = !medido;
+    agendarPlacar();
+  };
+  const c = controle({ rotulo: "Minutos a menos por dia", min: 0, max: maximo, passo: maximo <= 60 ? 1 : 5, valor: v.minutos_dia,
+    texto: (x) => `${fmt.num(x)} min`, aoMudar: (x) => { v.minutos_dia = x; atualizar(); } });
+
+  const potencia = el("input", { inputmode: "numeric", autocomplete: "off", "aria-label": `Potência${v.nome ? ` de ${v.nome}` : ""} em watts` });
+  potencia.value = fmt.num(v.potencia_w);
+  potencia.addEventListener("input", () => {
+    const n = numeroDigitado(potencia.value);
+    v.potencia_w = n == null || Number.isNaN(n) ? null : n;
+    potencia.toggleAttribute("aria-invalid", !(v.potencia_w >= 1 && v.potencia_w <= 15000));
+    atualizar();
+  });
+  let topo;
+  if (linha.temporaria) {
+    const nome = el("input", { maxlength: "40", autocomplete: "off", placeholder: "ex.: bomba d'água" });
+    nome.value = v.nome;
+    nome.addEventListener("input", () => { v.nome = nome.value; ideia.dom.erro.textContent = ""; });
+    ideia.dom.nome = nome;
+    topo = el("div", { class: "eco-campos" }, el("label", {}, "Aparelho", nome), el("label", {}, "Potência (W)", potencia));
+  } else {
+    topo = el("div", { class: "eco-linha-topo" }, el("h3", {}, v.nome),
+      linha.editavel ? el("label", { class: "eco-potencia" }, potencia, "W")
+        : linha.semNome ? null : el("span", { class: "eco-linha-info" }, `${fmt.num(linha.potencia_w)} W`),   // sem nome, o título já diz a potência
+      linha.fonte ? el("span", { class: "etiqueta" }, ECO_FONTES[linha.fonte]) : null);
+  }
+  const tirar = linha.id && !planoPorChave(linha.chave)
+    ? el("button", { type: "button", class: "eco-tirar", "aria-label": `Tirar ${v.nome || "este aparelho"} da lista`,
+      onclick: () => { eco.extras = eco.extras.filter((x) => x.id !== linha.id); delete eco.valores[linha.chave]; desenharIdeias(); atualizarPlacar(); } }, "×")
+    : null;
+  eco.grupos.push(atualizar);
+  const caixa = blocoIdeia(ideia, { filhos: [topo, c.raiz, efeito] });
+  caixa.classList.add("eco-linha");
+  if (tirar) caixa.prepend(tirar);
+  return caixa;
+}
+
+function grupoUsarMenos() {
+  const linhas = linhasUsarMenos();
+  const presentes = new Set(linhas.map((l) => l.chave));
+  const d = eco.dados;
+  const semNome = linhas.some((l) => l.semNome);
+  const intro = linhas.length
+    ? `Menos minutos por dia de um aparelho que puxa bastante energia.${semNome ? " Dê nome aos aparelhos na aba Aparelhos para reconhecer cada um aqui." : ""}`
+    : d.detetive_ligado
+      ? "O Detetive ainda não separou aparelhos da sua casa. Escolha um para simular:"
+      : "Com o Detetive de aparelhos ligado, os aparelhos medidos na sua casa aparecem aqui. Por enquanto, escolha um para simular:";
+  const chips = el("div", { class: "eco-chips", role: "group", "aria-label": "Acrescentar aparelho" },
+    ...ECO_APARELHOS.filter((a) => !presentes.has(chaveOutro(a.nome))).map((a) =>
+      el("button", { type: "button", class: "chip", "aria-label": `Acrescentar ${a.nome}`, onclick: () => acrescentarAparelho(a) }, `+ ${a.nome}`)),
+    el("button", { type: "button", class: "chip", "aria-label": "Acrescentar outro aparelho", onclick: () => acrescentarAparelho(null) }, "+ Outro aparelho"));
+  return grupo({ id: "usar-menos", titulo: "Usar menos um aparelho", contexto: el("p", { class: "eco-contexto" }, intro),
+    filhos: [el("div", { class: "eco-linhas" }, ...linhas.map(linhaUsarMenos)), chips] });
+}
+
+function grupoGeladeira() {
+  const g = eco.dados.geladeira;
+  const s = planoPorChave("geladeira");
+  const atual = limitar(Math.round(g.kwh_mes * 10) / 10, [5, 400]);
+  const v = valorDe("geladeira", () => (s
+    ? { ligada: true, kwh_mes_atual: s.parametros.kwh_mes_atual, kwh_mes_nova: s.parametros.kwh_mes_nova, preco: s.parametros.preco }
+    : { ligada: false, kwh_mes_atual: atual, kwh_mes_nova: Math.max(5, Math.min(35, Math.round(atual * 0.7))), preco: null }));
+  const ideia = novaIdeia({ chave: "geladeira", tipo: "geladeira", titulo: "Trocar a geladeira", aparelho_id: g.aparelho_id,
+    ler: () => (v.ligada ? { kwh_mes_atual: v.kwh_mes_atual, kwh_mes_nova: v.kwh_mes_nova, preco: v.preco } : null) });
+  const efeito = el("p", { class: "eco-efeito" });
+  let corpo = null;
+  const atualizar = () => {
+    const r = recalcular(ideia);
+    corpo.hidden = !v.ligada;
+    const tarifa = eco.dados.tarifa_kwh;
+    const meses = r.ok ? MWEconomia.mesesParaPagar(v.preco, r.kwh, tarifa) : null;
+    if (!r.ok || r.kwh <= 0) efeito.textContent = "A nova precisa gastar menos que a atual para haver economia.";
+    else if (v.preco == null) efeito.textContent = tarifa != null ? "Informe o preço para ver em quanto tempo a troca se paga." : "";
+    else if (meses == null) efeito.textContent = "Informe a tarifa para ver em quanto tempo a troca se paga.";
+    else if (meses > 25 * 12) efeito.textContent = "Só pela conta de luz, a troca levaria mais de 25 anos para se pagar. Compensa quando a geladeira já precisa ser trocada de qualquer jeito.";
+    else {
+      const prazo = meses < 24 ? `cerca de ${Math.ceil(meses)} meses` : `cerca de ${fmt.num(meses / 12, meses < 120 ? 1 : 0)} anos`;
+      efeito.textContent = `Com ${fmt.reais(v.preco)}, a troca se paga em ${prazo}, só com a conta de luz.`
+        + (meses > 120 ? " Compensa mais quando a geladeira já precisa ser trocada de qualquer jeito." : "");
+    }
+    agendarPlacar();
+  };
+  const chave = el("button", { type: "button", class: "chave", role: "switch", "aria-checked": String(v.ligada), "aria-label": "Simular a troca da geladeira",
+    onclick: () => { v.ligada = !v.ligada; chave.setAttribute("aria-checked", String(v.ligada)); atualizar(); anunciarPlacar(); } });
+  const cNova = controle({ rotulo: "Consumo da nova, na etiqueta do Inmetro", min: 5, max: Math.max(6, Math.round(v.kwh_mes_atual)), valor: v.kwh_mes_nova,
+    texto: (x) => `${fmt.num(x)} kWh por mês`, aoMudar: (x) => { v.kwh_mes_nova = x; atualizar(); } });
+  const preco = el("input", { inputmode: "decimal", autocomplete: "off", placeholder: "ex.: 3.200" });
+  preco.value = v.preco != null ? fmt.num(v.preco, 2) : "";
+  preco.addEventListener("input", () => {
+    const n = numeroDigitado(preco.value);
+    v.preco = n == null ? null : n;
+    preco.toggleAttribute("aria-invalid", Number.isNaN(n));
+    atualizar();
+  });
+  corpo = el("div", { class: "eco-geladeira" }, cNova.raiz, el("label", { class: "eco-preco" }, "Preço da nova (R$, opcional)", preco), efeito);
+  const contexto = el("div", { class: "eco-chave-linha" },
+    el("p", { class: "eco-contexto" }, `Sua geladeira gasta cerca de ${fmt.num(v.kwh_mes_atual, 1)} kWh por mês.${g.fonte === "tipico" ? " Valor típico de uma geladeira com alguns anos de uso." : ""}`),
+    el("label", { class: "eco-chave" }, "Simular a troca", chave));
+  eco.grupos.push(atualizar);
+  return grupo({ id: "geladeira", titulo: "Trocar a geladeira", fonte: g.fonte, contexto, filhos: [blocoIdeia(ideia, { filhos: [corpo] })] });
+}
+
+/* ---------- o placar, a tarifa e o plano */
+
+function totalDaTela() {
+  return MWEconomia.totalKwhMes(eco.ideias.filter((i) => i.r && i.r.ok && i.r.kwh > 0).map((i) => ({ tipo: i.tipo, parametros: i.r.p })));
+}
+
+function agendarPlacar() {
+  if (eco.timer) return;
+  eco.timer = setTimeout(() => { eco.timer = 0; atualizarPlacar(); }, 90);
+}
+
+function atualizarPlacar() {
+  clearTimeout(eco.timer);
+  eco.timer = 0;
+  if (!eco.dados) return;
+  const kwh = totalDaTela(), tarifa = eco.dados.tarifa_kwh;
+  $("#visor-economia").toggleAttribute("data-zero", !(kwh >= 0.05));
+  if (tarifa != null) eco.visor.mostrar(Math.round(kwh * 12 * tarifa).toLocaleString("pt-BR"), "por ano", "R$");
+  else eco.visor.mostrar(Math.round(kwh * 12).toLocaleString("pt-BR"), "kWh por ano");
+  const sub = $("#eco-placar-sub");
+  if (kwh >= 0.05) {
+    const dia = eco.dados.consumo_kwh_dia;
+    const dias = dia ? (kwh * 12) / dia : null;
+    sub.replaceChildren(...(tarifa != null
+      ? [`${fmt.reais(kwh * tarifa)} por mês`, el("span", { class: "eco-kwh" }, `, ou ${fmt.kwh(kwh)}`), "."]
+      : [`${fmt.kwh(kwh)} por mês.`]),
+    dias == null ? "" : el("span", { class: "eco-equivalencia" }, dias < 1
+        ? " Num ano, quase um dia inteiro do que a casa gasta."
+        : ` Num ano, é o que a casa inteira gasta em ${fmt.num(dias, dias < 10 ? 1 : 0)} dias.`));
+  } else {
+    sub.textContent = "Mexa nos controles para ver quanto dá para economizar.";
+  }
+}
+
+function anunciarPlacar() {
+  clearTimeout(eco.anuncio);
+  eco.anuncio = setTimeout(() => {
+    $("#eco-anuncio").textContent = `Economia simulada: ${$("#visor-economia").getAttribute("aria-label")}.`;
+  }, 600);
+}
+
+function desenharTarifaEconomia() {
+  const d = eco.dados, propria = estado.eu.tarifa_kwh != null;
+  const entrada = el("input", { name: "tarifa_kwh", inputmode: "decimal", placeholder: "ex.: 0,92", autocomplete: "off" });
+  entrada.value = propria ? fmt.num(estado.eu.tarifa_kwh, 4) : "";
+  const form = el("form", { class: "linha-form", novalidate: true, hidden: d.tarifa_kwh != null },
+    el("label", {}, "Tarifa (R$ por kWh)", entrada),
+    el("button", { class: "secundario", type: "submit" }, "Salvar"),
+    el("p", { class: "erro", role: "alert" }));
+  formulario(form, async (dados) => {
+    const t = numeroDigitado(dados.tarifa_kwh);
+    if (t == null || Number.isNaN(t)) throw new Error("Use só números, como 0,92.");
+    await api("PUT", "/api/conta/preferencias", { meta_mensal_reais: estado.eu.meta_mensal_reais, tarifa_kwh: t });
+    estado.eu.tarifa_kwh = t;
+    avisar("Tarifa salva.");
+    aplicarEconomia(await api("GET", "/api/economia"));
+  });
+  const linha = d.tarifa_kwh != null
+    ? el("p", {}, `Tarifa de ${fmt.reais(d.tarifa_kwh)} por kWh${propria ? "" : ", a padrão deste servidor"}. `,
+      el("button", { type: "button", class: "link", onclick: () => { form.hidden = !form.hidden; if (!form.hidden) entrada.focus(); } }, "Mudar"))
+    : el("p", {}, "Sem tarifa, os valores ficam em kWh. Informe a da sua conta de luz, com impostos:");
+  $("#eco-tarifa").replaceChildren(linha, form);
+  $("#eco-tarifa").toggleAttribute("data-sem-tarifa", d.tarifa_kwh == null);   // no celular, sobe para perto do placar
+}
+
+/* "Deu certo?": o texto da conferência. `curto` = uma frase, para o painel. */
+function textoConferencia(v, curto = false) {
+  const desde = diaMes(v.desde);
+  if (!v.pronto) return `Conferência: ${Math.min(v.dias_depois, v.minimo)} de ${v.minimo} dias medidos desde ${desde}.`;
+  const t = v.total;
+  if (!t || t.variacao == null) return "Ainda não dá para comparar.";
+  const pct = Math.round(Math.abs(t.variacao) * 100);
+  const valores = curto ? "" : `: ${fmt.kwh(t.depois_kwh_dia)} contra ${fmt.kwh(t.antes_kwh_dia)} nas duas semanas antes`;
+  if (t.variacao <= -0.02) {
+    return `Desde ${desde}, a casa gastou ${pct}% menos por dia${valores}.${t.reais_mes > 0 ? ` Cerca de ${fmt.reais(t.reais_mes)} por mês.` : ""}`;
+  }
+  if (t.variacao < 0.02) return `Desde ${desde}, o consumo por dia ficou praticamente igual${valores}.`;
+  return `Desde ${desde}, a casa gastou ${pct}% mais por dia${valores}.${curto ? "" : " Calor, visitas e aparelhos novos também pesam."}`;
+}
+
+function conferencia(v, semMedidor = false) {
+  if (!v) return [el("p", { class: "eco-nota" }, "A conferência precisa da autorização para tratar o consumo, em ", el("a", { href: "#privacidade" }, "Privacidade"), ".")];
+  if (semMedidor) return [el("p", {}, "A conferência começa quando houver um medidor pareado: ele mede a casa antes e depois das mudanças.")];
+  if (!v.pronto) {
+    const barra = el("i");
+    const feitos = Math.min(v.dias_depois, v.minimo);
+    requestAnimationFrame(() => { barra.style.width = `${(feitos / v.minimo) * 100}%`; });
+    return [
+      el("p", {}, textoConferencia(v)),
+      el("div", { class: "eco-progresso", role: "progressbar", "aria-label": "Dias medidos desde o início do plano",
+        "aria-valuemin": "0", "aria-valuemax": String(v.minimo), "aria-valuenow": String(feitos) }, barra),
+      el("p", { class: "eco-nota" }, v.dias_antes < v.minimo
+        ? `Para comparar, também são precisos ${v.minimo} dias medidos nas duas semanas antes de ${diaMes(v.desde)}, e há ${v.dias_antes}. Se o medidor começou a medir há pouco, tire as ações do plano e ponha de novo daqui a alguns dias: a contagem recomeça.`
+        : "Só entram dias medidos quase por inteiro. O dia em que a ação entrou no plano e o dia de hoje ficam de fora."),
+    ];
+  }
+  const t = v.total;
+  const sinal = !t || t.variacao == null ? "igual" : t.variacao <= -0.02 ? "menos" : t.variacao < 0.02 ? "igual" : "mais";
+  const pct = t && t.variacao != null ? Math.round(Math.abs(t.variacao) * 100) : 0;
+  return [
+    el("div", { class: "eco-veredito", "data-sinal": sinal },
+      el("p", { class: "eco-veredito-numero" }, sinal === "igual" ? "=" : `${sinal === "menos" ? "−" : "+"}${pct}%`),
+      el("p", {}, textoConferencia(v))),
+    ...v.itens.map(barrasAntesDepois),
+    el("p", { class: "eco-nota" }, `Comparação de ${v.dias_antes} dias medidos antes com ${v.dias_depois} depois.`),
+  ];
+}
+
+function barrasAntesDepois(item) {
+  const watts = item.unidade === "W";
+  const max = Math.max(item.antes || 0, item.depois || 0, 0.001);
+  const linha = (rotulo, valor, classe) => {
+    const barra = el("i");
+    requestAnimationFrame(() => { barra.style.width = `${((valor || 0) / max) * 100}%`; });
+    return el("div", { class: `eco-barra ${classe}` }, el("span", {}, rotulo), el("span", { class: "eco-barra-trilho" }, barra),
+      el("span", { class: "eco-barra-valor" }, watts ? `${fmt.num(valor)} W` : fmt.kwh(valor)));
+  };
+  return el("div", { class: "eco-item" },
+    el("p", {}, item.rotulo, watts ? null : el("small", {}, " por dia")),
+    linha("Antes", item.antes, "antes"),
+    linha("Depois", item.depois, item.depois <= item.antes ? "melhor" : "pior"));
+}
+
+function desenharPlanoEconomia() {
+  const d = eco.dados, caixa = $("#eco-plano");
+  const notas = [];
+  if (!estado.eu.consentimento_consumo) {
+    notas.push(el("p", { class: "eco-nota" }, "Sem a autorização para tratar o consumo, as contas usam valores típicos e a conferência fica desligada. Dá para mudar em ",
+      el("a", { href: "#privacidade" }, "Privacidade"), "."));
+  } else if (!d.medidores) {
+    notas.push(el("p", { class: "eco-nota" }, "Ainda sem medidor pareado: as contas usam valores típicos. Com o MeterWatt medindo, passam a usar os números da sua casa."));
+  }
+  caixa.toggleAttribute("data-vazio", !d.plano.length);
+  if (!d.plano.length) {
+    caixa.replaceChildren(el("h2", {}, "Seu plano"),
+      el("p", { class: "eco-plano-vazio" }, "Marque “Vou tentar” nas ideias que quiser pôr em prática. O MeterWatt continua medindo e, depois de alguns dias, mostra aqui se a economia apareceu."),
+      ...notas);
+    return;
+  }
+  const soma = d.plano.reduce((s, a) => s + a.kwh_mes, 0);
+  caixa.replaceChildren(...[
+    el("div", { class: "cabecalho-bloco" }, el("h2", {}, "Seu plano"),
+      el("p", { class: "eco-plano-total" }, el("strong", {}, emDinheiro(d.plano_total.kwh_mes)), " por mês, pela estimativa")),
+    el("ul", { class: "eco-plano-lista" }, ...d.plano.map((a) => el("li", {},
+      el("span", {}, a.tipo === "usar_menos" ? `Usar menos (${a.nome})` : a.titulo, el("small", {}, `desde ${diaMes(a.desde)}`)),
+      el("span", { class: "eco-plano-valor" }, emDinheiro(a.kwh_mes))))),
+    soma - d.plano_total.kwh_mes > 0.01 ? el("p", { class: "eco-nota" }, "O total é menor que a soma porque banho mais curto e posição verão, juntos, economizam menos que separados.") : null,
+    el("div", { class: "eco-conferencia" }, el("h3", {}, "Deu certo?"), ...conferencia(d.verificacao, !d.medidores)),
+    ...notas].filter(Boolean));
+}
+
+/* ---------- o resumo no painel */
+
+async function atualizarEconomiaPainel() {
+  const bloco = $("#bloco-economia");
+  if ($(".grade-painel").hidden) return;
+  const r = await api("GET", "/api/economia/resumo");
+  const tarifa = estado.eu.tarifa_kwh ?? estado.eu.tarifa_padrao;
+  let titulo, texto, botao;
+  if (!r.acoes) {
+    titulo = "E se eu…?";
+    const f = estado.fantasma;
+    if (f && f.disponivel && !f.estimado && f.watts >= 4) {
+      const w = Math.round(f.watts / 2);
+      const kwh = MWEconomia.kwhMes("fantasma", { watts_cortados: w, horas_dia: 20 });
+      texto = `Desligar metade do que fica em espera (${fmt.num(w)} W) por 20 horas ao dia economizaria ${tarifa != null ? `cerca de ${fmt.reais(kwh * 12 * tarifa)}` : fmt.kwh(kwh * 12)} por ano. No simulador dá para testar também banho, chuveiro e geladeira.`;
+    } else {
+      texto = "Banho mais curto, chuveiro na posição verão, aparelhos em espera: veja quanto cada hábito pesa na conta, com os números da sua casa.";
+    }
+    botao = "Abrir o simulador";
+  } else {
+    titulo = "Plano de economia";
+    const estimativa = r.reais_mes != null ? fmt.reais(r.reais_mes) : fmt.kwh(r.kwh_mes);
+    texto = `${r.acoes} ${r.acoes === 1 ? "ação" : "ações"} no plano, estimativa de ${estimativa} por mês.${r.verificacao ? ` ${textoConferencia(r.verificacao, true)}` : ""}`;
+    botao = "Ver o plano";
+  }
+  bloco.toggleAttribute("data-plano", !!r.acoes);
+  bloco.replaceChildren(el("div", { class: "eco-painel-texto" }, el("h2", {}, titulo), el("p", {}, texto)),
+    el("a", { class: "botao secundario", href: "#economia" }, botao));
+  bloco.hidden = false;
+}
+
+/* ------------------------------------------------------------------ conta (no celular) */
+
+function telaConta() {
+  const eu = estado.eu;
+  $("#conta-quem").textContent = `Você entrou como ${eu.nome} (${eu.email}).`;
+  $("#conta-avisos").textContent = eu.avisos_nao_lidos ? `${eu.avisos_nao_lidos} não lido(s)` : "nenhum novo";
+  const cobranca = estado.info && estado.info.plano;
+  $("#conta-plano-atual").textContent = cobranca && !cobranca.disponivel ? "sem cobrança por enquanto" : eu.plano === "casa" ? "plano Casa" : "plano grátis";
+}
+
 /* ------------------------------------------------------------------ plano e cobrança */
 
 async function telaPlano() {
@@ -1031,7 +1771,7 @@ function desenharPlano(r) {
   caixa.replaceChildren(el("div", { class: "planos" },
     el("article", { class: `bloco plano${ativa ? "" : " vigente"}` },
       el("h2", {}, "Grátis"), el("p", { class: "valor-grande" }, "R$ 0"),
-      el("ul", {}, el("li", {}, medidores(r.limite_gratis)), el("li", {}, "Painel, meta do mês, consumo fantasma e avisos"), el("li", {}, "Privacidade completa: cópia, exclusão e duas etapas")),
+      el("ul", {}, el("li", {}, medidores(r.limite_gratis)), el("li", {}, "Painel, meta do mês, consumo fantasma, avisos e o simulador E se eu…?"), el("li", {}, "Privacidade completa: cópia, exclusão e duas etapas")),
       ativa ? null : el("p", { class: "atual-marca" }, "Seu plano atual")),
     el("article", { class: `bloco plano destaque${ativa ? " vigente" : ""}` },
       el("h2", {}, "Casa"), el("p", { class: "valor-grande" }, `${fmt.reais(r.preco_mensal)} `, el("small", {}, "por mês")),
@@ -1104,23 +1844,8 @@ const APARELHOS_EM_ESPERA = [
 
 const demo = (() => {
   let timer = 0, valor = 412;
-  const visorDemo = { atual: "", caixa: () => $("#visor-demo") };
-  function mostrarDemo(texto) {
-    const caixa = visorDemo.caixa();
-    if (visorDemo.atual.length !== texto.length || !caixa.children.length) {
-      caixa.replaceChildren(...[...texto].map((c) => el("span", { class: "digito" }, el("span", {}, c))), el("span", { class: "relogio-unidade" }, "W"));
-    } else {
-      [...texto].forEach((c, i) => {
-        if (c === visorDemo.atual[i]) return;
-        const casa = caixa.children[i], velho = casa.firstElementChild, novo = el("span", { class: semMovimento ? "" : "entra" }, c);
-        if (semMovimento) { velho.replaceWith(novo); return; }
-        velho.className = "sai";
-        casa.append(novo);
-        setTimeout(() => velho.remove(), 450);
-      });
-    }
-    visorDemo.atual = texto;
-  }
+  const visorDemo = criarVisor($("#visor-demo"));
+  const mostrarDemo = (texto) => visorDemo.mostrar(texto, "W");
   const roteiro = [[412, "geladeira e luzes"], [1712, "micro-ondas ligou"], [1698, "micro-ondas ligou"], [398, "micro-ondas desligou"], [5810, "alguém entrou no banho"],
     [5795, "alguém entrou no banho"], [405, "banho acabou"], [262, "geladeira desligou"], [74, "madrugada: só o consumo fantasma"], [71, "madrugada: só o consumo fantasma"]];
   let passo = 0;

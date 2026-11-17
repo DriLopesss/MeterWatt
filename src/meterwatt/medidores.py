@@ -406,20 +406,11 @@ class Medidores:
         conn = self.p.db()
         agora = self.p.agora()
         tarifa = self.p.tarifa_de(self._usuario(conn, uid))
-        baldes_por_noite = (NOITE_FIM_H - NOITE_INICIO_H) * 3600 // BALDE_S
         por_medidor, watts_total, noites_usadas, estimado = [], 0.0, 0, False
+        dias = [self.p.inicio_do_dia(agora, d) for d in range(0, 8)]
+        dias = [d for d in dias if d + NOITE_FIM_H * 3600 <= agora and agora - (d + NOITE_INICIO_H * 3600) <= 7 * 86400 + NOITE_FIM_H * 3600]
         for m in conn.execute("SELECT id, apelido, tipo FROM medidores WHERE usuario_id = ? ORDER BY pareado_em", (uid,)).fetchall():
-            minimos = []
-            for d in range(0, 8):
-                inicio = self.p.inicio_do_dia(agora, d) + NOITE_INICIO_H * 3600
-                fim = self.p.inicio_do_dia(agora, d) + NOITE_FIM_H * 3600
-                if fim > agora or agora - inicio > 7 * 86400 + NOITE_FIM_H * 3600:
-                    continue
-                medias = [r["soma_w"] / r["n"] for r in conn.execute(
-                    "SELECT n, soma_w FROM consumo_5min WHERE medidor_id = ? AND inicio >= ? AND inicio < ? AND n > 0",
-                    (m["id"], int(inicio), int(fim)))]
-                if len(medias) >= COBERTURA_MINIMA_NOITE * baldes_por_noite:
-                    minimos.append(min(medias))
+            minimos = [x for x in (self._minimo_noturno(conn, m["id"], d) for d in dias) if x is not None]
             if len(minimos) >= 2:
                 base = statistics.median(minimos)
                 watts_total += base
@@ -443,6 +434,26 @@ class Medidores:
             "custo_mes": _reais(kwh_mes, tarifa), "custo_ano": _reais(kwh_mes * 12, tarifa),
             "fatia_do_consumo": _r(fatia, 3), "noites": noites_usadas, "estimado": estimado, "medidores": por_medidor,
         }
+
+    def _minimo_noturno(self, conn, mid, dia):
+        """Menor média de 5 minutos entre 0h e 5h do dia que começa em `dia`; None se a noite não foi medida."""
+        inicio, fim = dia + NOITE_INICIO_H * 3600, dia + NOITE_FIM_H * 3600
+        medias = [r["soma_w"] / r["n"] for r in conn.execute(
+            "SELECT n, soma_w FROM consumo_5min WHERE medidor_id = ? AND inicio >= ? AND inicio < ? AND n > 0",
+            (mid, int(inicio), int(fim)))]
+        if len(medias) < COBERTURA_MINIMA_NOITE * (fim - inicio) // BALDE_S:
+            return None
+        return min(medias)
+
+    def base_noturna(self, conn, ids, dias):
+        """Consumo em espera (W) somando os medidores, pela mediana das noites dos `dias`. None sem 2 noites medidas."""
+        total, algum = 0.0, False
+        for mid in ids:
+            minimos = [x for x in (self._minimo_noturno(conn, mid, d) for d in dias) if x is not None]
+            if len(minimos) >= 2:
+                total += statistics.median(minimos)
+                algum = True
+        return total if algum else None
 
     def _dias_com_dados(self, conn, ids, agora, janela_dias=7):
         if not ids:

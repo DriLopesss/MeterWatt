@@ -7,7 +7,7 @@ from .erros import ErroDeNegocio
 from .seguranca import confere_senha, confere_totp, normalizar_codigo_backup
 
 VERSAO_TERMOS = "2026-11-16"
-VERSAO_PRIVACIDADE = "2026-11-16"
+VERSAO_PRIVACIDADE = "2026-11-17"
 
 FINALIDADES = {
     "termos": {
@@ -76,6 +76,7 @@ EVENTOS = {
     "assinatura_pausada": "Assinatura pausada",
     "assinatura_cancelada": "Assinatura cancelada",
     "backup": "Cópia de segurança",
+    "plano_economia": "Plano de economia alterado",
 }
 
 
@@ -173,6 +174,7 @@ class Privacidade:
                        for a in conn.execute("SELECT * FROM avisos WHERE usuario_id = ? ORDER BY criado_em", (uid,))],
             "aparelhos_detectados": self.p.detetive.exportar(conn, uid),
             "assinaturas": self.p.pagamentos.exportar(conn, uid),
+            "plano_de_economia": self.p.economia.exportar(conn, uid),
         }
         for m in medidores:
             agregados = conn.execute(
@@ -238,6 +240,7 @@ class Privacidade:
                 conn.execute("UPDATE medidores SET contador_wh = NULL, potencia_anterior = NULL WHERE id = ?", (mid,))
             self.p.detetive.apagar_tudo(conn, uid)
             conn.execute("DELETE FROM avisos WHERE usuario_id = ?", (uid,))     # os avisos citam valores de consumo
+            self.p.economia.apagar(conn, uid)                                  # o plano guarda hábitos (banhos, horas de uso)
             self.p.auditar(conn, uid, "consumo_apagado", f"{len(ids)} medidor(es)", ip)
 
     def excluir_conta(self, sessao, senha, codigo=None, ip=None):

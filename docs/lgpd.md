@@ -48,6 +48,12 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - **Pagamento**: o Mercado Pago passa a ser operador (recebe e-mail e valor). Não guardamos dado de cartão. A referência enviada a ele é um código aleatório, não o e-mail nem o id da conta.
 - **Página inicial**: sem cookies e sem rastreadores. A origem da visita (`?o=instagram`) só é guardada junto do e-mail de quem entra na lista.
 
+## O que entrou no bloco 5
+- **Plano de economia** (aba Economia, "E se eu…?"): guarda as ações que a pessoa marcou e os números que ela ajustou (banhos por semana, minutos de uso, potência, preço de uma geladeira nova). É dado sobre os hábitos da casa, então segue o consumo: faz parte do serviço autorizado em "dados de consumo", entra na cópia dos dados (`plano_de_economia`), some ao apagar o consumo e ao excluir a conta, e cada mudança fica na atividade da conta ("Plano de economia alterado").
+- **Conferência "Deu certo?"**: não guarda nada novo. Compara, na hora, o consumo por dia antes e depois de cada ação, a partir do que já está guardado. Sem a autorização de consumo, não roda; sem a do Detetive, não compara aparelho por aparelho.
+- **Simulador**: as contas de quem só mexe nos controles rodam no navegador e não vão para o servidor. Só vai o que a pessoa põe no plano.
+- O resumo semanal por e-mail passa a dizer quanto a casa economizou desde o início do plano (mesma chave de e-mail do resumo).
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).
