@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       # Para testar a senha própria por medidor contra um broker de verdade
@@ -35,16 +35,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
       # As contas do "E se eu…?" no navegador têm de bater com as do servidor (mesmos casos)
       - run: node tests/web/teste_economia.js
       - run: |
           node --check src/meterwatt/estatico/app.js
           node --check src/meterwatt/estatico/economia-calculo.js
           node --check src/meterwatt/estatico/sw.js
-          node --check tools/demo/servidor_de_mentira.js
+          node --check src/meterwatt/estatico/demonstracao.js
       - name: Demonstração em um arquivo só
         run: python3 tools/gerar_demo.py --saida "$RUNNER_TEMP/demonstracao.html"
 

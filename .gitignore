@@ -17,3 +17,10 @@ instancia/
 .simulador-*.segredo
 infra/.env
 meterwatt-demonstracao.html
+# App Android: dependências, projeto gerado por android/gerar-projeto.mjs, saída assinada
+# e, principalmente, as chaves de assinatura (a de envio fica só com vocês e nos segredos do GitHub)
+android/node_modules/
+android/projeto/
+android/saida/
+*.keystore
+*.jks

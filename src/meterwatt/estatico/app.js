@@ -144,11 +144,12 @@ const ROTAS_APP = new Set(["painel", "medidores", "aparelhos", "economia", "cont
 // No celular, estas telas ficam dentro da aba "Conta".
 const DENTRO_DE_CONTA = new Set(["conta", "seguranca", "privacidade", "plano", "avisos", "pagamento-teste"]);
 const ROTAS_INICIO = new Set(["inicio", "fila", "convite", "sair-da-fila"]);
-const DOCUMENTOS = new Set(["politica", "termos"]);
+const DOCUMENTOS = new Set(["politica", "termos", "excluir-conta"]);
 const TITULOS = { entrar: "Entrar", cadastro: "Criar conta", painel: "Painel", medidores: "Medidores", seguranca: "Segurança",
   privacidade: "Privacidade", politica: "Política de privacidade", termos: "Termos de uso", "2fa": "Verificação",
   inicio: "Energia que você enxerga", fila: "Lista de espera", "sair-da-fila": "Sair da lista", aparelhos: "Aparelhos",
-  avisos: "Avisos", plano: "Plano", "pagamento-teste": "Pagamento de teste", economia: "E se eu…?", conta: "Conta" };
+  avisos: "Avisos", plano: "Plano", "pagamento-teste": "Pagamento de teste", economia: "E se eu…?", conta: "Conta",
+  "excluir-conta": "Excluir a conta" };
 
 function ir(rota) {
   if (location.hash !== `#${rota}`) location.hash = rota;
@@ -355,6 +356,7 @@ async function tela2fa() {
 }
 
 async function sair() {
+  if (window.MW_DEMONSTRACAO && !window.MW_DEMONSTRACAO_ARQUIVO) return sairDaDemonstracao();
   await desligarNotificacoesAoSair();
   try { await api("POST", "/api/conta/sair"); } catch { /* sai mesmo assim */ }
   estado.eu = null;
@@ -872,6 +874,7 @@ const NOMES_RETENCAO = {
   consumo_5_minutos_dias_com_historico_longo: ["… com histórico longo autorizado", "dias"],
   atividade_da_conta_dias: ["Atividade da conta", "dias"],
   conta_nao_confirmada_dias: ["Conta que nunca confirmou o e-mail", "dias"],
+  backup_copias: ["O que você apaga sai das cópias de segurança em até", "dias"],
 };
 const EVENTOS_DE_ALERTA = new Set(["login_falhou", "login_2fa_falhou", "cadastro_repetido", "pareamento_recusado", "login_codigo_backup"]);
 
@@ -955,6 +958,7 @@ function atualizarSino(n) {
   conta.textContent = n > 9 ? "9+" : String(n || "");
   $("#sino").setAttribute("aria-label", n ? `Avisos: ${n} não lido(s)` : "Avisos");
   // No app instalado, o número também aparece no ícone da tela inicial (quando o sistema deixa).
+  if (window.MW_DEMONSTRACAO) return;
   try {
     if (n && navigator.setAppBadge) navigator.setAppBadge(n).catch(() => {});
     else if (!n && navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
@@ -1835,6 +1839,17 @@ const app = {
   instalado: matchMedia("(display-mode: standalone)").matches || navigator.standalone === true,   // rodando como app
   jaInstalou: false,  // instalou agora, por esta aba
   ativo: null,        // o service worker pronto: sem ele não dá para ligar as notificações
+  // Aberto pelo app da Play Store? Ele abre com ?app=android (android/gerar-projeto.mjs), e o Android
+  // informa a origem android-app://. Lá dentro, a assinatura não é vendida: a Play exige o sistema de
+  // cobrança dela para assinaturas vendidas dentro de apps.
+  daPlayStore: (() => {
+    let sim = /[?&]app=android(&|$)/.test(location.search) || document.referrer.startsWith("android-app://");
+    try {
+      if (sim) sessionStorage.setItem("mw-play", "1");
+      sim = sim || sessionStorage.getItem("mw-play") === "1";
+    } catch { /* sem armazenamento: vale o que a URL diz */ }
+    return sim;
+  })(),
 };
 
 const push = {
@@ -1976,7 +1991,7 @@ function mesmaChave(inscricao, chave) {
 async function conferirNotificacoes() {
   push.inscricao = null;
   push.id = null;
-  if (!push.suportado || !estado.eu) return;
+  if (!push.suportado || !estado.eu || window.MW_DEMONSTRACAO) return;
   await carregarNotificacoes();
   const registro = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 5000))]);
   if (!registro) return;
@@ -2091,6 +2106,53 @@ async function desligarNotificacoesAoSair() {
   await inscricao.unsubscribe().catch(() => {});
 }
 
+/* ------------------------------------------------------------------ demonstração (casa simulada) */
+
+/* "Ver o app funcionando": o app inteiro com uma casa inventada, sem conta e sem o medidor. As
+ * respostas vêm de demonstracao.js, carregado só aqui, que responde às chamadas /api/ dentro do
+ * navegador. Serve a quem ainda não tem o medidor, e a quem revisa e testa o app na Play Store. */
+const DEMONSTRACAO = "mw-demonstracao";
+
+function modoDemonstracao() {
+  try { return sessionStorage.getItem(DEMONSTRACAO) === "1"; } catch { return false; }
+}
+
+function entrarNaDemonstracao() {
+  try {
+    sessionStorage.setItem(DEMONSTRACAO, "1");
+  } catch {
+    avisar("Este navegador não deixou abrir a demonstração (o armazenamento do site está bloqueado).", true);
+    return;
+  }
+  location.hash = "painel";
+  location.reload();
+}
+
+function sairDaDemonstracao() {
+  try { sessionStorage.removeItem(DEMONSTRACAO); } catch { /* recarregar já basta */ }
+  location.hash = "entrar";
+  location.reload();
+}
+
+function carregarScript(endereco) {
+  return new Promise((pronto, falhou) => document.head.append(el("script", { src: endereco, onload: pronto, onerror: falhou })));
+}
+
+async function prepararDemonstracao() {
+  if (modoDemonstracao() && !window.MW_DEMONSTRACAO) {
+    try {
+      await carregarScript("/estatico/demonstracao.js");
+    } catch {
+      try { sessionStorage.removeItem(DEMONSTRACAO); } catch { /* segue no app de verdade */ }
+      avisar("Não deu para abrir a demonstração agora. Confira a conexão e tente de novo.", true);
+    }
+  }
+  const ligada = !!window.MW_DEMONSTRACAO;
+  $("#faixa-demonstracao").hidden = !ligada;
+  $("#sair-demonstracao").hidden = !!window.MW_DEMONSTRACAO_ARQUIVO;     // no arquivo único, não há "fora"
+  $$(".convite-demo, .convite-demo-inicio").forEach((e) => { e.hidden = ligada; });
+}
+
 /* ------------------------------------------------------------------ sem conexão */
 
 async function entrarNoApp() {
@@ -2149,7 +2211,7 @@ async function telaPlano() {
 }
 
 function desenharPlano(r) {
-  $("#plano-teste").hidden = !r.modo_teste;
+  $("#plano-teste").hidden = !r.modo_teste || app.daPlayStore;
   estado.eu.plano = r.plano;
   const caixa = $("#plano-conteudo");
   if (!r.disponivel) {
@@ -2168,6 +2230,7 @@ function desenharPlano(r) {
     if (a && a.status === "cancelada" && ativa) {
       return [el("p", { class: "valor-sub" }, `Assinatura cancelada. O plano Casa continua valendo até ${fmt.quando(a.valida_ate).split(",")[0]}, sem novas cobranças.`)];
     }
+    if (app.daPlayStore) return [el("p", { class: "valor-sub" }, "A assinatura não está disponível no app da Play Store.")];
     return [a && a.status === "pendente" ? el("p", { class: "valor-sub" }, "Há um pagamento esperando você terminar.") : null,
       el("button", { class: "primario", type: "button", onclick: assinarPlano }, a && a.status === "pendente" ? "Continuar o pagamento" : "Assinar o plano Casa")];
   };
@@ -2177,11 +2240,12 @@ function desenharPlano(r) {
       el("ul", {}, el("li", {}, medidores(r.limite_gratis)), el("li", {}, "Painel, meta do mês, consumo fantasma, avisos e o simulador E se eu…?"), el("li", {}, "Privacidade completa: cópia, exclusão e duas etapas")),
       ativa ? null : el("p", { class: "atual-marca" }, "Seu plano atual")),
     el("article", { class: `bloco plano destaque${ativa ? " vigente" : ""}` },
-      el("h2", {}, "Casa"), el("p", { class: "valor-grande" }, `${fmt.reais(r.preco_mensal)} `, el("small", {}, "por mês")),
+      el("h2", {}, "Casa"), app.daPlayStore ? null : el("p", { class: "valor-grande" }, `${fmt.reais(r.preco_mensal)} `, el("small", {}, "por mês")),
       el("ul", {}, el("li", {}, `Até ${medidores(r.limite_pago)}: casa, edícula, ar-condicionado em circuito separado`), el("li", {}, "Tudo do plano grátis"), el("li", {}, "Cancele quando quiser, aqui mesmo")),
       ativa ? el("p", { class: "atual-marca" }, "Seu plano atual") : null,
       ...acao())),
-  el("p", { class: "dica" }, `Você tem ${medidores(r.medidores)} na conta. O pagamento é feito na página do Mercado Pago: o MeterWatt nunca vê o número do cartão. `
+  el("p", { class: "dica" }, `Você tem ${medidores(r.medidores)} na conta. `
+    + (app.daPlayStore ? "" : "O pagamento é feito na página do Mercado Pago: o MeterWatt nunca vê o número do cartão. ")
     + "Se cancelar, nada é apagado: os medidores e o histórico continuam, só não dá para parear além do limite do plano grátis."));
 }
 
@@ -2497,6 +2561,9 @@ const particulas = (() => {
 /* ------------------------------------------------------------------ início */
 
 async function iniciar() {
+  await prepararDemonstracao();
+  $$('[data-acao="demonstracao"]').forEach((b) => b.addEventListener("click", entrarNaDemonstracao));
+  $("#sair-demonstracao").addEventListener("click", sairDaDemonstracao);
   ligarFormulariosPublicos();
   ligarPreferencias();
   ligarSeguranca();

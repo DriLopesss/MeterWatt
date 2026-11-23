@@ -1,0 +1,15 @@
+{
+  "name": "meterwatt-android",
+  "private": true,
+  "description": "Gera o projeto Android (Trusted Web Activity) do MeterWatt a partir do manifesto do site.",
+  "type": "module",
+  "scripts": {
+    "gerar": "node gerar-projeto.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@bubblewrap/core": "1.27.0"
+  }
+}

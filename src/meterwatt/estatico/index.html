@@ -21,6 +21,10 @@
 <script src="/estatico/app.js" defer></script>
 </head>
 <body data-tela="carregando">
+<div class="faixa-demo" id="faixa-demonstracao" role="note" hidden>
+  <span>Demonstração com dados simulados: nada aqui é medição real e nada sai do seu navegador.</span>
+  <button type="button" class="link" id="sair-demonstracao">Sair da demonstração</button>
+</div>
 <a class="pular" href="#conteudo">Pular para o conteúdo</a>
 <canvas id="particulas" aria-hidden="true"></canvas>
 
@@ -42,6 +46,7 @@
             <a class="botao secundario" href="#inicio" data-rolar="calculadora">Calcular meu consumo fantasma</a>
           </div>
           <p class="dica">Em desenvolvimento por duas pessoas na FIAP. Ainda não está à venda: a lista de espera é para os primeiros testes.</p>
+          <p class="convite-demo-inicio"><button type="button" class="link" data-acao="demonstracao">Ver o app funcionando, com uma casa simulada</button></p>
         </div>
         <div class="heroi-visor" aria-hidden="true">
           <p class="relogio-rotulo">Uma casa agora</p>
@@ -91,7 +96,7 @@
           <li>Sem anúncios, sem venda de dados e sem rastreadores de terceiros.</li>
           <li>Verificação em duas etapas, e cada medidor com uma senha só dele.</li>
         </ul>
-        <p><a href="#politica">Política de privacidade</a> <span aria-hidden="true">|</span> <a href="#termos">Termos de uso</a></p>
+        <p><a href="#politica">Política de privacidade</a> <span aria-hidden="true">|</span> <a href="#termos">Termos de uso</a> <span aria-hidden="true">|</span> <a href="#excluir-conta">Excluir a conta</a></p>
       </section>
 
       <section class="faixa-inicio fila" id="fila" aria-labelledby="fila-titulo">
@@ -126,7 +131,7 @@
   </main>
 
   <footer class="inicio-rodape">
-    <p>MeterWatt, projeto em desenvolvimento. <a href="#politica">Privacidade</a> <span aria-hidden="true">|</span> <a href="#termos">Termos</a> <span aria-hidden="true">|</span> <a href="#entrar">Entrar</a></p>
+    <p>MeterWatt, projeto em desenvolvimento. <a href="#politica">Privacidade</a> <span aria-hidden="true">|</span> <a href="#termos">Termos</a> <span aria-hidden="true">|</span> <a href="#excluir-conta">Excluir a conta</a> <span aria-hidden="true">|</span> <a href="#entrar">Entrar</a></p>
   </footer>
 </div>
 
@@ -154,6 +159,10 @@
       </form>
       <p class="rodape-form"><a href="#esqueci">Esqueci a senha</a></p>
       <p class="rodape-form">Ainda não tem conta? <a href="#cadastro">Criar conta</a></p>
+      <div class="convite-demo">
+        <p>Ainda sem o medidor? Veja o app funcionando com uma casa simulada, sem criar conta.</p>
+        <button type="button" class="secundario" data-acao="demonstracao">Ver o app funcionando</button>
+      </div>
     </section>
 
     <section data-rota="cadastro" hidden>
@@ -230,6 +239,7 @@
 
     <section data-rota="politica" data-documento hidden></section>
     <section data-rota="termos" data-documento hidden></section>
+    <section data-rota="excluir-conta" data-documento hidden></section>
   </main>
 </div>
 
@@ -504,11 +514,12 @@
         <ol class="atividade" id="atividade"></ol>
       </article>
 
-      <p class="rodape-form"><a href="#politica">Política de privacidade</a> <span aria-hidden="true">|</span> <a href="#termos">Termos de uso</a> <span id="contato-encarregado"></span></p>
+      <p class="rodape-form"><a href="#politica">Política de privacidade</a> <span aria-hidden="true">|</span> <a href="#termos">Termos de uso</a> <span aria-hidden="true">|</span> <a href="#excluir-conta">Como excluir a conta</a> <span id="contato-encarregado"></span></p>
     </section>
 
     <section data-rota="politica" data-documento hidden></section>
     <section data-rota="termos" data-documento hidden></section>
+    <section data-rota="excluir-conta" data-documento hidden></section>
   </main>
 </div>
 
@@ -614,10 +625,11 @@
       <li>Registro de atividade da conta: <span data-info="atividade_da_conta_dias"></span> dias.</li>
       <li>Conta que nunca confirmou o e-mail: apagada em <span data-info="conta_nao_confirmada_dias"></span> dias.</li>
       <li>Ao excluir a conta, tudo é apagado na hora. Fica só um código irreversível do e-mail e a data, para provar que o pedido foi atendido. [ADVOGADO: confirmar prazo.]</li>
+      <li>Cópias de segurança: guardamos as <span data-info="backup_copias">14</span> mais recentes, uma por dia, cifradas. O que você apaga sai delas em até <span data-info="backup_copias">14</span> dias.</li>
     </ul>
 
     <h2>Seus direitos (art. 18)</h2>
-    <p>Confirmar o tratamento, acessar e baixar os dados, corrigir, anonimizar ou apagar, revogar autorizações e saber com quem compartilhamos. Quase tudo funciona sozinho na tela <a href="#privacidade">Privacidade</a>. O resto, pelo e-mail acima, com resposta em até 15 dias.</p>
+    <p>Confirmar o tratamento, acessar e baixar os dados, corrigir, anonimizar ou apagar, revogar autorizações e saber com quem compartilhamos. Quase tudo funciona sozinho na tela <a href="#privacidade">Privacidade</a>. O resto, pelo e-mail acima, com resposta em até 15 dias. Como excluir a conta, passo a passo: <a href="#excluir-conta">Excluir a conta</a>.</p>
 
     <h2>Com quem compartilhamos</h2>
     <p>Só com quem opera o serviço para nós: provedor de servidores, de envio de e-mail e, para quem assina um plano, o Mercado Pago (que recebe o seu e-mail e o valor da assinatura). Se você ligar as notificações, cada aviso passa pelo serviço de notificações do seu navegador (Google no Chrome e no Android, Apple no iPhone e no Safari, Mozilla no Firefox, Microsoft no Edge), que fica fora do Brasil. A mensagem vai cifrada de ponta a ponta: esse serviço sabe que uma notificação foi entregue no aparelho, mas não consegue ler o que ela diz. [ADVOGADO e equipe: listar os fornecedores e os países onde ficam os servidores (art. 33).]</p>
@@ -627,6 +639,33 @@
 
     <h2>Crianças</h2>
     <p>O serviço é para maiores de 18 anos, responsáveis pela conta de luz do imóvel.</p>
+  </article>
+</template>
+
+<template id="doc-excluir-conta">
+  <article class="documento">
+    <h1>Excluir a conta do MeterWatt</h1>
+    <p>Você pode excluir a sua conta do MeterWatt a qualquer momento, pelo app ou pelo site. A exclusão apaga a conta e todos os dados ligados a ela, e não pode ser desfeita. Responsável pelos dados: <span data-info="controlador">[nome e CNPJ da empresa, a definir]</span>.</p>
+
+    <h2>Pelo app ou pelo site</h2>
+    <ol>
+      <li>Entre na sua conta.</li>
+      <li>No celular, abra a aba <strong>Conta</strong> e depois <strong>Privacidade e seus dados</strong>. No computador, abra <strong>Privacidade</strong> no menu de cima.</li>
+      <li>Em <strong>Excluir a conta</strong>, digite EXCLUIR e confirme com a sua senha (e com o código do autenticador, se a verificação em duas etapas estiver ligada).</li>
+    </ol>
+    <p>Se você assina o plano Casa, a cobrança é cancelada antes da exclusão.</p>
+
+    <h2>Sem conseguir entrar na conta</h2>
+    <p>Escreva para <span data-info="email_privacidade">[e-mail de privacidade, a definir]</span> a partir do e-mail cadastrado, com o assunto "Excluir conta". Respondemos em até 15 dias.</p>
+
+    <h2>O que é apagado e o que fica</h2>
+    <ul>
+      <li><strong>Apagado na hora:</strong> nome, e-mail, senha, medidores, leituras e consumo, avisos, aparelhos do Detetive, plano de economia, aparelhos com notificações, sessões e autorizações.</li>
+      <li><strong>Fica:</strong> um código irreversível do e-mail e a data do pedido, para provar que a exclusão foi feita. Não dá para voltar ao e-mail a partir desse código. [ADVOGADO: confirmar o prazo.]</li>
+      <li><strong>Cópias de segurança:</strong> o que foi apagado sai das cópias cifradas em até <span data-info="backup_copias">14</span> dias.</li>
+      <li><strong>Pagamentos:</strong> os registros que a lei manda guardar ficam pelo prazo legal. [ADVOGADO/CONTADOR: prazo.]</li>
+    </ul>
+    <p>Quer apagar só o histórico de consumo e manter a conta? Na mesma tela, use <strong>Apagar o consumo</strong>.</p>
   </article>
 </template>
 

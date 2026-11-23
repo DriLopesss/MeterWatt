@@ -21,6 +21,8 @@ CASCA = {
     "/estatico/app.css": "app.css",
     "/estatico/app.js": "app.js",
     "/estatico/economia-calculo.js": "economia-calculo.js",
+    # A demonstração (botão "Ver o app funcionando") sai da mesma versão do app e abre sem internet.
+    "/estatico/demonstracao.js": "demonstracao.js",
     "/estatico/icone.svg": "icone.svg",
     "/estatico/app/icone-192.png": "app/icone-192.png",
     "/estatico/app/selo-notificacao-96.png": "app/selo-notificacao-96.png",

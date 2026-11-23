@@ -105,6 +105,9 @@ def main(argv=None):
         print("Pagamento em modo de teste: nenhuma cobrança é feita de verdade.")
     if not cfg.vapid_chave_privada:
         print("Notificações no celular desligadas: defina MW_VAPID_CHAVE_PRIVADA (gere com --gerar-vapid).")
+    if cfg.producao and not (cfg.controlador and cfg.email_privacidade):
+        print("Faltam MW_CONTROLADOR e MW_EMAIL_PRIVACIDADE: eles aparecem na política de privacidade e na página "
+              "de exclusão de conta, que a Play Store exige.")
     if cfg.producao:
         from waitress import serve
         serve(app, host=cfg.http_host, port=cfg.http_porta, threads=8)
