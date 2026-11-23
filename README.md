@@ -20,6 +20,7 @@ O **MeterWatt** nasceu da necessidade de transformar a relação entre consumido
 *   [**📁 firmware/mwatt**](./firmware/mwatt): firmware anterior, com o sensor de corrente ACS712. Só mede corrente (potência aparente estimada).
 *   [**📁 src**](./src): backend em Python. Recebe as leituras por MQTT, grava um CSV e serve o **painel web** e a API.
 *   [**📁 tools**](./tools): simulador de PZEM, para testar tudo sem o hardware.
+*   [**📁 android**](./android): gera o app Android da Play Store a partir do site (compilado pelo GitHub).
 *   [**📁 tests**](./tests): testes automáticos do backend e do protocolo do PZEM.
 *   [**📁 docs**](./docs): documentação e imagens do projeto.
 
@@ -206,7 +207,9 @@ Em desenvolvimento os e-mails (confirmação, senha) ficam em `src/instancia/cai
 - **Avisos e resumo semanal**: medidor sem sinal, meta, consumo fora do normal e um resumo toda segunda, no aplicativo, por e-mail e como notificação no celular (cada tipo escolhe os canais).
 - **Detetive de aparelhos** (em teste): reconhece o que liga e desliga pelo degrau de potência. Precisa de autorização própria.
 - **E se eu…?** (aba Economia): simulador de economia com os números da casa (banho mais curto, chuveiro na posição verão, consumo em espera, menos minutos de um aparelho, troca da geladeira). O que a pessoa marcar vira um plano, e depois de alguns dias o aplicativo confere na medição se a economia apareceu ("Deu certo?"). As contas estão em `economia.py` e, iguais, em `estatico/economia-calculo.js`; os dois passam pelos mesmos casos em `tests/economia_vetores.json`.
-- **App no celular**: o site instala como app (ícone na tela inicial, tela cheia, abre sem internet) e manda os avisos como notificação, no Android, no iPhone (iOS 16.4+) e no computador. Caminho para a Play Store pronto (Trusted Web Activity). Guia em [`docs/app-celular.md`](docs/app-celular.md).
+- **App no celular**: o site instala como app (ícone na tela inicial, tela cheia, abre sem internet) e manda os avisos como notificação, no Android, no iPhone (iOS 16.4+) e no computador. Guia em [`docs/app-celular.md`](docs/app-celular.md).
+- **App da Play Store** (`android/`): o GitHub gera, compila e assina o app Android (Trusted Web Activity, Android 16) a partir do manifesto do site; a chave de envio fica nos segredos do repositório. Imagens da ficha em [`docs/play-store`](docs/play-store). Passo a passo em [`docs/app-celular.md`](docs/app-celular.md#play-store-android).
+- **Ver o app funcionando**: modo demonstração com uma casa simulada, sem conta e sem gravar nada no servidor (botão nas telas de início e de entrada). Política, termos e exclusão da conta também abrem sem login em `/politica-de-privacidade`, `/termos-de-uso` e `/excluir-conta`.
 - **Planos**: grátis com 1 medidor e plano Casa, com Mercado Pago em modo de teste (`MW_PAGAMENTO_PROVEDOR`). Em desenvolvimento há um pagamento de mentira.
 - **Página inicial**: calculadora de consumo fantasma e lista de espera com convite (`python -m meterwatt --lista-espera`).
 - **Senha própria por medidor** e conexão criptografada (firmware 3.3 + Mosquitto com dynamic-security).

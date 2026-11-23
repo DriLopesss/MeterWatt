@@ -63,6 +63,13 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - **Atividade da conta**: "Notificações ligadas num aparelho" e "Notificações desligadas num aparelho".
 - A política de privacidade passou para a versão 2026-11-23 (item novo "Notificações" e o trecho sobre os serviços dos navegadores).
 
+## O que entrou no bloco 7 (Play Store)
+- **Páginas abertas sem login**: `/politica-de-privacidade`, `/termos-de-uso` e `/excluir-conta`, com o mesmo texto das telas do app (os `<template>` do `index.html`), como a Play pede. A de exclusão explica o caminho no app, o pedido por e-mail para quem não consegue entrar (resposta em até 15 dias), o que sai na hora e o que fica: o registro de exclusão, os registros de pagamento [ADVOGADO: prazo] e as cópias de segurança, que perdem o dado em até `MW_BACKUP_MANTER` dias. Os valores vêm da configuração (`MW_CONTROLADOR`, `MW_EMAIL_PRIVACIDADE`); em produção, o servidor avisa ao subir se faltarem.
+- **Política** (ainda a versão 2026-11-23, que não foi ao ar): ganhou a linha das cópias de segurança e o link para o passo a passo da exclusão.
+- **Modo demonstração** ("Ver o app funcionando"): roda inteiro no navegador, com dados inventados. Não cria conta, não grava nada no servidor e não liga notificações.
+- **App da Play**: é o mesmo site em tela cheia; o app Android não coleta nada além do que o site já coleta e não tem anúncios nem ID de publicidade. Não vende a assinatura (dentro do app da Play não há pagamento).
+- **Formulário de segurança dos dados da Play**: as respostas têm de bater com a política. Proposta: nome, e-mail, ID da conta, consumo e o que a pessoa digita, registro de segurança, identificadores (notificações e medidor) e, com a assinatura ligada, histórico de compras; nada compartilhado. [ADVOGADO: conferir junto com a política.]
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).
