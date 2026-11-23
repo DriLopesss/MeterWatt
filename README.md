@@ -148,7 +148,7 @@ Se a atualização falhar no meio, o ESP32 continua com o firmware anterior. Mes
 4. **Com uma carga resistiva conhecida** (chaleira ou ferro de passar). Compare a corrente com um alicate amperímetro True RMS e anote o erro. O fator de potência deve ficar perto de 1,00.
 5. Se aparecer `crc_invalido` ou `resposta_incompleta`, o problema é a ligação serial (nível de tensão, fio solto ou TX e RX trocados).
 
-Para esse teste, grave o firmware com `INTERVALO_ENVIO_MS 1000` no `config.h` (uma leitura por segundo).
+Esse teste usa uma leitura por segundo (`INTERVALO_ENVIO_MS 1000`, o padrão do `config.example.h`). Quem copiou o `config.h` antes do PR #7 tem 5000 ali: troque para 1000, senão o painel atualiza a cada 5 s e o Detetive de aparelhos perde os aparelhos que ficam pouco tempo ligados.
 
 ### Calibração com a ferramenta
 Com o backend rodando, num segundo terminal, na raiz do repositório:
@@ -177,6 +177,7 @@ Ele cruza as leituras do backend (`src/leituras.csv`) com as medidas anotadas (`
 ```bash
 pip install pytest
 python -m pytest tests -q
+node tests/web/teste_economia.js        # contas do "E se eu…?" no navegador
 g++ -std=c++11 -o teste_pzem tests/firmware/teste_pzem_modbus.cpp && ./teste_pzem
 g++ -std=c++11 -o teste_ajustes tests/firmware/teste_ajustes.cpp && ./teste_ajustes
 ```
@@ -204,12 +205,14 @@ Em desenvolvimento os e-mails (confirmação, senha) ficam em `src/instancia/cai
 - **Pareamento**: firmware 3.2 tem o campo "Código de pareamento" na página de configuração (toque rápido no BOOT reabre a página).
 - **Avisos e resumo semanal**: medidor sem sinal, meta, consumo fora do normal e um resumo toda segunda, no aplicativo e por e-mail.
 - **Detetive de aparelhos** (em teste): reconhece o que liga e desliga pelo degrau de potência. Precisa de autorização própria.
+- **E se eu…?** (aba Economia): simulador de economia com os números da casa (banho mais curto, chuveiro na posição verão, consumo em espera, menos minutos de um aparelho, troca da geladeira). O que a pessoa marcar vira um plano, e depois de alguns dias o aplicativo confere na medição se a economia apareceu ("Deu certo?"). As contas estão em `economia.py` e, iguais, em `estatico/economia-calculo.js`; os dois passam pelos mesmos casos em `tests/economia_vetores.json`.
 - **Planos**: grátis com 1 medidor e plano Casa, com Mercado Pago em modo de teste (`MW_PAGAMENTO_PROVEDOR`). Em desenvolvimento há um pagamento de mentira.
 - **Página inicial**: calculadora de consumo fantasma e lista de espera com convite (`python -m meterwatt --lista-espera`).
 - **Senha própria por medidor** e conexão criptografada (firmware 3.3 + Mosquitto com dynamic-security).
 - **Backup cifrado**: `python -m meterwatt --backup` e `--restaurar ARQUIVO`.
 - Produção: veja [`docs/implantacao.md`](docs/implantacao.md) (Docker) e `infra/`.
-- Testes: `python -m pytest tests -q`.
+- Testes: `python -m pytest tests -q` e `node tests/web/teste_economia.js`.
+- Demonstração em um arquivo só, com uma casa inventada: `python tools/gerar_demo.py` (abre com dois cliques, nada sai do navegador).
 
 ## 🏆 Reconhecimento
 Este projeto foi selecionado como **finalista no NEXT FIAP 2023**, sendo avaliado por sua viabilidade técnica e impacto em sustentabilidade.

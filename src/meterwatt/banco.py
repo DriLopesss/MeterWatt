@@ -235,6 +235,26 @@ MIGRACOES = [
     """
     ALTER TABLE medidores ADD COLUMN credencial_propria INTEGER NOT NULL DEFAULT 0;
     """,
+    # 7: plano de economia ("E se eu…?")
+    """
+    CREATE TABLE economia_plano (
+        id INTEGER PRIMARY KEY,
+        usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        tipo TEXT NOT NULL CHECK (tipo IN ('banho_curto', 'chuveiro_verao', 'fantasma', 'geladeira', 'usar_menos')),
+        chave TEXT NOT NULL,
+        parametros TEXT NOT NULL,
+        aparelho_id INTEGER REFERENCES aparelhos(id) ON DELETE SET NULL,
+        nome TEXT,
+        kwh_mes REAL NOT NULL,
+        criada_em REAL NOT NULL,
+        atualizada_em REAL NOT NULL,
+        UNIQUE (usuario_id, chave)
+    );
+    """,
+    # 8: o "antes" de cada ação do plano, guardado (a retenção apaga o consumo de 5 em 5 minutos depois de 90 dias)
+    """
+    ALTER TABLE economia_plano ADD COLUMN linha_de_base TEXT;
+    """,
 ]
 
 
