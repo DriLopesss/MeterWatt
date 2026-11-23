@@ -43,9 +43,9 @@ body[data-area="inicio"] #particulas{opacity:.55}
 
 /* ---------- logo ---------- */
 .logo{display:inline-flex;align-items:center;gap:10px;color:var(--tinta);text-decoration:none;font:800 1.1rem var(--f-titulo);letter-spacing:-.02em}
-.logo-raio{width:26px;height:26px;border-radius:8px;background:var(--ambar);
-  -webkit-mask:url(icone.svg) center/100% no-repeat;mask:url(icone.svg) center/100% no-repeat;
-  background:linear-gradient(135deg,var(--ambar),#ff7a1a)}
+/* O ícone do app inteiro (o raio sobre o quadrado escuro). Como máscara, o quadrado opaco do
+   arquivo apagava o raio e sobrava só um quadrado laranja. */
+.logo-raio{flex:none;width:26px;height:26px;border-radius:8px;background:url(icone.svg) center/100% no-repeat}
 
 /* ---------- botões e campos ---------- */
 button,.botao{font:600 .95rem var(--f-texto);border-radius:999px;padding:.72em 1.3em;border:1px solid transparent;cursor:pointer;

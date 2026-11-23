@@ -31,10 +31,10 @@ jobs:
       PUBLICAR: ${{ github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
-      - uses: actions/setup-java@v4
+          node-version: "22"
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -90,7 +90,7 @@ jobs:
             echo "(Play Console > Integridade do app) e, para o .apk de teste, também esta acima, separadas por vírgula."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: env.PUBLICAR == 'true'
         with:
           name: meterwatt-android-${{ github.run_number }}
