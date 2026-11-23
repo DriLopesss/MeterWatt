@@ -67,6 +67,7 @@ EVENTOS = {
     "medidor_pareado": "Medidor pareado",
     "pareamento_recusado": "Pareamento recusado: o medidor já pertence a outra conta",
     "medidor_renomeado": "Medidor renomeado",
+    "medidor_papel": "O que o medidor mede mudou",
     "medidor_removido": "Medidor removido",
     "consentimento": "Autorização alterada",
     "dados_exportados": "Cópia dos dados baixada",
@@ -190,6 +191,7 @@ class Privacidade:
             saida["medidores"].append({
                 "id": m["id"], "apelido": m["apelido"], "pareado_em": self.p.iso(m["pareado_em"]),
                 "tipo_de_sensor": m["tipo"], "firmware": m["fw"],
+                "mede": "entrada" if m["papel"] == "casa" else "circuito", "dentro_de": m["dentro_de"],
                 "consumo_5_minutos": [
                     {"inicio": self.p.iso(a["inicio"]), "leituras": a["n"],
                      "potencia_media": round(a["soma_w"] / a["n"], 1) if a["n"] else None,

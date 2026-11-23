@@ -276,6 +276,12 @@ MIGRACOES = [
     CREATE INDEX push_inscricoes_sessao ON push_inscricoes(sessao_id);
     ALTER TABLE avisos_config ADD COLUMN por_push INTEGER NOT NULL DEFAULT 1 CHECK (por_push IN (0, 1));
     """,
+    # 10: o que cada medidor mede. "casa" mede a entrada de um imóvel e soma no total da conta; "circuito"
+    # mede uma parte de dentro de outro medidor (o ar-condicionado, a cozinha) e não soma de novo.
+    """
+    ALTER TABLE medidores ADD COLUMN papel TEXT NOT NULL DEFAULT 'casa' CHECK (papel IN ('casa', 'circuito'));
+    ALTER TABLE medidores ADD COLUMN dentro_de TEXT REFERENCES medidores(id) ON DELETE SET NULL;
+    """,
 ]
 
 

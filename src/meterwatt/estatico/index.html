@@ -18,6 +18,7 @@
 <link rel="preload" href="/estatico/fontes/jetbrains-mono-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/estatico/app.css">
 <script src="/estatico/economia-calculo.js" defer></script>
+<script src="/estatico/graficos.js" defer></script>
 <script src="/estatico/app.js" defer></script>
 </head>
 <body data-tela="carregando">
@@ -271,18 +272,45 @@
 
     <!-- ----------------------------------------------- painel -->
     <section data-rota="painel" hidden>
-      <div class="relogio">
+      <div class="relogio com-3d">
+        <canvas class="casa-3d" id="casa-3d" aria-hidden="true"></canvas>
+        <button type="button" class="botao-3d" id="botao-3d" aria-pressed="true" aria-label="Casa em 3D" title="Mostrar ou esconder a casa em 3D">3D</button>
         <p class="relogio-rotulo">Sua casa agora</p>
         <div class="relogio-visor" id="visor-agora" aria-live="polite" aria-atomic="true"></div>
         <p class="relogio-sub" id="agora-sub">Esperando leituras…</p>
       </div>
 
       <div class="grade-painel">
+        <article class="bloco bloco-fluxo" id="bloco-fluxo">
+          <div class="cabecalho-bloco">
+            <h2>Para onde vai agora</h2>
+            <p class="valor-sub" id="fluxo-total"></p>
+          </div>
+          <div class="fluxo" id="fluxo" role="img" aria-label="Para onde vai a energia agora"></div>
+          <p class="aviso-balanco" id="fluxo-aviso" role="status" hidden></p>
+          <p class="dica" id="fluxo-nota"></p>
+        </article>
+
         <article class="bloco bloco-hoje">
           <h2>Hoje</h2>
           <p class="valor-grande" id="hoje-kwh">—</p>
           <p class="valor-sub" id="hoje-custo"></p>
           <dl class="comparacao" id="hoje-comparacao"></dl>
+        </article>
+
+        <article class="bloco bloco-perfil" id="bloco-perfil">
+          <div class="cabecalho-bloco">
+            <h2>Perfil do dia</h2>
+            <div class="periodos" role="group" aria-label="O que mostrar">
+              <button type="button" data-vista="hoje" aria-pressed="true">Hoje</button>
+              <button type="button" data-vista="mapa" aria-pressed="false">14 dias</button>
+            </div>
+          </div>
+          <p class="perfil-resumo" id="perfil-resumo"></p>
+          <div class="perfil-grafico" tabindex="0" role="img" aria-label="Consumo de hoje hora a hora"></div>
+          <p class="perfil-leitura" aria-live="polite"></p>
+          <div class="perfil-legenda"></div>
+          <details class="perfil-detalhes"><summary>Ver como tabela</summary><div class="perfil-tabela"></div></details>
         </article>
 
         <article class="bloco bloco-meta" id="bloco-meta">
@@ -551,6 +579,7 @@
     <li>Digite o código acima no campo <strong>Código de pareamento</strong> e salve.</li>
   </ol>
   <p class="parear-status" id="parear-status">Esperando o medidor…</p>
+  <div class="parear-papel" id="parear-papel" hidden></div>
 </dialog>
 
 <dialog id="dialogo-confirmar" class="dialogo" aria-labelledby="confirmar-titulo">

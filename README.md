@@ -203,6 +203,8 @@ Em desenvolvimento os e-mails (confirmação, senha) ficam em `src/instancia/cai
 - **LGPD**: autorizações por finalidade com histórico, cópia dos dados, apagar consumo, excluir conta, atividade visível, retenção automática. Detalhes em [`docs/lgpd.md`](docs/lgpd.md).
 - **Consumo fantasma**: quanto a casa gasta parada (madrugadas dos últimos 7 dias), em W, kWh e R$ por mês.
 - **Meta do mês**: previsão da conta até o fim do mês e quanto dá para gastar por dia para caber.
+- **Gráficos do painel**: *Para onde vai agora* divide o consumo do momento entre circuitos medidos, imóveis ou aparelhos (palpite do Detetive), "sempre ligado" e outros; *Perfil do dia* compara hoje, hora a hora, com o normal da casa (mediana dos dias do mesmo tipo nas últimas 4 semanas) e mostra um mapa de 14 dias; o número de agora aparece dentro de uma casa em 3D que muda de cor com a carga (dá para desligar no botão 3D). Os gráficos têm tabela e leitura pelo teclado. As contas estão em `graficos.py`.
+- **Vários medidores**: cada medidor diz o que mede, a **entrada** de um imóvel (soma no total) ou um **circuito** dentro de uma entrada (o ar-condicionado, a cozinha: não soma de novo). A pergunta aparece ao parear o segundo medidor e pode mudar em Medidores.
 - **Pareamento**: firmware 3.2 tem o campo "Código de pareamento" na página de configuração (toque rápido no BOOT reabre a página).
 - **Avisos e resumo semanal**: medidor sem sinal, meta, consumo fora do normal e um resumo toda segunda, no aplicativo, por e-mail e como notificação no celular (cada tipo escolhe os canais).
 - **Detetive de aparelhos** (em teste): reconhece o que liga e desliga pelo degrau de potência. Precisa de autorização própria.

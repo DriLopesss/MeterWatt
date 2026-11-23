@@ -96,6 +96,12 @@ class Medidores:
     def _ids(self, conn, uid):
         return [r["id"] for r in conn.execute("SELECT id FROM medidores WHERE usuario_id = ? ORDER BY pareado_em", (uid,))]
 
+    def ids_da_casa(self, conn, uid):
+        """Os medidores que somam no total da conta: os de entrada ("casa"). Um medidor de circuito mede
+        uma parte do que a entrada já mede; somar os dois contaria a mesma energia duas vezes."""
+        return [r["id"] for r in conn.execute(
+            "SELECT id FROM medidores WHERE usuario_id = ? AND papel = 'casa' ORDER BY pareado_em", (uid,))]
+
     def _wh_entre(self, conn, ids, inicio, fim):
         if not ids:
             return 0.0
@@ -282,22 +288,64 @@ class Medidores:
         return {"codigo": codigo, "expira_em": self.p.iso(agora + VALIDADE_CODIGO_S), "validade_s": VALIDADE_CODIGO_S}
 
     def renomear(self, sessao, mid, apelido, ip=None):
+        self.alterar(sessao, mid, {"apelido": apelido}, ip)
+
+    def alterar(self, sessao, mid, dados, ip=None):
+        """Nome e/ou o que o medidor mede: {"apelido": ..., "papel": "casa"|"circuito", "dentro_de": id}."""
         conn = self.p.db()
-        self._do_usuario(conn, sessao["usuario_id"], mid)
-        apelido = limpar_apelido(apelido)
-        if not apelido:
-            raise ErroDeNegocio("O nome do medidor precisa ter de 1 a 40 caracteres.", 400)
+        uid = sessao["usuario_id"]
+        m = self._do_usuario(conn, uid, mid)
+        if not isinstance(dados, dict) or not ({"apelido", "papel"} & set(dados)):
+            raise ErroDeNegocio("Nada para mudar.", 400)
+        apelido = None
+        if "apelido" in dados:
+            apelido = limpar_apelido(dados["apelido"])
+            if not apelido:
+                raise ErroDeNegocio("O nome do medidor precisa ter de 1 a 40 caracteres.", 400)
+        papel = dentro_de = None
+        if "papel" in dados:
+            papel, dentro_de = self._papel_valido(conn, uid, m, dados.get("papel"), dados.get("dentro_de"))
         with conn:
-            conn.execute("UPDATE medidores SET apelido = ? WHERE id = ?", (apelido, mid))
-            self.p.auditar(conn, sessao["usuario_id"], "medidor_renomeado", mid, ip)
+            if apelido is not None:
+                conn.execute("UPDATE medidores SET apelido = ? WHERE id = ?", (apelido, mid))
+                self.p.auditar(conn, uid, "medidor_renomeado", mid, ip)
+            if papel is not None and (papel, dentro_de) != (m["papel"], m["dentro_de"]):
+                conn.execute("UPDATE medidores SET papel = ?, dentro_de = ? WHERE id = ?", (papel, dentro_de, mid))
+                self.p.auditar(conn, uid, "medidor_papel", f"{mid}: {'entrada' if papel == 'casa' else 'circuito'}", ip)
+
+    def _papel_valido(self, conn, uid, m, papel, dentro_de):
+        if papel not in ("casa", "circuito"):
+            raise ErroDeNegocio("Diga se o medidor mede a entrada (casa) ou um circuito.", 400)
+        if papel == "casa":
+            return "casa", None
+        entradas = [r["id"] for r in conn.execute(
+            "SELECT id FROM medidores WHERE usuario_id = ? AND papel = 'casa' AND id != ? ORDER BY pareado_em", (uid, m["id"]))]
+        if not entradas:
+            raise ErroDeNegocio("Um circuito fica dentro de um medidor de entrada, e a conta precisa ter pelo menos um.", 400,
+                                "sem_entrada")
+        if conn.execute("SELECT 1 FROM medidores WHERE dentro_de = ? AND papel = 'circuito'", (m["id"],)).fetchone():
+            raise ErroDeNegocio("Há circuitos dentro deste medidor. Mude esses circuitos antes.", 400, "tem_circuitos")
+        if dentro_de is None and len(entradas) == 1:
+            dentro_de = entradas[0]
+        if dentro_de not in entradas:
+            raise ErroDeNegocio("Escolha dentro de qual medidor de entrada este circuito fica.", 400, "dentro_de")
+        return "circuito", dentro_de
 
     def remover(self, sessao, mid, ip=None):
         """Desfaz o pareamento e apaga as leituras desse medidor."""
         conn = self.p.db()
         self._do_usuario(conn, sessao["usuario_id"], mid)
+        uid = sessao["usuario_id"]
         with conn:
             conn.execute("DELETE FROM medidores WHERE id = ?", (mid,))
-            self.p.auditar(conn, sessao["usuario_id"], "medidor_removido", mid, ip)
+            # Sem nenhum medidor de entrada, nada somaria no total: os que ficam passam a ser entrada.
+            entradas = [r["id"] for r in conn.execute("SELECT id FROM medidores WHERE usuario_id = ? AND papel = 'casa'", (uid,))]
+            if not entradas:
+                conn.execute("UPDATE medidores SET papel = 'casa', dentro_de = NULL WHERE usuario_id = ?", (uid,))
+            elif len(entradas) == 1:     # circuito que ficou sem "dentro de" só pode estar na entrada que sobrou
+                conn.execute("UPDATE medidores SET dentro_de = ? WHERE usuario_id = ? AND papel = 'circuito' AND dentro_de IS NULL",
+                             (entradas[0], uid))
+            self.p.auditar(conn, uid, "medidor_removido", mid, ip)
         self.p.publicar(f"meterwatt/{mid}/comando", "despareado")
         self.esquecer(mid)
 
@@ -328,6 +376,7 @@ class Medidores:
                 potencia = atual["potencia_w"] if m["tipo"] == "pzem" else atual["potencia_va"]
             saida.append({
                 "id": m["id"], "apelido": m["apelido"], "tipo": m["tipo"], "fw": m["fw"],
+                "papel": m["papel"], "dentro_de": m["dentro_de"],
                 "pareado_em": self.p.iso(m["pareado_em"]), "online": online,
                 "segundos_desde_mensagem": _r(idade, 1), "sensor_ok": sensor_ok,
                 "erro_sensor": atual["erro_sensor"] if atual else None,
@@ -375,7 +424,7 @@ class Medidores:
         uid = sessao["usuario_id"]
         dias = max(1, min(int(dias), 366))
         agora = self.p.agora()
-        ids = self._ids(conn, uid)
+        ids = self.ids_da_casa(conn, uid)
         tarifa = self.p.tarifa_de(sessao)
         totais = {}
         if ids:
@@ -409,21 +458,23 @@ class Medidores:
         por_medidor, watts_total, noites_usadas, estimado = [], 0.0, 0, False
         dias = [self.p.inicio_do_dia(agora, d) for d in range(0, 8)]
         dias = [d for d in dias if d + NOITE_FIM_H * 3600 <= agora and agora - (d + NOITE_INICIO_H * 3600) <= 7 * 86400 + NOITE_FIM_H * 3600]
-        for m in conn.execute("SELECT id, apelido, tipo FROM medidores WHERE usuario_id = ? ORDER BY pareado_em", (uid,)).fetchall():
+        for m in conn.execute("SELECT id, apelido, tipo, papel FROM medidores WHERE usuario_id = ? ORDER BY pareado_em", (uid,)).fetchall():
             minimos = [x for x in (self._minimo_noturno(conn, m["id"], d) for d in dias) if x is not None]
             if len(minimos) >= 2:
                 base = statistics.median(minimos)
-                watts_total += base
-                noites_usadas = max(noites_usadas, len(minimos))
-                estimado = estimado or m["tipo"] == "corrente"
-                por_medidor.append({"id": m["id"], "apelido": m["apelido"], "watts": round(base, 1), "noites": len(minimos)})
+                if m["papel"] == "casa":          # o de um circuito já está dentro da entrada
+                    watts_total += base
+                    noites_usadas = max(noites_usadas, len(minimos))
+                    estimado = estimado or m["tipo"] == "corrente"
+                por_medidor.append({"id": m["id"], "apelido": m["apelido"], "papel": m["papel"], "watts": round(base, 1),
+                                    "noites": len(minimos)})
             else:
-                por_medidor.append({"id": m["id"], "apelido": m["apelido"], "watts": None, "noites": len(minimos)})
-        if not any(x["watts"] is not None for x in por_medidor):
+                por_medidor.append({"id": m["id"], "apelido": m["apelido"], "papel": m["papel"], "watts": None, "noites": len(minimos)})
+        ids = [x["id"] for x in por_medidor if x["watts"] is not None and x["papel"] == "casa"]
+        if not ids:
             return {"disponivel": False, "medidores": por_medidor,
                     "motivo": "Precisamos de pelo menos 2 noites medidas (entre 0h e 5h) para calcular."}
         kwh_mes = watts_total * 24 * 365 / 12 / 1000       # mês médio: um ano dividido por 12
-        ids = [x["id"] for x in por_medidor if x["watts"] is not None]
         kwh_7d = self._wh_entre(conn, ids, agora - 7 * 86400, agora + 1) / 1000
         dias_medidos = self._dias_com_dados(conn, ids, agora)
         fatia = None
@@ -479,7 +530,7 @@ class Medidores:
         tarifa = self.p.tarifa_de(u)
         if tarifa is None:
             return {"meta": u["meta_mensal_reais"], "sem_tarifa": True, "status": None}
-        ids = self._ids(conn, uid)
+        ids = self.ids_da_casa(conn, uid)
         inicio_mes, proximo = self.p.inicio_do_mes(agora), self.p.inicio_do_proximo_mes(agora)
         gasto = self._wh_entre(conn, ids, inicio_mes, agora + 1) / 1000 * tarifa
         dias_medidos = self._dias_com_dados(conn, ids, agora)

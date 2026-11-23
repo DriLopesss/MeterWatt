@@ -192,6 +192,39 @@ class Detetive:
         return {"autorizado": autorizado, "aparelhos": saida, "em_estudo": em_estudo, "tem_medidor_compativel": tem_pzem,
                 "ciclos_para_aparecer": CICLOS_PARA_APARECER}
 
+    def ligados_agora(self, conn, medidor_id, disponivel_w, agora):
+        """Aparelhos que parecem ligados agora: degraus para cima que ainda não desligaram, casados com os
+        aparelhos conhecidos. `disponivel_w` é o que a casa gasta agora menos o que fica sempre ligado: um
+        degrau que não cabe nisso já desligou (e o degrau para baixo se perdeu), então não entra."""
+        abertos = conn.execute("SELECT instante, delta_w FROM degraus_abertos WHERE medidor_id = ? AND instante >= ? "
+                               "ORDER BY instante DESC", (medidor_id, agora - CICLO_MAXIMO_S)).fetchall()
+        if not abertos:
+            return []
+        conhecidos = conn.execute("SELECT id, nome, potencia_w FROM aparelhos WHERE medidor_id = ? AND oculto = 0 AND n_ciclos >= ?",
+                                  (medidor_id, CICLOS_PARA_APARECER)).fetchall()
+        folga = max(LIMIAR_W, 0.1 * max(0.0, disponivel_w))
+        achados, usado = {}, 0.0
+        for d in abertos:                                   # do mais recente para o mais antigo
+            if usado + d["delta_w"] > disponivel_w + folga:
+                continue
+            perto = [a for a in conhecidos if abs(a["potencia_w"] - d["delta_w"]) <= max(AGRUPAR_W, AGRUPAR_RELATIVO * a["potencia_w"])]
+            if not perto:
+                continue                                    # degrau de algo que o Detetive ainda não conhece: fica em "Outros"
+            a = min(perto, key=lambda x: abs(x["potencia_w"] - d["delta_w"]))
+            usado += d["delta_w"]
+            item = achados.setdefault(a["id"], {"aparelho": a, "watts": 0.0, "desde": d["instante"]})
+            item["watts"] += d["delta_w"]
+            item["desde"] = min(item["desde"], d["instante"])
+        saida = []
+        for item in achados.values():
+            a = item["aparelho"]
+            duracao = conn.execute("SELECT AVG(fim - inicio) FROM ciclos WHERE aparelho_id = ?", (a["id"],)).fetchone()[0] or 0
+            potencia = f"{round(a['potencia_w']):,}".replace(",", ".")
+            saida.append({"id": a["id"], "tipo": "aparelho", "nome": a["nome"] or f"Aparelho de {potencia} W",
+                          "palpite": None if a["nome"] else palpite(a["potencia_w"], duracao / 60),
+                          "watts": round(item["watts"], 1), "desde": self.p.iso(item["desde"])})
+        return sorted(saida, key=lambda x: -x["watts"])
+
     def _do_usuario(self, conn, uid, aparelho_id):
         a = conn.execute("SELECT a.id FROM aparelhos a JOIN medidores m ON m.id = a.medidor_id WHERE a.id = ? AND m.usuario_id = ?",
                          (aparelho_id, uid)).fetchone()

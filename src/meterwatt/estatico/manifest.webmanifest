@@ -46,7 +46,7 @@
       "sizes": "780x1688",
       "type": "image/webp",
       "form_factor": "narrow",
-      "label": "O consumo da casa agora, quanto já foi hoje e a previsão da conta do mês"
+      "label": "O consumo da casa agora, em watts e em reais por hora, e para onde vai essa energia"
     },
     {
       "src": "/estatico/app/tela-economia.webp",

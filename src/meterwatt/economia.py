@@ -170,7 +170,7 @@ class Economia:
         return saida
 
     def _ids(self, conn, uid):
-        return [r["id"] for r in conn.execute("SELECT id FROM medidores WHERE usuario_id = ?", (uid,))]
+        return self.p.medidores.ids_da_casa(conn, uid)       # o consumo da casa: circuito não soma de novo
 
     # ------------------------------------------------------------ o que vem da casa
 
