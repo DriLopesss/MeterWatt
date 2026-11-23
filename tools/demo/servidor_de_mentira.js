@@ -199,11 +199,10 @@
   const minutosPorDia = (a) => (a.ciclo ? 1440 * a.ciclo[0] / (a.ciclo[0] + a.ciclo[1]) : a.janelas.reduce((s, [x, y]) => s + y - x, 0));
 
   function baseEconomia() {
-    const saida = { tarifa_kwh: E.tarifa, consumo_kwh_dia: null, detetive_ligado: false, medidores: 0,
+    const saida = { tarifa_kwh: E.tarifa, consumo_kwh_dia: null, detetive_ligado: false, medidores: E.medidores.length, consumo_autorizado: E.aceites.consumo,
       chuveiro: { potencia_w: 5500, banhos_semana: 14, minutos_banho: 10, fonte: "tipico", aparelho_id: null },
       fantasma: { watts: 40, fonte: "tipico" }, geladeira: { kwh_mes: 50, potencia_w: null, fonte: "tipico", aparelho_id: null }, aparelhos: [] };
     if (!E.aceites.consumo) return saida;
-    saida.medidores = E.medidores.length;
     const semana = dias(8).dias.slice(0, 7).filter((d) => d.kwh > 0);
     if (semana.length) saida.consumo_kwh_dia = r2(semana.reduce((s, d) => s + d.kwh, 0) / semana.length, 3);
     saida.fantasma = { watts: FANTASMA_W, fonte: "medido" };

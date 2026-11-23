@@ -183,12 +183,12 @@ class Economia:
                     "minutos_banho": TIPICOS["minutos_banho"], "fonte": "tipico", "aparelho_id": None}
         fantasma = {"watts": TIPICOS["fantasma_w"], "fonte": "tipico"}
         geladeira = {"kwh_mes": TIPICOS["geladeira_kwh_mes"], "potencia_w": None, "fonte": "tipico", "aparelho_id": None}
-        saida = {"tarifa_kwh": tarifa, "consumo_kwh_dia": None, "detetive_ligado": False, "medidores": 0,
-                 "chuveiro": chuveiro, "fantasma": fantasma, "geladeira": geladeira, "aparelhos": []}
-        if not self.p.consentimento(conn, uid, "consumo"):
-            return saida                                  # sem autorização: nada medido entra na conta
         ids = self._ids(conn, uid)
-        saida["medidores"] = len(ids)
+        saida = {"tarifa_kwh": tarifa, "consumo_kwh_dia": None, "detetive_ligado": False, "medidores": len(ids),
+                 "consumo_autorizado": self.p.consentimento(conn, uid, "consumo"),
+                 "chuveiro": chuveiro, "fantasma": fantasma, "geladeira": geladeira, "aparelhos": []}
+        if not saida["consumo_autorizado"]:
+            return saida                                  # sem autorização: nada medido entra na conta
         agora = self.p.agora()
         dias = self._dias_medidos(conn, ids, self.p.inicio_do_dia(agora, 7), self.p.inicio_do_dia(agora))
         if dias:
@@ -204,16 +204,22 @@ class Economia:
         def nomeado(a, *palavras):
             return any(p in (a["nome"] or "").lower() for p in palavras)
 
+        def por_semana(a):
+            """Vezes por semana. Com o Detetive ligado há poucos dias, a contagem da semana é menor
+            que o hábito: 4 banhos em 2 dias são 14 por semana, não 4."""
+            dias = a.get("dias_observados")
+            return max(1, round(a["vezes_na_semana"] * 7 / dias)) if dias else a["vezes_na_semana"]
+
         chuveiros = [a for a in aparelhos if nomeado(a, "chuveiro") or a["potencia_w"] >= CHUVEIRO_MINIMO_W]
         if chuveiros:
             ch = max(chuveiros, key=lambda a: (nomeado(a, "chuveiro"), a["kwh_mes"]))
             chuveiro.update(potencia_w=ch["potencia_w"], fonte="detetive", aparelho_id=ch["id"])
             if ch["vezes_na_semana"] > 0:
-                chuveiro["banhos_semana"] = ch["vezes_na_semana"]
+                chuveiro["banhos_semana"] = por_semana(ch)
             if ch["duracao_media_min"] >= 1:
                 chuveiro["minutos_banho"] = round(ch["duracao_media_min"], 1)
         geladeiras = [a for a in aparelhos if nomeado(a, "geladeira", "freezer")
-                      or (GELADEIRA_W[0] <= a["potencia_w"] < GELADEIRA_W[1] and a["vezes_na_semana"] >= GELADEIRA_CICLOS_SEMANA)]
+                      or (GELADEIRA_W[0] <= a["potencia_w"] < GELADEIRA_W[1] and por_semana(a) >= GELADEIRA_CICLOS_SEMANA)]
         if geladeiras:
             gel = max(geladeiras, key=lambda a: (nomeado(a, "geladeira", "freezer"), a["kwh_mes"]))
             geladeira.update(kwh_mes=gel["kwh_mes"], potencia_w=gel["potencia_w"], fonte="detetive", aparelho_id=gel["id"])
@@ -224,17 +230,42 @@ class Economia:
             saida["aparelhos"].append({
                 "id": a["id"], "nome": a["nome"], "palpite": a["palpite"], "potencia_w": a["potencia_w"],
                 "rotulo": _rotulo(a["nome"], a["potencia_w"]),
-                "minutos_dia": round(a["duracao_media_min"] * a["vezes_na_semana"] / 7, 1),
+                "minutos_dia": round(a["duracao_media_min"] * por_semana(a) / 7, 1),
             })
         return saida
 
     # ------------------------------------------------------------ plano
 
+    def _gravar(self, conn, sql, valores):
+        """Grava dentro da transação aberta, se houver; senão, numa só para isso."""
+        if conn.in_transaction:
+            conn.execute(sql, valores)
+        else:
+            with conn:
+                conn.execute(sql, valores)
+
+    def _adotar_orfas(self, conn, uid):
+        """Ação "usar menos" cujo aparelho sumiu (Detetive desligado, medidor removido): o banco esvazia
+        aparelho_id, mas a chave continua "usar_menos:<id>". A ação passa a ser como as de "Outro
+        aparelho", com o nome que tinha, para dar para atualizar e tirar do plano sem duplicar."""
+        orfas = conn.execute("SELECT id, nome FROM economia_plano WHERE usuario_id = ? AND tipo = 'usar_menos' "
+                             "AND aparelho_id IS NULL AND chave NOT LIKE 'usar_menos:outro:%'", (uid,)).fetchall()
+        for o in orfas:
+            base = _limpar_nome(o["nome"]) or "Aparelho"
+            nome, n = base, 1
+            while conn.execute("SELECT 1 FROM economia_plano WHERE usuario_id = ? AND chave = ?",
+                               (uid, "usar_menos:outro:" + nome.lower())).fetchone():
+                n += 1
+                nome = f"{base} ({n})"
+            self._gravar(conn, "UPDATE economia_plano SET chave = ?, nome = ? WHERE id = ?", ("usar_menos:outro:" + nome.lower(), nome, o["id"]))
+
     def _plano(self, conn, uid):
+        self._adotar_orfas(conn, uid)
         linhas = conn.execute("SELECT * FROM economia_plano WHERE usuario_id = ? ORDER BY criada_em, id", (uid,)).fetchall()
         return [{"id": l["id"], "tipo": l["tipo"], "chave": l["chave"], "titulo": TITULOS[l["tipo"]], "nome": l["nome"],
                  "aparelho_id": l["aparelho_id"], "parametros": json.loads(l["parametros"]), "kwh_mes": round(l["kwh_mes"], 3),
-                 "desde": self.p.iso(l["criada_em"]), "_criada_em": l["criada_em"]} for l in linhas]
+                 "desde": self.p.iso(l["criada_em"]), "_criada_em": l["criada_em"],
+                 "_base": json.loads(l["linha_de_base"]) if l["linha_de_base"] else None} for l in linhas]
 
     def _totais(self, plano, tarifa):
         kwh = total_kwh_mes(plano)
@@ -277,6 +308,7 @@ class Economia:
             raise ErroDeNegocio("Com esses valores não há economia. Ajuste antes de pôr no plano.", 400, "sem_economia")
         conn = self.p.db()
         uid = sessao["usuario_id"]
+        self._adotar_orfas(conn, uid)          # uma ação sem aparelho nunca vira duas
         aparelho = None
         nome = None
         if tipo in ("usar_menos", "geladeira"):
@@ -331,11 +363,59 @@ class Economia:
                                (*aparelho_ids, d, self._proximo_dia(d))).fetchone()[0]
         return wh / 1000 / len(dias)
 
-    def _janelas(self, conn, ids, inicio):
-        dia0 = self.p.inicio_do_dia(inicio)
-        antes = self._dias_medidos(conn, ids, self.p.inicio_do_dia(dia0, JANELA_ANTES_DIAS), dia0)
-        depois = self._dias_medidos(conn, ids, self._proximo_dia(dia0), self.p.inicio_do_dia(self.p.agora()))
-        return antes, depois
+    def _depois(self, conn, ids, inicio):
+        """Dias medidos depois do dia em que a ação entrou no plano (esse dia e o de hoje ficam de fora)."""
+        return self._dias_medidos(conn, ids, self._proximo_dia(self.p.inicio_do_dia(inicio)), self.p.inicio_do_dia(self.p.agora()))
+
+    def _detetive_desde(self, conn, uid):
+        """Desde quando o Detetive olha a casa sem parar (a autorização em vigor); None se está desligado."""
+        linha = conn.execute("SELECT aceito, registrado_em FROM consentimentos WHERE usuario_id = ? AND finalidade = 'aparelhos' "
+                             "ORDER BY registrado_em DESC, id DESC LIMIT 1", (uid,)).fetchone()
+        return linha["registrado_em"] if linha and linha["aceito"] else None
+
+    @staticmethod
+    def _com_detetive(dias, desde):
+        """Só os dias que começaram com o Detetive já ligado: antes disso, os aparelhos não têm ciclos."""
+        return [d for d in dias if desde is not None and d >= desde]
+
+    def _chuveiros(self, conn, ids):
+        """As duas posições do chuveiro podem virar dois grupos no Detetive: entram juntas."""
+        if not ids:
+            return []
+        marcadores = ",".join("?" * len(ids))
+        todos = conn.execute(f"SELECT id, nome, potencia_w FROM aparelhos WHERE medidor_id IN ({marcadores})", ids).fetchall()
+        return [x["id"] for x in todos if x["potencia_w"] >= CHUVEIRO_MINIMO_W or "chuveiro" in (x["nome"] or "").lower()]
+
+    def _grupo(self, conn, ids, acao):
+        if acao["tipo"] in ("banho_curto", "chuveiro_verao"):
+            return self._chuveiros(conn, ids)
+        if acao["tipo"] in ("geladeira", "usar_menos") and acao["aparelho_id"]:
+            return [acao["aparelho_id"]]
+        return []
+
+    def _linha_de_base(self, conn, uid, ids, acao):
+        """O "antes" da ação: consumo por dia nas 2 semanas anteriores ao dia em que ela entrou no plano,
+        o dos aparelhos dela (só dias com o Detetive ligado) e, no consumo em espera, a base das madrugadas.
+
+        É calculado uma vez, logo que a ação entra no plano, e guardado com ela: aqueles dias já passaram,
+        e a retenção apaga o consumo de 5 em 5 minutos depois de 90 dias. Sem isso, a conferência de um
+        plano antigo sumiria."""
+        if acao.get("_base") is not None:
+            return acao["_base"]
+        dia0 = self.p.inicio_do_dia(acao["_criada_em"])
+        dias = self._dias_medidos(conn, ids, self.p.inicio_do_dia(dia0, JANELA_ANTES_DIAS), dia0)
+        base = {"dias": len(dias), "kwh_dia": round(statistics.mean(dias.values()), 4) if dias else None}
+        grupo = self._grupo(conn, ids, acao)
+        com_detetive = self._com_detetive(list(dias), self._detetive_desde(conn, uid))
+        if grupo and len(com_detetive) >= DIAS_PARA_COMPARAR:
+            base["aparelhos"] = {"dias": len(com_detetive), "kwh_dia": round(self._media_aparelhos(conn, grupo, com_detetive), 4)}
+        if acao["tipo"] == "fantasma" and len(dias) >= DIAS_PARA_COMPARAR:
+            w = self.p.medidores.base_noturna(conn, ids, list(dias))
+            if w is not None:
+                base["espera_w"] = round(w, 1)
+        self._gravar(conn, "UPDATE economia_plano SET linha_de_base = ? WHERE id = ?", (json.dumps(base), acao["id"]))
+        acao["_base"] = base
+        return base
 
     def verificacao_de(self, uid, plano=None):
         conn = self.p.db()
@@ -343,47 +423,46 @@ class Economia:
         if not plano or not self.p.consentimento(conn, uid, "consumo"):
             return None
         ids = self._ids(conn, uid)
-        inicio = min(a["_criada_em"] for a in plano)
-        antes, depois = self._janelas(conn, ids, inicio)
-        pronto = len(antes) >= DIAS_PARA_COMPARAR and len(depois) >= DIAS_PARA_COMPARAR
-        saida = {"desde": self.p.iso(inicio), "pronto": pronto, "dias_antes": len(antes), "dias_depois": len(depois),
+        primeira = min(plano, key=lambda a: (a["_criada_em"], a["id"]))
+        base = self._linha_de_base(conn, uid, ids, primeira)
+        depois = self._depois(conn, ids, primeira["_criada_em"])
+        pronto = base["dias"] >= DIAS_PARA_COMPARAR and len(depois) >= DIAS_PARA_COMPARAR
+        saida = {"desde": self.p.iso(primeira["_criada_em"]), "pronto": pronto, "dias_antes": base["dias"], "dias_depois": len(depois),
                  "minimo": DIAS_PARA_COMPARAR, "total": None, "itens": []}
         if not pronto:
             return saida
         u = conn.execute("SELECT * FROM usuarios WHERE id = ?", (uid,)).fetchone()
         tarifa = self.p.tarifa_de(u)
-        a, d = statistics.mean(antes.values()), statistics.mean(depois.values())
+        a, d = base["kwh_dia"], statistics.mean(depois.values())
         saida["total"] = {"antes_kwh_dia": round(a, 2), "depois_kwh_dia": round(d, 2),
                           "variacao": round((d - a) / a, 3) if a > 0 else None,
                           "reais_mes": None if tarifa is None else round((a - d) * DIAS_POR_MES * tarifa, 2)}
+        desde_detetive = self._detetive_desde(conn, uid)
 
-        def comparar(rotulo, acoes, aparelho_ids):
-            """Antes e depois de um grupo de aparelhos, a partir do dia em que a ação entrou no plano."""
-            if not acoes or not aparelho_ids:
+        def comparar(rotulo, acao, grupo):
+            """Antes (guardado com a ação) e depois de um grupo de aparelhos, só em dias com o Detetive ligado."""
+            antes = self._linha_de_base(conn, uid, ids, acao).get("aparelhos")
+            dep = self._com_detetive(list(self._depois(conn, ids, acao["_criada_em"])), desde_detetive)
+            if not antes or not grupo or len(dep) < DIAS_PARA_COMPARAR:
                 return
-            ant, dep = self._janelas(conn, ids, min(x["_criada_em"] for x in acoes))
-            if len(ant) < DIAS_PARA_COMPARAR or len(dep) < DIAS_PARA_COMPARAR:
-                return
-            saida["itens"].append({"rotulo": rotulo, "unidade": "kWh por dia",
-                                   "antes": _r(self._media_aparelhos(conn, aparelho_ids, list(ant)), 2),
-                                   "depois": _r(self._media_aparelhos(conn, aparelho_ids, list(dep)), 2)})
+            saida["itens"].append({"rotulo": rotulo, "unidade": "kWh por dia", "antes": round(antes["kwh_dia"], 2),
+                                   "depois": _r(self._media_aparelhos(conn, grupo, dep), 2)})
 
-        if self.p.consentimento(conn, uid, "aparelhos") and ids:
-            marcadores = ",".join("?" * len(ids))
-            todos = conn.execute(f"SELECT id, nome, potencia_w FROM aparelhos WHERE medidor_id IN ({marcadores})", ids).fetchall()
-            # As duas posições do chuveiro podem virar dois grupos no Detetive: entram juntas.
-            chuveiros = [x["id"] for x in todos if x["potencia_w"] >= CHUVEIRO_MINIMO_W or "chuveiro" in (x["nome"] or "").lower()]
-            comparar("Chuveiro (verão e inverno)", [x for x in plano if x["tipo"] in ("banho_curto", "chuveiro_verao")], chuveiros)
+        if desde_detetive is not None and ids:
+            do_chuveiro = [x for x in plano if x["tipo"] in ("banho_curto", "chuveiro_verao")]
+            if do_chuveiro:
+                comparar("Chuveiro (verão e inverno)", min(do_chuveiro, key=lambda x: (x["_criada_em"], x["id"])), self._chuveiros(conn, ids))
             for acao in plano:
                 if acao["tipo"] in ("geladeira", "usar_menos") and acao["aparelho_id"]:
-                    comparar("Geladeira" if acao["tipo"] == "geladeira" else acao["nome"], [acao], [acao["aparelho_id"]])
+                    comparar("Geladeira" if acao["tipo"] == "geladeira" else acao["nome"], acao, [acao["aparelho_id"]])
         fant = [x for x in plano if x["tipo"] == "fantasma"]
         if fant and ids:
-            ant, dep = self._janelas(conn, ids, fant[0]["_criada_em"])
-            w_ant = self.p.medidores.base_noturna(conn, ids, list(ant))
-            w_dep = self.p.medidores.base_noturna(conn, ids, list(dep))
-            if w_ant is not None and w_dep is not None:
-                saida["itens"].append({"rotulo": "Consumo em espera", "unidade": "W", "antes": round(w_ant), "depois": round(w_dep)})
+            acao = fant[0]
+            antes_w = self._linha_de_base(conn, uid, ids, acao).get("espera_w")
+            dep = self._depois(conn, ids, acao["_criada_em"])
+            depois_w = self.p.medidores.base_noturna(conn, ids, list(dep)) if len(dep) >= DIAS_PARA_COMPARAR else None
+            if antes_w is not None and depois_w is not None:
+                saida["itens"].append({"rotulo": "Consumo em espera", "unidade": "W", "antes": round(antes_w), "depois": round(depois_w)})
         return saida
 
     def resumo(self, sessao):
@@ -401,7 +480,8 @@ class Economia:
 
     def exportar(self, conn, uid):
         return [{"acao": TITULOS[a["tipo"]], "aparelho": a["nome"], "parametros": a["parametros"],
-                 "economia_estimada_kwh_mes": a["kwh_mes"], "desde": a["desde"]} for a in self._plano(conn, uid)]
+                 "economia_estimada_kwh_mes": a["kwh_mes"], "desde": a["desde"],
+                 "consumo_antes_kwh_dia": (a["_base"] or {}).get("kwh_dia")} for a in self._plano(conn, uid)]
 
     def apagar(self, conn, uid):
         conn.execute("DELETE FROM economia_plano WHERE usuario_id = ?", (uid,))

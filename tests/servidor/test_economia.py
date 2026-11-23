@@ -122,6 +122,31 @@ def test_sem_autorizacao_de_consumo_nada_medido_entra(cliente, plataforma, relog
     assert e["chuveiro"]["fonte"] == "tipico" and e["fantasma"]["fonte"] == "tipico" and e["consumo_kwh_dia"] is None
 
 
+def test_sem_autorizacao_de_consumo_ainda_conta_os_medidores(cliente, plataforma, relogio):
+    """Sem a autorização, a tela avisa da autorização, e não que falta medidor."""
+    casa_medida(cliente, plataforma, relogio)
+    cliente.put("/api/privacidade/consumo", {"aceito": False})
+    e = cliente.get("/api/economia").get_json()
+    assert e["medidores"] == 1 and e["consumo_autorizado"] is False
+
+
+def test_detetive_ligado_ha_poucos_dias_conta_o_habito_da_semana(cliente, plataforma, relogio):
+    """4 banhos em 2 dias de Detetive são 14 por semana, não 4."""
+    relogio.t = INICIO + 9 * DIA
+    conta_pronta(cliente, plataforma)
+    mid = parear(cliente, plataforma)
+    preencher_baldes(plataforma, mid, relogio.t - 3 * DIA, relogio.t, 250)
+    cliente.put("/api/privacidade/aparelhos", {"aceito": True})
+    inicio = relogio.t - 2 * DIA
+    aparelho(plataforma, mid, 140, [inicio + k * 1800 for k in range(96)], 720)                 # geladeira, desde o começo
+    aparelho(plataforma, mid, 5400, [inicio + 3600 + k * 12 * 3600 for k in range(4)], 540)     # 2 banhos por dia
+    micro = aparelho(plataforma, mid, 1300, [inicio + 7200 + k * 12 * 3600 for k in range(4)], 180)
+    e = cliente.get("/api/economia").get_json()
+    assert e["chuveiro"]["banhos_semana"] == 14 and e["chuveiro"]["minutos_banho"] == 9.0
+    assert e["geladeira"]["fonte"] == "detetive"
+    assert {a["id"]: a["minutos_dia"] for a in e["aparelhos"]}[micro] == 6.0
+
+
 def test_detetive_desligado_usa_tipicos_so_nos_aparelhos(cliente, plataforma, relogio):
     casa_medida(cliente, plataforma, relogio, detetive=False)
     e = cliente.get("/api/economia").get_json()
@@ -185,6 +210,31 @@ def test_usar_menos_com_aparelho_detectado_e_outro(cliente, plataforma, relogio)
     assert plano[1]["parametros"]["minutos_dia"] == 90
 
 
+def test_acao_de_aparelho_que_sumiu_vira_acao_com_nome(cliente, plataforma, relogio):
+    """Desligar o Detetive apaga os aparelhos. A ação "usar menos" continua no plano, com o nome que
+    tinha, e atualizar não cria uma segunda."""
+    _, ids = casa_medida(cliente, plataforma, relogio)
+    r = cliente.post("/api/economia/plano", {"tipo": "usar_menos", "aparelho_id": ids["tv"], "parametros": {"potencia_w": 110, "minutos_dia": 60}})
+    desde = r.get_json()["plano"][0]["desde"]
+    cliente.put("/api/privacidade/aparelhos", {"aceito": False})
+    plano = cliente.get("/api/economia").get_json()["plano"]
+    assert [(a["chave"], a["nome"], a["aparelho_id"]) for a in plano] == [("usar_menos:outro:aparelho de 110 w", "Aparelho de 110 W", None)]
+    r = cliente.post("/api/economia/plano", {"tipo": "usar_menos", "nome": "Aparelho de 110 W", "parametros": {"potencia_w": 110, "minutos_dia": 90}})
+    plano = r.get_json()["plano"]
+    assert len(plano) == 1 and plano[0]["parametros"]["minutos_dia"] == 90 and plano[0]["desde"] == desde
+    # já havia uma com o mesmo nome: a que ficou sem aparelho ganha um número, nada some
+    cliente.put("/api/privacidade/aparelhos", {"aceito": True})
+    tv = aparelho(plataforma, casa_mid(plataforma), 110, [relogio.t - DIA + k * 600 for k in range(4)], 3600)
+    cliente.post("/api/economia/plano", {"tipo": "usar_menos", "aparelho_id": tv, "parametros": {"potencia_w": 110, "minutos_dia": 30}})
+    cliente.put("/api/privacidade/aparelhos", {"aceito": False})
+    nomes = sorted(a["nome"] for a in cliente.get("/api/economia").get_json()["plano"])
+    assert nomes == ["Aparelho de 110 W", "Aparelho de 110 W (2)"]
+
+
+def casa_mid(plataforma):
+    return plataforma.db().execute("SELECT id FROM medidores").fetchone()[0]
+
+
 def test_isolamento_entre_contas(cliente, plataforma, relogio, novo_cliente):
     _, ids = casa_medida(cliente, plataforma, relogio)
     acao = cliente.post("/api/economia/plano", BANHO).get_json()["plano"][0]["id"]
@@ -211,9 +261,23 @@ def test_limite_de_acoes_no_plano(cliente, plataforma):
 # ------------------------------------------------------------ deu certo?
 
 def plano_desde(plataforma, dias_atras, relogio):
+    recuar_plano(plataforma, relogio.t - dias_atras * DIA)
+
+
+def recuar_plano(plataforma, instante):
+    """Faz de conta que o plano começou em `instante`. A linha de base guardada é jogada fora,
+    para ser calculada de novo para a data nova (como seria se a ação tivesse entrado ali)."""
     db = plataforma.db()
     with db:
-        db.execute("UPDATE economia_plano SET criada_em = ?", (relogio.t - dias_atras * DIA,))
+        db.execute("UPDATE economia_plano SET criada_em = ?, linha_de_base = NULL", (instante,))
+
+
+def detetive_ligado_desde(plataforma, instante):
+    """Faz de conta que o Detetive foi ligado em `instante` (a recusa do cadastro fica antes)."""
+    db = plataforma.db()
+    with db:
+        db.execute("UPDATE consentimentos SET registrado_em = ? WHERE finalidade = 'aparelhos' AND aceito = 0", (instante - 3600,))
+        db.execute("UPDATE consentimentos SET registrado_em = ? WHERE finalidade = 'aparelhos' AND aceito = 1", (instante,))
 
 
 def test_conferencia_espera_dias_suficientes(cliente, plataforma, relogio):
@@ -255,9 +319,8 @@ def test_conferencia_compara_antes_e_depois(cliente, plataforma, relogio):
                        [(mid, aid, t, t + 420, 5400, 5400 * 420 / 3600) for t in banhos_depois])
     cliente.post("/api/economia/plano", BANHO)
     cliente.post("/api/economia/plano", {"tipo": "fantasma", "parametros": {"watts_cortados": 30, "horas_dia": 24}})
-    db = plataforma.db()                  # cada pedido ao site fecha a conexão desta thread ao terminar
-    with db:
-        db.execute("UPDATE economia_plano SET criada_em = ?", (inicio_plano,))
+    recuar_plano(plataforma, inicio_plano)              # cada pedido ao site fecha a conexão desta thread ao terminar
+    detetive_ligado_desde(plataforma, dia0 - 16 * DIA)   # o Detetive já olhava a casa antes do plano
 
     v = cliente.get("/api/economia").get_json()["verificacao"]
     assert v["pronto"] is True and v["dias_antes"] == 14 and v["dias_depois"] == 7
@@ -277,6 +340,45 @@ def test_conferencia_compara_antes_e_depois(cliente, plataforma, relogio):
     assert r["acoes"] == 2 and r["verificacao"]["total"] == t
 
 
+def casa_com_plano_de_8_dias(cliente, plataforma, relogio):
+    """Conta com 15 dias de consumo antes do plano e 8 depois, chuveiro no Detetive e o banho no plano."""
+    relogio.t = INICIO + 24 * DIA
+    conta_pronta(cliente, plataforma)
+    cliente.put("/api/conta/preferencias", {"tarifa_kwh": 1.0})
+    cliente.put("/api/privacidade/aparelhos", {"aceito": True})
+    mid = parear(cliente, plataforma)
+    inicio_plano = plataforma.inicio_do_dia(relogio.t, 8) + 10 * 3600
+    dia0 = plataforma.inicio_do_dia(inicio_plano)
+    preencher_baldes(plataforma, mid, dia0 - 15 * DIA, dia0, 300)
+    preencher_baldes(plataforma, mid, dia0, relogio.t, 250)
+    banhos = [dia0 + d * DIA + h * 3600 for d in range(-14, 8) for h in (7, 19) if d != 0]
+    aparelho(plataforma, mid, 5400, banhos, 540)
+    cliente.post("/api/economia/plano", BANHO)
+    recuar_plano(plataforma, inicio_plano)
+    return mid, dia0
+
+
+def test_conferencia_de_aparelho_so_com_o_detetive_ligado_antes_do_plano(cliente, plataforma, relogio):
+    """O Detetive ligado DEPOIS do começo do plano não viu o "antes" dos aparelhos: não há o que comparar
+    (antes, o chuveiro aparecia com 0 kWh antes, como se o consumo tivesse subido)."""
+    casa_com_plano_de_8_dias(cliente, plataforma, relogio)
+    v = cliente.get("/api/economia").get_json()["verificacao"]
+    assert v["pronto"] is True and v["itens"] == []
+
+
+def test_conferencia_continua_depois_da_retencao(cliente, plataforma, relogio):
+    """O consumo de 5 em 5 minutos some depois de 90 dias; o "antes" do plano fica guardado com ele."""
+    mid, dia0 = casa_com_plano_de_8_dias(cliente, plataforma, relogio)
+    antes = cliente.get("/api/economia").get_json()["verificacao"]["total"]
+    db = plataforma.db()
+    with db:
+        db.execute("DELETE FROM consumo_5min WHERE inicio < ?", (dia0,))        # o que a retenção faria
+    v = cliente.get("/api/economia").get_json()["verificacao"]
+    assert v["pronto"] is True and v["dias_antes"] == 14 and v["total"] == antes
+    exportado = json.loads(cliente.post("/api/privacidade/exportar").data)["plano_de_economia"][0]
+    assert exportado["consumo_antes_kwh_dia"] == pytest.approx(7.2)
+
+
 def test_resumo_semanal_conta_como_foi_o_plano(cliente, plataforma, relogio):
     segunda = datetime(2026, 11, 30, 9, 0, tzinfo=plataforma.cfg.zona).timestamp()
     relogio.t = segunda
@@ -288,9 +390,9 @@ def test_resumo_semanal_conta_como_foi_o_plano(cliente, plataforma, relogio):
     preencher_baldes(plataforma, mid, dia0 - 15 * DIA, dia0, 300)
     preencher_baldes(plataforma, mid, dia0, segunda, 240)
     cliente.post("/api/economia/plano", BANHO)
+    recuar_plano(plataforma, inicio_plano)
     db = plataforma.db()
     with db:
-        db.execute("UPDATE economia_plano SET criada_em = ?", (inicio_plano,))
         db.execute("UPDATE medidores SET ultima_mensagem = ?", (segunda,))
     plataforma.alertas.verificar()
     resumo = [a for a in cliente.get("/api/avisos").get_json()["avisos"] if a["tipo"] == "resumo_semanal"][0]["texto"]

@@ -29,7 +29,11 @@ int main() {
   // volta ao normal sozinho
   Serial2.modo = NORMAL; girar(6000);
   CONFERE(publicadas.back().corpo.find("\"sensor_ok\":true") != std::string::npos);
-  CONFERE(publicadas.back().corpo.find("\"falhas_leitura\":2") != std::string::npos);
+  // o contador de falhas soma cada leitura perdida (quantas forem, conforme INTERVALO_ENVIO_MS)
+  int sem_leitura = 0;
+  for (auto& p : publicadas) if (p.corpo.find("\"sensor_ok\":false") != std::string::npos) sem_leitura++;
+  CONFERE(sem_leitura >= 2);
+  CONFERE(publicadas.back().corpo.find("\"falhas_leitura\":" + std::to_string(sem_leitura) + ",") != std::string::npos);
   // comando de zerar
   char topo[64]; std::strcpy(topo, "meterwatt/mw-A1B2C3D4E5F6/comando");
   byte cmd[] = "zerar_energia"; aoReceberMqtt(topo, cmd, 13); girar(200);

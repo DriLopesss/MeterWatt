@@ -87,7 +87,7 @@ class Casa:
 def main():
     ap = argparse.ArgumentParser(description="Simulador de MeterWatt com PZEM-004T v3 (dados inventados).")
     ap.add_argument("--id", default="mw-SIMULADO", help="identificador do medidor simulado")
-    ap.add_argument("--intervalo", type=float, default=5.0, help="segundos entre mensagens")
+    ap.add_argument("--intervalo", type=float, default=1.0, help="segundos entre mensagens (o firmware manda a cada 1 s)")
     ap.add_argument("--tensao", type=float, default=127.0, choices=[127.0, 220.0], help="tensão nominal da rede")
     ap.add_argument("--acelerar", type=float, default=1.0, help="quantas vezes o tempo da casa corre mais rápido")
     ap.add_argument("--falhas", action="store_true", help="de vez em quando simula o PZEM sem responder")

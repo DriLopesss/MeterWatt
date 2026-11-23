@@ -164,3 +164,26 @@ def test_retencao_dos_ciclos(cliente, plataforma, relogio):
     relogio.avancar(91 * 86400)
     assert plataforma.privacidade.reter()["ciclos_de_aparelhos"] == 3
     assert plataforma.db().execute("SELECT COUNT(*) FROM aparelhos").fetchone()[0] == 0
+
+
+def test_consumo_por_mes_divide_pelo_tempo_em_que_o_detetive_olhou(cliente, plataforma, relogio):
+    """Um aparelho usado 3 vezes nos últimos 2 dias, com o Detetive olhando a casa há 7 dias, gasta por
+    mês o que gastou em 7 dias, e não 3,5 vezes isso (dividir pelos 2 dias desde o primeiro uso dele)."""
+    conta_pronta(cliente, plataforma)
+    mid = parear(cliente, plataforma)
+    cliente.put("/api/privacidade/aparelhos", {"aceito": True})
+    agora = relogio.t
+    db = plataforma.db()
+    with db:
+        gel = db.execute("INSERT INTO aparelhos (medidor_id, potencia_w, n_ciclos, criado_em) VALUES (?, 140, 336, ?)",
+                         (mid, agora - 7 * 86400)).lastrowid
+        db.executemany("INSERT INTO ciclos (medidor_id, aparelho_id, inicio, fim, potencia_w, wh) VALUES (?, ?, ?, ?, 140, 28)",
+                       [(mid, gel, agora - 7 * 86400 + 60 + k * 1800, agora - 7 * 86400 + 780 + k * 1800) for k in range(330)])
+        ferro = db.execute("INSERT INTO aparelhos (medidor_id, potencia_w, n_ciclos, criado_em) VALUES (?, 1200, 3, ?)",
+                           (mid, agora - 2 * 86400)).lastrowid
+        db.executemany("INSERT INTO ciclos (medidor_id, aparelho_id, inicio, fim, potencia_w, wh) VALUES (?, ?, ?, ?, 1200, 200)",
+                       [(mid, ferro, agora - 2 * 86400 + k * 3600, agora - 2 * 86400 + k * 3600 + 600) for k in range(3)])
+    aparelhos = {a["id"]: a for a in cliente.get("/api/aparelhos").get_json()["aparelhos"]}
+    a = aparelhos[ferro]
+    assert a["vezes_na_semana"] == 3 and a["dias_observados"] == 7.0
+    assert a["kwh_mes"] == round(0.6 / 7 * 365 / 12, 1)               # 600 Wh em 7 dias

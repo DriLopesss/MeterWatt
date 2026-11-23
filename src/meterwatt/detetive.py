@@ -159,12 +159,20 @@ class Detetive:
             "SELECT a.*, m.apelido AS medidor FROM aparelhos a JOIN medidores m ON m.id = a.medidor_id "
             "WHERE m.usuario_id = ? AND a.oculto = 0 AND a.n_ciclos >= ? ORDER BY a.potencia_w DESC",
             (uid, CICLOS_PARA_APARECER)).fetchall() if autorizado else []
+        observando_desde = {}     # medidor -> primeiro ciclo da semana, de qualquer aparelho
         for a in linhas:
-            semana = conn.execute("SELECT COUNT(*) AS n, SUM(wh) AS wh, AVG(fim - inicio) AS duracao, MAX(fim) AS ultimo, MIN(inicio) AS primeiro "
+            semana = conn.execute("SELECT COUNT(*) AS n, SUM(wh) AS wh, AVG(fim - inicio) AS duracao, MAX(fim) AS ultimo "
                                   "FROM ciclos WHERE aparelho_id = ? AND inicio >= ?", (a["id"], agora - 7 * 86400)).fetchone()
             geral = conn.execute("SELECT AVG(fim - inicio) AS duracao, MAX(fim) AS ultimo FROM ciclos WHERE aparelho_id = ?", (a["id"],)).fetchone()
             duracao_min = (semana["duracao"] or geral["duracao"] or 0) / 60
-            dias = max(1.0, min(7.0, (agora - semana["primeiro"]) / 86400)) if semana["primeiro"] else None
+            # O consumo por mês divide pelo tempo em que o Detetive esteve olhando o medidor (até 7 dias),
+            # não pelo tempo desde o primeiro uso DESTE aparelho: um aparelho usado uma vez há 2 dias,
+            # com o Detetive ligado há uma semana, gasta pouco, e não 3,5 vezes mais.
+            if a["medidor_id"] not in observando_desde:
+                observando_desde[a["medidor_id"]] = conn.execute(
+                    "SELECT MIN(inicio) FROM ciclos WHERE medidor_id = ? AND inicio >= ?", (a["medidor_id"], agora - 7 * 86400)).fetchone()[0]
+            desde = observando_desde[a["medidor_id"]]
+            dias = max(1.0, min(7.0, (agora - desde) / 86400)) if semana["n"] and desde is not None else None
             kwh_mes = (semana["wh"] or 0) / 1000 / dias * 365 / 12 if dias else None
             ligado = conn.execute(
                 "SELECT 1 FROM degraus_abertos WHERE medidor_id = ? AND instante >= ? AND ABS(delta_w - ?) <= ?",
@@ -172,6 +180,7 @@ class Detetive:
             saida.append({
                 "id": a["id"], "nome": a["nome"], "palpite": palpite(a["potencia_w"], duracao_min), "medidor": a["medidor"],
                 "potencia_w": round(a["potencia_w"]), "ciclos_total": a["n_ciclos"], "vezes_na_semana": semana["n"],
+                "dias_observados": None if dias is None else round(dias, 2),
                 "duracao_media_min": round(duracao_min, 1), "kwh_mes": None if kwh_mes is None else round(kwh_mes, 1),
                 "custo_mes": None if kwh_mes is None or tarifa is None else round(kwh_mes * tarifa, 2),
                 "ultima_vez": self.p.iso(geral["ultimo"]), "ligado_agora": bool(ligado),

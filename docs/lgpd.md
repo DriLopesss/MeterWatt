@@ -50,7 +50,7 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 
 ## O que entrou no bloco 5
 - **Plano de economia** (aba Economia, "E se eu…?"): guarda as ações que a pessoa marcou e os números que ela ajustou (banhos por semana, minutos de uso, potência, preço de uma geladeira nova). É dado sobre os hábitos da casa, então segue o consumo: faz parte do serviço autorizado em "dados de consumo", entra na cópia dos dados (`plano_de_economia`), some ao apagar o consumo e ao excluir a conta, e cada mudança fica na atividade da conta ("Plano de economia alterado").
-- **Conferência "Deu certo?"**: não guarda nada novo. Compara, na hora, o consumo por dia antes e depois de cada ação, a partir do que já está guardado. Sem a autorização de consumo, não roda; sem a do Detetive, não compara aparelho por aparelho.
+- **Conferência "Deu certo?"**: compara o consumo por dia antes e depois de cada ação. Junto de cada ação fica guardada só a "linha de base": a média de consumo por dia das duas semanas anteriores (e, quando o Detetive estava ligado, a dos aparelhos dela; no consumo em espera, a base das madrugadas). Sem isso, a conferência de um plano com mais de ~2 meses sumiria quando a retenção apagasse o consumo de 5 em 5 minutos daqueles dias. A linha de base sai junto com a ação, entra na cópia dos dados e some ao apagar o consumo. Sem a autorização de consumo, a conferência não roda; aparelho por aparelho, só entram dias em que o Detetive já estava ligado.
 - **Simulador**: as contas de quem só mexe nos controles rodam no navegador e não vão para o servidor. Só vai o que a pessoa põe no plano.
 - O resumo semanal por e-mail passa a dizer quanto a casa economizou desde o início do plano (mesma chave de e-mail do resumo).
 

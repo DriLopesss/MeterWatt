@@ -45,6 +45,7 @@
 #define PERMITIR_ZERAR_ENERGIA 0
 
 // A cada quanto tempo lê o módulo e envia. O PZEM atualiza as medidas a cada ~1 s,
-// então 1000 é o mínimo. Use 1000 nos testes de calibração e para estudar a
-// "assinatura" dos aparelhos; 5000 gasta menos rede e menos espaço no CSV.
-#define INTERVALO_ENVIO_MS  5000
+// então 1000 é o mínimo, e é o que o aplicativo espera: o painel mostra a casa
+// segundo a segundo e o Detetive de aparelhos precisa de uma leitura a cada 1 ou 2 s.
+// 5000 gasta menos rede, mas o Detetive deixa de ver aparelhos que ficam pouco tempo ligados.
+#define INTERVALO_ENVIO_MS  1000

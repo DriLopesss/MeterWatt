@@ -251,6 +251,10 @@ MIGRACOES = [
         UNIQUE (usuario_id, chave)
     );
     """,
+    # 8: o "antes" de cada ação do plano, guardado (a retenção apaga o consumo de 5 em 5 minutos depois de 90 dias)
+    """
+    ALTER TABLE economia_plano ADD COLUMN linha_de_base TEXT;
+    """,
 ]
 
 

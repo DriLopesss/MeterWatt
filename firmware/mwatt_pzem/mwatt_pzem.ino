@@ -93,7 +93,7 @@ static_assert(sizeof(SENHA_PORTAL) >= 9 && sizeof(SENHA_PORTAL) <= 64,
 #define PERMITIR_ZERAR_ENERGIA 0
 #endif
 #ifndef INTERVALO_ENVIO_MS
-#define INTERVALO_ENVIO_MS 5000
+#define INTERVALO_ENVIO_MS 1000        // o painel e o Detetive de aparelhos contam com uma leitura por segundo
 #endif
 #if INTERVALO_ENVIO_MS < 1000
 #error "INTERVALO_ENVIO_MS precisa ser de pelo menos 1000: o PZEM so atualiza as medidas a cada ~1 s."

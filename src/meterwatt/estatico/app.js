@@ -246,6 +246,7 @@ function forcaDaSenha(s) {
 }
 
 async function depoisDeEntrar(resposta) {
+  limparEconomia();
   if (resposta.etapa === "aguardando_2fa") return ir("2fa");
   await carregarEu();
   ir("painel");
@@ -345,8 +346,7 @@ async function sair() {
   try { await api("POST", "/api/conta/sair"); } catch { /* sai mesmo assim */ }
   estado.eu = null;
   estado.csrf = null;
-  eco.valores = {};          // o que foi ajustado no "E se eu…?" não passa para a próxima conta
-  eco.extras = [];
+  limparEconomia();          // o que foi ajustado no "E se eu…?" não passa para a próxima conta
   ir("entrar");
 }
 
@@ -531,7 +531,19 @@ function ligarPreferencias() {
 
 async function telaMedidores() {
   await desenharMedidores();
-  estado.timers.push(setInterval(() => { if (!document.hidden && !$(".renomear:not([hidden])")) desenharMedidores(true).catch(() => {}); }, 3000));
+  let voltas = 0;
+  estado.timers.push(setInterval(() => {
+    if (document.hidden || $(".renomear:not([hidden])")) return;
+    voltas++;
+    desenharMedidores(true).then(() => {
+      if (voltas % 10) return;
+      // A cada 30 s, o gráfico das últimas 2 horas anda junto com os números.
+      $$("#lista-medidores .medidor").forEach((cartao) => {
+        const id = cartao.dataset.id;
+        if ((estado.periodo[id] || "2h") === "2h") desenharGrafico($("canvas", cartao), id, "2h");
+      });
+    }).catch(() => {});
+  }, 3000));
 }
 
 async function desenharMedidores(soNumeros = false) {
@@ -555,7 +567,9 @@ async function desenharMedidores(soNumeros = false) {
 function preencherMedidas(cartao, m) {
   cartao.dataset.online = m.online;
   cartao.dataset.sensor = m.sensor_ok === false ? "falha" : "ok";
-  const estadoTexto = !m.online ? `Sem sinal ${m.segundos_desde_mensagem != null ? "desde " + fmt.relativo(new Date(Date.now() - m.segundos_desde_mensagem * 1000)) : ""}`
+  const estadoTexto = !m.online ? (m.segundos_desde_mensagem != null
+      ? `Sem sinal. Última mensagem ${fmt.relativo(new Date(Date.now() - m.segundos_desde_mensagem * 1000))}.`
+      : "Ainda não mandou nenhuma mensagem.")
     : m.sensor_ok === false ? `Medidor conectado, mas o sensor não respondeu (${m.erro_sensor})` : "Medindo agora";
   $(".medidor-estado", cartao).textContent = estadoTexto;
   const valores = {
@@ -706,11 +720,13 @@ async function abrirPareamento() {
   status.className = "parear-status";
   status.textContent = "Esperando o medidor…";
   d.showModal();
-  const relogio = setInterval(() => {
+  const contar = () => {
     const s = Math.max(0, Math.round((fimCodigo - Date.now()) / 1000));
     $("#parear-tempo").textContent = s ? `Vale por mais ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "Este código expirou. Feche e gere outro.";
     if (!s) clearInterval(relogio);
-  }, 1000);
+  };
+  const relogio = setInterval(contar, 1000);
+  contar();                    // sem esperar 1 s: o texto de um código anterior não aparece
   const consulta = setInterval(async () => {
     try {
       const lista = await api("GET", "/api/medidores");
@@ -867,8 +883,15 @@ function desenharAutorizacoes(p) {
             texto: "Os medidores param de registrar leituras novas e o painel fica parado. O que já foi guardado continua até você apagar ou até passar o prazo. Dá para voltar a autorizar quando quiser." });
           if (!ok) return;
         }
+        if (f.id === "aparelhos" && !novo) {
+          const ok = await confirmar({ titulo: "Desligar o Detetive?", semSenha: true, botao: "Desligar e apagar",
+            texto: "Tudo o que ele guardou é apagado agora: os aparelhos, os nomes que você deu e os horários em que cada um ligou. Ações do plano de economia ligadas a um aparelho continuam, mas sem a conferência por aparelho." });
+          if (!ok) return;
+        }
         try {
           desenharAutorizacoes(await api("PUT", `/api/privacidade/${f.id}`, { aceito: novo }));
+          if (f.id === "consumo") estado.eu.consentimento_consumo = novo;
+          limparEconomia();                       // os números do "E se eu…?" mudam com as autorizações
           avisar(novo ? "Autorização registrada." : "Autorização revogada.");
         } catch (e) { avisar(e.message, true); }
       },
@@ -895,7 +918,7 @@ function ligarPrivacidade() {
     const dados = await confirmar({ titulo: "Apagar todo o consumo?", botao: "Apagar consumo", pedirCodigo: estado.eu.dois_fatores,
       texto: "Todas as leituras e totais de todos os medidores são apagados. Não tem como desfazer.",
       enviar: (d) => api("POST", "/api/privacidade/apagar-consumo", d) });
-    if (dados) { avisar("Consumo apagado."); telaPrivacidade(); }
+    if (dados) { avisar("Consumo apagado."); limparEconomia(); telaPrivacidade(); }
   });
   $("#botao-excluir-conta").addEventListener("click", async () => {
     const dados = await confirmar({ titulo: "Excluir a conta?", botao: "Excluir para sempre", pedirCodigo: estado.eu.dois_fatores, frase: true,
@@ -1043,6 +1066,12 @@ const minutos = (m) => `${fmt.num(m, Number.isInteger(m) ? 0 : 1)} min`;
 const chaveDe = (ideia) => (typeof ideia.chave === "function" ? ideia.chave() : ideia.chave);
 const planoPorChave = (chave) => eco.dados.plano.find((a) => a.chave === chave) || null;
 const emDinheiro = (kwh) => (eco.dados.tarifa_kwh != null ? fmt.reais(kwh * eco.dados.tarifa_kwh) : fmt.kwh(kwh));
+
+function limparEconomia() {
+  eco.valores = {};
+  eco.extras = [];
+  eco.dados = null;
+}
 
 function valorDe(chave, inicial) {
   if (!eco.valores[chave]) eco.valores[chave] = inicial();
@@ -1248,8 +1277,10 @@ function desenharIdeias() {
  * Com o chuveiro no plano, valem os dados que foram para o plano; `daMedicao` volta para a
  * medição mais recente (que muda justamente quando a pessoa passa a tomar banhos mais curtos). */
 function prepararChuveiro(daMedicao = false) {
-  if (eco.valores.chuveiro && !daMedicao) return;
   const d = eco.dados, C = MWEconomia.CAMPOS.chuveiro_verao;
+  const medicao = JSON.stringify(d.chuveiro);
+  const atual = eco.valores.chuveiro;
+  if (atual && !daMedicao && (atual.fonte === "ajustado" || atual.medicao === medicao)) return;
   const verao = daMedicao ? null : planoPorChave("chuveiro_verao");
   const salvo = daMedicao ? null : (planoPorChave("banho_curto") || verao || {}).parametros;
   const base = salvo || d.chuveiro;
@@ -1262,7 +1293,10 @@ function prepararChuveiro(daMedicao = false) {
   c.verao_estimado = !verao;
   const igual = ["potencia_w", "banhos_semana", "minutos_banho"].every((k) => Math.abs(c[k] - d.chuveiro[k]) < 1e-6);
   c.fonte = igual ? d.chuveiro.fonte : "plano";
+  c.medicao = medicao;
   eco.valores.chuveiro = c;
+  const banho = eco.valores.banho_curto;                  // os minutos a menos não podem passar da duração do banho
+  if (banho) banho.minutos_a_menos = Math.min(banho.minutos_a_menos, Math.max(0, Math.ceil(c.minutos_banho) - 1));
 }
 
 // Sem medição da posição verão: costuma ficar perto de 55% da inverno.
@@ -1393,9 +1427,12 @@ function grupoFantasma() {
     texto: (x) => `${fmt.num(x)} W`, aoMudar: (x) => { v.watts_cortados = x; atualizar(); } });
   const ch = controle({ rotulo: "Horas por dia desligados", min: 0, max: 24, valor: v.horas_dia,
     texto: (x) => `${x} h`, aoMudar: (x) => { v.horas_dia = x; atualizar(); } });
+  const d = eco.dados;
+  const porque = d.consumo_autorizado === false ? "Sem a autorização do consumo, usamos"
+    : !d.medidores ? "Sem medidor ainda, usamos" : "Ainda sem madrugadas medidas na sua casa. Usamos";
   const contexto = el("p", { class: "eco-contexto" }, f.fonte === "medido"
     ? `Com a casa parada, ${fmt.num(w)} W ficam ligados o tempo todo: aparelhos em espera, carregadores, roteador.`
-    : `Ainda sem madrugadas medidas na sua casa. Usamos ${fmt.num(w)} W, um valor típico de aparelhos em espera.`);
+    : `${porque} ${fmt.num(w)} W, um valor típico de aparelhos em espera.`);
   eco.grupos.push(atualizar);
   return grupo({ id: "fantasma", titulo: "Consumo em espera", fonte: f.fonte, contexto, filhos: [
     blocoIdeia(ideia, { filhos: [cw.raiz, ch.raiz, efeito,
@@ -1671,7 +1708,7 @@ function barrasAntesDepois(item) {
 function desenharPlanoEconomia() {
   const d = eco.dados, caixa = $("#eco-plano");
   const notas = [];
-  if (!estado.eu.consentimento_consumo) {
+  if (d.consumo_autorizado === false) {
     notas.push(el("p", { class: "eco-nota" }, "Sem a autorização para tratar o consumo, as contas usam valores típicos e a conferência fica desligada. Dá para mudar em ",
       el("a", { href: "#privacidade" }, "Privacidade"), "."));
   } else if (!d.medidores) {
@@ -1979,7 +2016,7 @@ function confirmar({ titulo, texto, botao, semSenha = false, pedirCodigo = false
   $("#confirmar-titulo").textContent = titulo;
   $("#confirmar-texto").textContent = texto;
   $("#confirmar-botao").textContent = botao;
-  $("#confirmar-botao").classList.toggle("perigo", /Excluir|Apagar|Remover|Desativar|Parar/.test(botao));
+  $("#confirmar-botao").classList.toggle("perigo", /Excluir|Apagar|Remover|Desativar|Desligar|Parar/.test(botao));
   $('[data-campo="senha"]', form).hidden = semSenha;
   $('[data-campo="codigo"]', form).hidden = !pedirCodigo;
   $('[data-campo="frase"]', form).hidden = !frase;

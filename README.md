@@ -148,7 +148,7 @@ Se a atualização falhar no meio, o ESP32 continua com o firmware anterior. Mes
 4. **Com uma carga resistiva conhecida** (chaleira ou ferro de passar). Compare a corrente com um alicate amperímetro True RMS e anote o erro. O fator de potência deve ficar perto de 1,00.
 5. Se aparecer `crc_invalido` ou `resposta_incompleta`, o problema é a ligação serial (nível de tensão, fio solto ou TX e RX trocados).
 
-Para esse teste, grave o firmware com `INTERVALO_ENVIO_MS 1000` no `config.h` (uma leitura por segundo).
+Esse teste usa uma leitura por segundo (`INTERVALO_ENVIO_MS 1000`, o padrão do `config.example.h`). Quem copiou o `config.h` antes do PR #7 tem 5000 ali: troque para 1000, senão o painel atualiza a cada 5 s e o Detetive de aparelhos perde os aparelhos que ficam pouco tempo ligados.
 
 ### Calibração com a ferramenta
 Com o backend rodando, num segundo terminal, na raiz do repositório:
