@@ -51,6 +51,7 @@ BLOCO_DE_PREENCHIMENTO = 256        # o tamanho cifrado sobe de 256 em 256 bytes
 VALIDADE_JWT_S = 12 * 3600          # a Apple recusa mais de 24 h e pede para não renovar mais de uma vez por hora
 RENOVAR_JWT_ANTES_S = 3600
 FALHAS_PARA_DESISTIR = 3
+MAXIMO_DE_APARELHOS = 10            # por conta: ligar no 11º tira o que está há mais tempo sem atualizar
 # Por quanto tempo o serviço guarda a notificação se o aparelho estiver desligado.
 VALIDADE_POR_TIPO = {"medidor_offline": 6 * 3600, "consumo_incomum": 6 * 3600, "meta": 24 * 3600,
                      "resumo_semanal": 48 * 3600, "teste": 10 * 60}
@@ -150,6 +151,7 @@ def enviar_http(endpoint, corpo, cabecalhos, tempo_limite=10):
         with _abridor.open(pedido, timeout=tempo_limite) as resposta:
             return resposta.status
     except urllib.error.HTTPError as erro:
+        erro.close()
         return erro.code
     except (urllib.error.URLError, OSError, ValueError):
         return 0
@@ -250,6 +252,10 @@ class Notificacoes:
                                                           nome, agora, antes["id"]))
                 novo_id = antes["id"]
             else:
+                # Cada aviso sai para todos os aparelhos da conta: um limite impede que uma conta faça o
+                # servidor mandar centenas de envios por aviso.
+                conn.execute("DELETE FROM push_inscricoes WHERE id IN (SELECT id FROM push_inscricoes WHERE usuario_id = ? "
+                             "ORDER BY atualizada_em DESC, id DESC LIMIT -1 OFFSET ?)", (uid, MAXIMO_DE_APARELHOS - 1))
                 novo_id = conn.execute(
                     "INSERT INTO push_inscricoes (usuario_id, sessao_id, endpoint_hmac, dados_cifrados, navegador, criada_em, "
                     "atualizada_em) VALUES (?, ?, ?, ?, ?, ?, ?)",

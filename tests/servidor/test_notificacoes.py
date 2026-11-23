@@ -245,6 +245,26 @@ def test_ligar_guarda_cifrado_e_lista_o_aparelho(cliente, plataforma, servico):
     assert atividade.count("Notificações ligadas num aparelho") == 2
 
 
+def test_limite_de_aparelhos_por_conta(cliente, plataforma, relogio, servico):
+    conta_pronta(cliente, plataforma)
+    aparelhos = [Aparelho() for _ in range(12)]
+    for aparelho in aparelhos:
+        relogio.avancar(60)
+        assert ligar(cliente, aparelho).status_code == 200
+    assert len(inscricoes(plataforma)) == 10
+    # saem os que estão há mais tempo sem atualizar; um aparelho que voltou a abrir o app fica
+    assert cliente.post("/api/notificacoes/conferir", aparelhos[2].inscricao()).get_json()["ligado"] is True
+    assert cliente.post("/api/notificacoes/conferir", aparelhos[0].inscricao()).get_json()["ligado"] is False
+    relogio.avancar(60)
+    cliente.post("/api/notificacoes/conferir", aparelhos[3].inscricao())
+    relogio.avancar(60)
+    ligar(cliente, Aparelho())
+    assert cliente.post("/api/notificacoes/conferir", aparelhos[3].inscricao()).get_json()["ligado"] is True
+    assert cliente.post("/api/notificacoes/conferir", aparelhos[4].inscricao()).get_json()["ligado"] is False
+    plataforma.notificacoes.entregar(uid_de(plataforma), "meta", "Meta", "texto")
+    assert len(servico.recebidos) == 10
+
+
 def test_ligar_exige_sessao_e_token(cliente, plataforma, novo_cliente):
     conta_pronta(cliente, plataforma)
     assert novo_cliente().put("/api/notificacoes/inscricao", Aparelho().inscricao()).status_code == 401
