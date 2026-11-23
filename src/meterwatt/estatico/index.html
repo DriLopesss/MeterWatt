@@ -8,6 +8,12 @@
 <meta name="referrer" content="no-referrer">
 <title>MeterWatt</title>
 <link rel="icon" href="/estatico/icone.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/estatico/app/icone-apple-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MeterWatt">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="preload" href="/estatico/fontes/unbounded-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/estatico/fontes/jetbrains-mono-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/estatico/app.css">
@@ -248,6 +254,7 @@
     </div>
   </header>
 
+  <div class="faixa faixa-offline" id="faixa-offline" role="status" hidden>Sem internet. Os números param de atualizar e voltam sozinhos quando a conexão voltar.</div>
   <div class="faixa" id="faixa-2fa" hidden>Este servidor exige a verificação em duas etapas. Ative em <a href="#seguranca">Segurança</a> para usar o painel e os medidores.</div>
 
   <main class="conteudo-app" id="conteudo-app" tabindex="-1">
@@ -307,6 +314,7 @@
         </article>
 
         <article class="bloco bloco-economia" id="bloco-economia" hidden></article>
+        <article class="bloco bloco-app" id="bloco-app" hidden></article>
       </div>
 
       <div class="vazio" id="painel-vazio" hidden>
@@ -349,10 +357,15 @@
         <h2>Últimos avisos</h2>
         <ul class="lista-avisos" id="lista-avisos"></ul>
       </article>
+      <article class="bloco" id="bloco-notificacoes">
+        <h2>Notificações</h2>
+        <div class="notificacoes-aqui" id="notificacoes-aqui"></div>
+        <ul class="lista-sessoes" id="notificacoes-aparelhos" hidden></ul>
+      </article>
       <article class="bloco">
-        <h2>Receber também por e-mail</h2>
-        <p class="dica">Os avisos sempre aparecem aqui. Os e-mails levam totais de consumo (kWh e reais); desligue se preferir não ter isso na caixa de entrada.</p>
-        <ul class="lista-autorizacoes" id="avisos-config"></ul>
+        <h2>Como cada aviso chega</h2>
+        <p class="dica">Os avisos sempre aparecem aqui no app. A notificação chega nos aparelhos em que você ligou as notificações. O e-mail leva totais de consumo (kWh e reais): desligue se preferir não ter isso na caixa de entrada.</p>
+        <ul class="lista-autorizacoes lista-canais" id="avisos-config"></ul>
       </article>
     </section>
 
@@ -409,7 +422,8 @@
       <h1>Conta</h1>
       <p class="texto" id="conta-quem"></p>
       <nav class="lista-conta" aria-label="Conta">
-        <a href="#avisos"><span>Avisos</span><span class="lista-conta-extra" id="conta-avisos"></span></a>
+        <button type="button" id="conta-instalar" hidden><span>Instalar o app</span><span class="lista-conta-extra">ícone e tela cheia</span></button>
+        <a href="#avisos"><span>Avisos e notificações</span><span class="lista-conta-extra" id="conta-avisos"></span></a>
         <a href="#plano" id="conta-plano"><span>Plano</span><span class="lista-conta-extra" id="conta-plano-atual"></span></a>
         <a href="#seguranca"><span>Segurança</span><span class="lista-conta-extra">senha e verificação em duas etapas</span></a>
         <a href="#privacidade"><span>Privacidade e seus dados</span><span class="lista-conta-extra">autorizações, cópia e exclusão</span></a>
@@ -433,7 +447,7 @@
         <form id="form-senha" novalidate class="form-estreito">
           <label>Senha atual<input name="atual" type="password" autocomplete="current-password" required></label>
           <label>Senha nova<input name="nova" type="password" autocomplete="new-password" minlength="10" maxlength="128" required></label>
-          <p class="dica">As outras sessões abertas são encerradas e você recebe um aviso por e-mail.</p>
+          <p class="dica">As outras sessões abertas são encerradas, as notificações nos outros aparelhos são desligadas e você recebe um aviso por e-mail.</p>
           <p class="erro" role="alert"></p>
           <button class="secundario" type="submit">Trocar senha</button>
         </form>
@@ -445,7 +459,7 @@
           <button type="button" class="discreto" id="encerrar-outras">Encerrar as outras</button>
         </div>
         <ul class="lista-sessoes" id="lista-sessoes"></ul>
-        <p class="dica">Mostramos só o tipo de navegador e o começo do endereço de rede: não guardamos o endereço completo.</p>
+        <p class="dica">Mostramos só o tipo de navegador e o começo do endereço de rede: não guardamos o endereço completo. Encerrar as outras sessões também desliga as notificações nos outros aparelhos.</p>
       </article>
     </section>
 
@@ -506,6 +520,14 @@
   <a class="botao primario" href="#painel">Voltar ao painel</a>
 </div>
 
+<!-- ======================================================= sem conexão (o app abriu, mas o servidor não respondeu) -->
+<div id="area-sem-conexao" class="tela-erro" hidden>
+  <div class="erro-visor" aria-hidden="true"><span>-</span><span class="erro-pisca">-</span><span>-</span></div>
+  <h1>Sem conexão com o MeterWatt</h1>
+  <p>O app abriu, mas não conseguiu falar com o servidor. Confira a internet do aparelho. Quando a conexão voltar, ele continua sozinho.</p>
+  <button type="button" class="primario" id="botao-reconectar">Tentar de novo</button>
+</div>
+
 <!-- ======================================================= diálogos -->
 <dialog id="dialogo-parear" class="dialogo" aria-labelledby="parear-titulo">
   <form method="dialog" class="fechar"><button aria-label="Fechar">×</button></form>
@@ -536,7 +558,23 @@
   </form>
 </dialog>
 
+<dialog id="dialogo-instalar" class="dialogo" aria-labelledby="instalar-titulo">
+  <form method="dialog" class="fechar"><button aria-label="Fechar">×</button></form>
+  <h2 id="instalar-titulo">Instalar no iPhone ou no iPad</h2>
+  <ol class="passos">
+    <li>Abra o MeterWatt no <strong>Safari</strong>.</li>
+    <li>Toque em <strong>Compartilhar</strong>, o quadrado com a seta para cima. No iOS 26, ele fica no menu de três pontinhos ao lado do endereço.</li>
+    <li>Escolha <strong>Adicionar à Tela de Início</strong>. Se aparecer a opção de abrir como app, deixe ligada. Toque em <strong>Adicionar</strong>.</li>
+    <li>Abra o MeterWatt pelo ícone novo, entre na conta e ligue as notificações em <strong>Avisos</strong>.</li>
+  </ol>
+  <p class="dica">No iPhone, as notificações só chegam com o app aberto pelo ícone da tela de início (iOS 16.4 ou mais novo).</p>
+</dialog>
+
 <div class="aviso-flutuante" id="aviso" role="status" aria-live="polite" hidden></div>
+<div class="aviso-flutuante aviso-versao" id="aviso-versao" role="status" hidden>
+  <span>Saiu uma versão nova do app.</span>
+  <button type="button" class="link" id="botao-atualizar">Atualizar agora</button>
+</div>
 
 <!-- ======================================================= textos jurídicos (rascunho) -->
 <template id="doc-politica">
@@ -556,6 +594,7 @@
       <li><strong>Detetive de aparelhos</strong>, só se você ligar: quais aparelhos ligam e desligam, quando e quanto gastam. É mais revelador que o consumo total, por isso tem autorização separada. Ao desligar, tudo é apagado. Base legal: consentimento.</li>
       <li><strong>Avisos</strong> (medidor sem sinal, meta, consumo fora do normal, resumo da semana): aparecem no aplicativo e, se você deixar, vão por e-mail com totais de consumo. Fazem parte do serviço que você autorizou ao permitir o tratamento do consumo.</li>
       <li><strong>Plano de economia</strong> (aba Economia): as ideias que você marcar e os números que você ajustar, como banhos por semana e minutos de uso, e, junto de cada ideia, a média de consumo por dia das duas semanas anteriores a ela. Servem para estimar a economia e conferir, depois, se ela aconteceu, mesmo depois que o consumo detalhado daqueles dias for apagado. Ficam até você tirar do plano, apagar o consumo ou excluir a conta. Fazem parte do serviço que você autorizou ao permitir o tratamento do consumo.</li>
+      <li><strong>Notificações no celular ou no computador</strong>, só nos aparelhos em que você ligar: o endereço que o navegador cria para receber notificações e as chaves que cifram cada mensagem (guardados cifrados), o tipo de aparelho e as datas. Servem para entregar os avisos. Saem quando você desliga as notificações, tira o aparelho da lista, sai da conta naquele aparelho, troca a senha, encerra as outras sessões ou quando o próprio navegador cancela a inscrição. Fazem parte do serviço que você pediu ao ligar.</li>
       <li><strong>Assinatura</strong>: se você assinar um plano, guardamos a situação da assinatura e o valor. O pagamento é feito na página do Mercado Pago; nunca vemos nem guardamos o número do cartão. Base legal: execução do contrato. [ADVOGADO/CONTADOR: prazo de guarda dos registros fiscais.]</li>
       <li><strong>Lista de espera</strong>: só o e-mail, para avisar da abertura das vagas, com a sua autorização. Sai pelo link que vem em cada e-mail. Quem não confirma o e-mail é apagado em 7 dias.</li>
       <li><strong>Novidades por e-mail</strong>, só se você marcar. Base legal: consentimento.</li>
@@ -581,7 +620,7 @@
     <p>Confirmar o tratamento, acessar e baixar os dados, corrigir, anonimizar ou apagar, revogar autorizações e saber com quem compartilhamos. Quase tudo funciona sozinho na tela <a href="#privacidade">Privacidade</a>. O resto, pelo e-mail acima, com resposta em até 15 dias.</p>
 
     <h2>Com quem compartilhamos</h2>
-    <p>Só com quem opera o serviço para nós: provedor de servidores, de envio de e-mail e, para quem assina um plano, o Mercado Pago (que recebe o seu e-mail e o valor da assinatura). [ADVOGADO e equipe: listar os fornecedores e os países onde ficam os servidores (art. 33).]</p>
+    <p>Só com quem opera o serviço para nós: provedor de servidores, de envio de e-mail e, para quem assina um plano, o Mercado Pago (que recebe o seu e-mail e o valor da assinatura). Se você ligar as notificações, cada aviso passa pelo serviço de notificações do seu navegador (Google no Chrome e no Android, Apple no iPhone e no Safari, Mozilla no Firefox, Microsoft no Edge), que fica fora do Brasil. A mensagem vai cifrada de ponta a ponta: esse serviço sabe que uma notificação foi entregue no aparelho, mas não consegue ler o que ela diz. [ADVOGADO e equipe: listar os fornecedores e os países onde ficam os servidores (art. 33).]</p>
 
     <h2>Segurança</h2>
     <p>Conexão criptografada (HTTPS), senha guardada com Argon2id, verificação em duas etapas opcional, segredos cifrados no banco, cada medidor com usuário próprio no servidor de mensagens. Em caso de incidente que possa causar risco, avisamos você e a ANPD.</p>

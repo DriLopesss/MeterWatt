@@ -45,6 +45,8 @@ def gerar():
     js = js.replace('const alvo = rota || (estado.eu ? "painel" : "inicio");', 'const alvo = rota || (estado.eu ? "painel" : "entrar");')
 
     html = re.sub(r'\s*<link rel="preload"[^>]*>', "", html)
+    # Aberta direto do disco, a demonstração não é instalável: sem manifesto nem ícones do app.
+    html = re.sub(r'\s*<link rel="(manifest|apple-touch-icon)"[^>]*>', "", html)
     html = html.replace('<link rel="icon" href="/estatico/icone.svg" type="image/svg+xml">', f'<link rel="icon" href="{icone}">')
     html = html.replace('<link rel="stylesheet" href="/estatico/app.css">', f"<style>\n{css}\n</style>")
     # Script embutido não respeita "defer": vai para o fim do corpo, depois dos elementos que ele usa.

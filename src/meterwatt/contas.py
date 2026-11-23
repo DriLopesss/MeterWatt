@@ -278,6 +278,9 @@ class Contas:
     def sair(self, sessao, ip=None):
         conn = self.p.db()
         with conn:
+            # Antes de apagar a sessão (depois, a inscrição já não aponta para ela): quem sai da conta
+            # naquele aparelho para de receber as notificações dela ali.
+            self.p.notificacoes.remover_da_sessao(conn, sessao["sessao_id"])
             conn.execute("DELETE FROM sessoes WHERE id = ?", (sessao["sessao_id"],))
             if sessao["etapa"] == "completa":
                 self.p.auditar(conn, sessao["usuario_id"], "sair", None, ip)
@@ -294,6 +297,8 @@ class Contas:
             raise _invalido("Para encerrar esta sessão, use Sair.")
         conn = self.p.db()
         with conn:
+            if conn.execute("SELECT 1 FROM sessoes WHERE id = ? AND usuario_id = ?", (sessao_id, sessao["usuario_id"])).fetchone():
+                self.p.notificacoes.remover_da_sessao(conn, sessao_id)
             apagadas = conn.execute("DELETE FROM sessoes WHERE id = ? AND usuario_id = ?", (sessao_id, sessao["usuario_id"])).rowcount
             if not apagadas:
                 raise NaoEncontrado("Sessão não encontrada.")
@@ -303,6 +308,7 @@ class Contas:
         conn = self.p.db()
         with conn:
             n = conn.execute("DELETE FROM sessoes WHERE usuario_id = ? AND id != ?", (sessao["usuario_id"], sessao["sessao_id"])).rowcount
+            self.p.notificacoes.remover_outros(conn, sessao["usuario_id"], sessao["sessao_id"])
             if n:
                 self.p.auditar(conn, sessao["usuario_id"], "sessao_encerrada", f"{n} sessão(ões)", ip)
         return n
@@ -342,6 +348,7 @@ class Contas:
             conn.execute("UPDATE tokens_email SET usado_em = ? WHERE usuario_id = ? AND finalidade = 'redefinir' AND usado_em IS NULL",
                          (agora, u["id"]))
             conn.execute("DELETE FROM sessoes WHERE usuario_id = ?", (u["id"],))
+            self.p.notificacoes.remover_todos(conn, u["id"])
             self.p.auditar(conn, u["id"], "senha_redefinida", None, ip)
         self.p.limite_login_email.zerar(u["email"])
         self._avisar(u, "A sua senha do MeterWatt foi trocada", (
@@ -366,6 +373,7 @@ class Contas:
         with conn:
             conn.execute("UPDATE usuarios SET senha_hash = ?, senha_trocada_em = ? WHERE id = ?", (nova_hash, agora, u["id"]))
             conn.execute("DELETE FROM sessoes WHERE usuario_id = ? AND id != ?", (u["id"], sessao["sessao_id"]))
+            self.p.notificacoes.remover_outros(conn, u["id"], sessao["sessao_id"])
             self.p.auditar(conn, u["id"], "senha_trocada", None, ip)
         self._avisar(u, "A sua senha do MeterWatt foi trocada", (
             "A senha da sua conta foi trocada e as outras sessões foram encerradas.\n\n"
@@ -401,6 +409,7 @@ class Contas:
                          "totp_ativado_em = ?, totp_ultimo_passo = ? WHERE id = ?", (self.p.agora(), passo, u["id"]))
             self._gravar_codigos_backup(conn, u["id"], codigos)
             conn.execute("DELETE FROM sessoes WHERE usuario_id = ? AND id != ?", (u["id"], sessao["sessao_id"]))
+            self.p.notificacoes.remover_outros(conn, u["id"], sessao["sessao_id"])
             self.p.auditar(conn, u["id"], "2fa_ativado", None, ip)
         self._avisar(u, "Verificação em duas etapas ativada", (
             "A verificação em duas etapas foi ativada na sua conta. A partir de agora, além da senha, "

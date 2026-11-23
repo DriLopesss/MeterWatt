@@ -13,6 +13,7 @@ import functools
 import hmac
 import json
 import logging
+import mimetypes
 import os
 
 from flask import Flask, Response, g, jsonify, request, send_from_directory
@@ -20,11 +21,14 @@ from werkzeug.exceptions import HTTPException
 
 from . import VERSAO
 from .erros import ErroDeNegocio
+from .instalavel import ServiceWorker, assetlinks
 from .privacidade import FINALIDADES, VERSAO_PRIVACIDADE, VERSAO_TERMOS
 
 PASTA_ESTATICA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "estatico")
 METODOS_QUE_ALTERAM = {"POST", "PUT", "PATCH", "DELETE"}
 log = logging.getLogger("meterwatt.web")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+mimetypes.add_type("image/webp", ".webp")
 
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
@@ -43,6 +47,8 @@ def criar_app(plataforma):
     nome_cookie = "__Host-mw_sessao" if cfg.cookie_seguro else "mw_sessao"
     contas, medidores, privacidade = plataforma.contas, plataforma.medidores, plataforma.privacidade
     alertas, detetive, pagamentos, espera = plataforma.alertas, plataforma.detetive, plataforma.pagamentos, plataforma.espera
+    notificacoes = plataforma.notificacoes
+    service_worker = ServiceWorker()
 
     # ------------------------------------------------------------ apoio
 
@@ -163,6 +169,27 @@ def criar_app(plataforma):
     @app.get("/")
     def pagina():
         return send_from_directory(PASTA_ESTATICA, "index.html")
+
+    # ------------------------------------------------------------ app instalável (veja instalavel.py)
+
+    @app.get("/sw.js")
+    def sw():
+        # Fica na raiz para cuidar do site inteiro. "no-cache": o navegador sempre confere se mudou.
+        resposta = Response(service_worker.script(), mimetype="text/javascript")
+        resposta.headers["Cache-Control"] = "no-cache"
+        return resposta
+
+    @app.get("/manifest.webmanifest")
+    def manifesto():
+        resposta = send_from_directory(PASTA_ESTATICA, "manifest.webmanifest", mimetype="application/manifest+json")
+        resposta.headers["Cache-Control"] = "no-cache"
+        return resposta
+
+    @app.get("/.well-known/assetlinks.json")
+    def assetlinks_android():
+        if not cfg.android_pacote:
+            return Response("Sem app Android configurado (MW_ANDROID_PACOTE).", status=404, mimetype="text/plain")
+        return jsonify(assetlinks(cfg.android_pacote, cfg.android_sha256))
 
     # ------------------------------------------------------------ público
 
@@ -385,8 +412,40 @@ def criar_app(plataforma):
     @app.put("/api/avisos/config/<tipo>")
     @exige_sessao()
     def avisos_config(tipo):
-        alertas.configurar(g.sessao, tipo, corpo().get("por_email"))
+        alertas.configurar(g.sessao, tipo, corpo())
         return ok(alertas.listar(g.sessao))
+
+    # ------------------------------------------------------------ notificações no celular (Web Push)
+
+    @app.get("/api/notificacoes")
+    @exige_sessao()
+    def notificacoes_estado():
+        return ok(notificacoes.estado(g.sessao))
+
+    @app.put("/api/notificacoes/inscricao")
+    @exige_sessao()
+    def notificacoes_inscrever():
+        return ok(notificacoes.inscrever(g.sessao, corpo(), agente(), ip()))
+
+    @app.post("/api/notificacoes/conferir")
+    @exige_sessao()
+    def notificacoes_conferir():
+        return ok(notificacoes.conferir(g.sessao, corpo(), agente()))
+
+    @app.post("/api/notificacoes/desligar")
+    @exige_sessao(liberado_sem_2fa=True)
+    def notificacoes_desligar():
+        return ok(notificacoes.desligar(g.sessao, corpo().get("endpoint"), ip()))
+
+    @app.delete("/api/notificacoes/aparelhos/<int:inscricao_id>")
+    @exige_sessao()
+    def notificacoes_remover(inscricao_id):
+        return ok(notificacoes.remover(g.sessao, inscricao_id, ip()))
+
+    @app.post("/api/notificacoes/teste")
+    @exige_sessao()
+    def notificacoes_teste():
+        return ok(notificacoes.testar(g.sessao, corpo().get("endpoint")))
 
     # ------------------------------------------------------------ Detetive de aparelhos
 

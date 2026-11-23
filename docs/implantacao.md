@@ -9,6 +9,7 @@ Um servidor só, com três peças: o site (`app`), o servidor de mensagens dos m
 - Um domínio (ex.: `painel.meterwatt.com.br`) com um registro **A** apontando para o IP do servidor.
 - Uma conta de envio de e-mail com SMTP (o provedor do domínio costuma ter; serviços como Brevo, Resend e Amazon SES têm faixa gratuita).
 - Portas abertas no firewall do servidor: **80** e **443** (site) e **8883** (medidores). A 1883 fica fechada.
+- Saída para a internet na porta 443 (as notificações vão para os serviços do Google, da Apple, da Mozilla e da Microsoft; a lista está em [`app-celular.md`](app-celular.md)).
 
 ## Passo a passo
 1. Instale o Docker no servidor (docs.docker.com/engine/install) e baixe o código:
@@ -22,6 +23,10 @@ Um servidor só, com três peças: o site (`app`), o servidor de mensagens dos m
    ```
    **Guarde uma cópia dessa chave fora do servidor** (gerenciador de senhas). Sem ela, os backups não abrem e a verificação em duas etapas de todo mundo para de funcionar.
 3. Preencha o resto do `.env`: `DOMINIO`, as senhas do `MQTT_*` e do `MW_MQTT_PROVISAO_*` (invente senhas longas e diferentes), o SMTP e os dados do controlador.
+   Para as notificações no celular, gere também a `MW_VAPID_CHAVE_PRIVADA` e guarde junto da outra chave (detalhes em [`app-celular.md`](app-celular.md)):
+   ```bash
+   docker compose run --rm --no-deps app python -m meterwatt --gerar-vapid
+   ```
 4. Suba tudo:
    ```bash
    docker compose up -d --build
@@ -68,3 +73,5 @@ A integração foi escrita pela documentação pública e testada com um Mercado
 | Backup cifrado e restauração | Testes automáticos |
 | Dockerfile, docker-compose, Caddy, script do Mosquitto | Conferidos na leitura e na sintaxe. **Nunca executados juntos** |
 | Mercado Pago | HTTP de mentira nos testes. **Nunca falou com o serviço real** |
+| App instalável (manifesto, service worker, sem internet, versão nova) | Chromium de verdade: instalável sem erros, abre sem internet, troca de versão |
+| Notificações | Cifra igual ao exemplo da RFC 8291; no Chromium, a mensagem chega ao service worker e vira notificação. **Nunca entregue por um serviço real** (Google, Apple) nem testada num celular |

@@ -170,6 +170,16 @@ async function mostrar() {
   const alvo = rota || (estado.eu ? "painel" : "inicio");
   pararTimers();
   fecharDialogos();
+  $("#area-sem-conexao").hidden = !estado.semConexao;
+  if (estado.semConexao) {           // abriu sem internet: não dá para saber se a conta está aberta
+    document.body.dataset.tela = "sem-conexao";
+    ["#area-publica", "#area-app", "#area-erro", "#area-inicio"].forEach((a) => { $(a).hidden = true; });
+    demo.ligar(false);
+    particulas.ligar(false);
+    document.title = "Sem conexão | MeterWatt";
+    estado.timers.push(setInterval(() => { if (!document.hidden && navigator.onLine) reconectar(); }, 20000));
+    return;
+  }
 
   let area;
   if (DOCUMENTOS.has(alvo)) area = estado.eu ? "app" : "publica";
@@ -247,9 +257,11 @@ function forcaDaSenha(s) {
 
 async function depoisDeEntrar(resposta) {
   limparEconomia();
+  push.servidor = null;
   if (resposta.etapa === "aguardando_2fa") return ir("2fa");
   await carregarEu();
   ir("painel");
+  conferirNotificacoes().then(redesenharNotificacoes).catch(() => {});
 }
 
 async function carregarEu() {
@@ -343,6 +355,7 @@ async function tela2fa() {
 }
 
 async function sair() {
+  await desligarNotificacoesAoSair();
   try { await api("POST", "/api/conta/sair"); } catch { /* sai mesmo assim */ }
   estado.eu = null;
   estado.csrf = null;
@@ -389,6 +402,7 @@ const visor = criarVisor($("#visor-agora"));
 async function telaPainel() {
   await Promise.all([atualizarAgora(), atualizarMeta(), atualizarFantasma(), atualizarDias()]);
   await atualizarEconomiaPainel().catch(() => {});
+  desenharConviteApp();
   estado.timers.push(setInterval(() => { if (!document.hidden) atualizarAgora().catch(() => {}); }, 2000));
   estado.timers.push(setInterval(() => {
     if (document.hidden) return;
@@ -940,10 +954,17 @@ function atualizarSino(n) {
   conta.hidden = !n;
   conta.textContent = n > 9 ? "9+" : String(n || "");
   $("#sino").setAttribute("aria-label", n ? `Avisos: ${n} não lido(s)` : "Avisos");
+  // No app instalado, o número também aparece no ícone da tela inicial (quando o sistema deixa).
+  try {
+    if (n && navigator.setAppBadge) navigator.setAppBadge(n).catch(() => {});
+    else if (!n && navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+  } catch { /* sem suporte */ }
 }
 
 async function telaAvisos() {
-  desenharAvisos(await api("GET", "/api/avisos"));
+  const [avisos] = await Promise.all([api("GET", "/api/avisos"), carregarNotificacoes()]);
+  desenharAvisos(avisos);
+  desenharNotificacoes();
   if (estado.eu.avisos_nao_lidos) {
     await api("POST", "/api/avisos/lidos");
     estado.eu.avisos_nao_lidos = 0;
@@ -956,12 +977,54 @@ function desenharAvisos(r) {
     el("div", {}, el("h3", {}, a.titulo), el("p", {}, a.texto)),
     el("time", { datetime: a.quando }, fmt.quando(a.quando))))
     : [el("li", { class: "vazio-linha" }, "Nenhum aviso por enquanto. Quando um medidor cair, a meta apertar ou o consumo fugir do normal, aparece aqui.")]));
+  const chave = (c, campo, rotulo) => el("div", { class: "canal" }, el("span", { "aria-hidden": "true" }, rotulo),
+    el("button", { type: "button", class: "chave", role: "switch", "aria-checked": String(c[campo]), "aria-label": `${c.nome}: ${rotulo.toLowerCase()}`,
+      onclick: async () => {
+        try { desenharAvisos(await api("PUT", `/api/avisos/config/${c.tipo}`, { [campo]: !c[campo] })); } catch (e) { avisar(e.message, true); }
+      } }));
   $("#avisos-config").replaceChildren(...r.config.map((c) => el("li", {},
     el("div", {}, el("h3", {}, c.nome), el("p", {}, c.descricao)),
-    el("button", { type: "button", class: "chave", role: "switch", "aria-checked": String(c.por_email), "aria-label": `${c.nome} por e-mail`,
-      onclick: async () => {
-        try { desenharAvisos(await api("PUT", `/api/avisos/config/${c.tipo}`, { por_email: !c.por_email })); } catch (e) { avisar(e.message, true); }
-      } }))));
+    el("div", { class: "canais" }, chave(c, "por_push", "Notificação"), chave(c, "por_email", "E-mail")))));
+}
+
+/* O bloco "Notificações" da tela Avisos: como está neste aparelho e a lista dos aparelhos ligados. */
+function desenharNotificacoes() {
+  const caixa = $("#notificacoes-aqui");
+  const s = push.servidor;
+  const linhas = [];
+  const botao = (texto, classe, acao) => el("button", { type: "button", class: classe, onclick: (ev) => acao(ev.currentTarget) }, texto);
+  if (s && s.demonstracao) {
+    linhas.push(el("p", {}, "Na demonstração, as notificações ficam desligadas: nada sai do seu navegador. No app de verdade, é aqui que você liga os avisos no celular."));
+  } else if (s && !s.disponivel) {
+    linhas.push(el("p", {}, "Este servidor ainda não foi configurado para mandar notificações. Os avisos continuam aparecendo aqui e por e-mail."));
+  } else if (!push.suportado && app.ios && !app.instalado) {
+    linhas.push(el("p", {}, "No iPhone e no iPad, as notificações chegam com o MeterWatt instalado na tela de início. Instale e ligue por lá."),
+      el("div", { class: "botoes" }, botao("Como instalar", "secundario", () => $("#dialogo-instalar").showModal())));
+  } else if (!push.suportado) {
+    linhas.push(el("p", {}, "Este navegador não recebe notificações. No celular, use o Chrome no Android ou instale o app no iPhone."));
+  } else if (push.inscricao) {
+    linhas.push(el("p", { class: "estado-aparelho", "data-ligado": "" }, "Ligadas neste aparelho"),
+      el("p", {}, "Os avisos chegam aqui mesmo com o app fechado. Escolha abaixo quais avisos viram notificação."),
+      el("div", { class: "botoes" }, botao("Mandar um teste", "secundario", testarNotificacao), botao("Desligar neste aparelho", "discreto", desligarNotificacoes)));
+  } else if (typeof Notification !== "undefined" && Notification.permission === "denied") {
+    linhas.push(el("p", { class: "estado-aparelho" }, "Bloqueadas neste aparelho"),
+      el("p", {}, app.instalado
+        ? "As notificações do MeterWatt estão bloqueadas nas configurações do aparelho. Libere em Ajustes (ou Configurações), Notificações, MeterWatt, e volte aqui."
+        : "O navegador bloqueou as notificações deste site. Libere nas permissões do site (o ícone ao lado do endereço) e volte aqui."));
+  } else {
+    linhas.push(el("p", { class: "estado-aparelho" }, "Desligadas neste aparelho"),
+      el("p", {}, "Ligue para saber na hora quando um medidor ficar sem sinal, a meta apertar ou o consumo fugir do normal, mesmo com o app fechado."),
+      el("div", { class: "botoes" }, botao("Ligar notificações", "primario", ligarNotificacoes)));
+  }
+  caixa.replaceChildren(...linhas);
+  const aparelhos = (s && s.aparelhos) || [];
+  const lista = $("#notificacoes-aparelhos");
+  lista.hidden = !aparelhos.length;
+  lista.replaceChildren(...aparelhos.map((a) => el("li", {},
+    el("div", { class: "info" }, el("strong", {}, a.aparelho || "Aparelho"),
+      el("small", {}, `Ligadas desde ${fmt.quando(a.desde).split(",")[0]}${a.ultimo_envio ? ` | última notificação ${fmt.relativo(a.ultimo_envio)}` : ""}`)),
+    a.id === push.id ? el("span", { class: "atual" }, "Este aparelho")
+      : el("button", { class: "discreto perigo", type: "button", onclick: () => removerAparelho(a) }, "Remover"))));
 }
 
 /* ------------------------------------------------------------------ Detetive de aparelhos */
@@ -1764,12 +1827,315 @@ async function atualizarEconomiaPainel() {
   bloco.hidden = false;
 }
 
+/* ------------------------------------------------------------------ app instalado (PWA) e notificações */
+
+const app = {
+  pedido: null,       // o pedido de instalação do Chrome e do Edge, guardado para o botão "Instalar"
+  ios: /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
+  instalado: matchMedia("(display-mode: standalone)").matches || navigator.standalone === true,   // rodando como app
+  jaInstalou: false,  // instalou agora, por esta aba
+  ativo: null,        // o service worker pronto: sem ele não dá para ligar as notificações
+};
+
+const push = {
+  suportado: /^https?:$/.test(location.protocol) && window.isSecureContext && "serviceWorker" in navigator
+    && "PushManager" in window && "Notification" in window,
+  servidor: null,     // GET /api/notificacoes: se o servidor manda notificações, a chave dele e os aparelhos ligados
+  inscricao: null,    // a inscrição deste navegador, quando vale para esta conta
+  id: null,           // o número dela no servidor (para marcar "Este aparelho")
+};
+
+const b64u = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const deB64u = (texto) => Uint8Array.from(atob(texto.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+
+/* Preferência só deste navegador, como fechar um convite. Pode não haver armazenamento (aba anônima). */
+function lembrar(chave, valor) {
+  try {
+    if (valor === undefined) return localStorage.getItem(chave);
+    localStorage.setItem(chave, valor);
+  } catch { /* segue sem lembrar */ }
+  return null;
+}
+
+function registrarServiceWorker() {
+  if (!/^https?:$/.test(location.protocol) || !("serviceWorker" in navigator)) return;
+  let tinhaDono = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    // Na primeira instalação nada muda na tela. Depois, é versão nova: a pessoa escolhe a hora de recarregar.
+    if (tinhaDono) $("#aviso-versao").hidden = false;
+    tinhaDono = true;
+  });
+  navigator.serviceWorker.addEventListener("message", (ev) => {
+    const d = ev.data || {};
+    if (d.tipo === "abrir" && typeof d.rota === "string" && /^[a-z0-9-]+$/.test(d.rota)) ir(d.rota);
+    if (d.tipo === "aviso" && estado.eu && Number.isInteger(d.nao_lidos)) {
+      estado.eu.avisos_nao_lidos = d.nao_lidos;
+      atualizarSino(d.nao_lidos);
+      if (estado.rota === "avisos") mostrar();
+    }
+  });
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  navigator.serviceWorker.ready.then((r) => { app.ativo = r; }).catch(() => {});
+  // No celular, o app fica aberto por dias: ao voltar para ele, confere se saiu versão nova.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && app.ativo) app.ativo.update().catch(() => {});
+  });
+}
+
+function ligarAppInstalado() {
+  addEventListener("beforeinstallprompt", (ev) => {
+    ev.preventDefault();          // o convite aparece no painel e na Conta, na hora que a pessoa escolher
+    app.pedido = ev;
+    atualizarConvites();
+  });
+  addEventListener("appinstalled", () => {
+    app.pedido = null;
+    app.jaInstalou = true;
+    atualizarConvites();
+    avisar("Pronto: o MeterWatt foi instalado. Abra pelo ícone novo.");
+  });
+  $("#conta-instalar").addEventListener("click", instalarApp);
+  $("#botao-atualizar").addEventListener("click", () => location.reload());
+  $("#botao-reconectar").addEventListener("click", reconectar);
+  addEventListener("offline", () => { $("#faixa-offline").hidden = false; });
+  addEventListener("online", () => {
+    $("#faixa-offline").hidden = true;
+    if (estado.semConexao) reconectar();
+    else if (estado.eu) mostrar();     // os números voltam na hora, sem esperar o próximo ciclo
+  });
+}
+
+function podeInstalar() {
+  return !app.instalado && !app.jaInstalou && (!!app.pedido || app.ios);
+}
+
+async function instalarApp() {
+  if (!app.pedido) {                // iPhone e iPad: não há botão do sistema, só o passo a passo
+    $("#dialogo-instalar").showModal();
+    return;
+  }
+  const pedido = app.pedido;
+  app.pedido = null;                // cada pedido só serve uma vez
+  try {
+    await pedido.prompt();
+    const escolha = await pedido.userChoice;
+    if (escolha.outcome !== "accepted") avisar("Tudo bem. Dá para instalar depois pelo menu do navegador.");
+  } catch { /* o navegador não deixou mostrar de novo */ }
+  atualizarConvites();
+}
+
+function atualizarConvites() {
+  $("#conta-instalar").hidden = !podeInstalar();
+  if (estado.rota === "painel") desenharConviteApp();
+}
+
+function redesenharNotificacoes() {
+  if (estado.rota === "avisos") desenharNotificacoes();
+  else if (estado.rota === "painel") desenharConviteApp();
+  else if (estado.rota === "conta") telaConta();
+}
+
+/* No painel: um convite só, para instalar ou para ligar as notificações. "Agora não" vale para este navegador. */
+function desenharConviteApp() {
+  const bloco = $("#bloco-app");
+  const instalar = podeInstalar();
+  const notificar = push.suportado && !!push.servidor && push.servidor.disponivel && !push.inscricao
+    && Notification.permission === "default";
+  if ($(".grade-painel").hidden || lembrar("mw-convite-app") || (!instalar && !notificar)) {
+    bloco.hidden = true;
+    return;
+  }
+  const texto = instalar
+    ? "Instale o MeterWatt: ele ganha um ícone próprio, abre em tela cheia e avisa por notificação mesmo fechado."
+    : "Ligue as notificações para saber na hora quando um medidor ficar sem sinal, a meta apertar ou o consumo fugir do normal.";
+  bloco.replaceChildren(
+    el("div", { class: "eco-painel-texto" }, el("h2", {}, instalar ? "Instale o app" : "Avisos na hora"), el("p", {}, texto)),
+    el("div", { class: "botoes" },
+      instalar
+        ? el("button", { type: "button", class: "primario", onclick: instalarApp }, app.pedido ? "Instalar o app" : "Como instalar")
+        : el("button", { type: "button", class: "primario", onclick: (ev) => ligarNotificacoes(ev.currentTarget) }, "Ligar notificações"),
+      el("button", { type: "button", class: "discreto", onclick: () => { lembrar("mw-convite-app", "1"); bloco.hidden = true; } }, "Agora não")));
+  bloco.hidden = false;
+}
+
+async function carregarNotificacoes() {
+  if (!estado.eu) return;
+  try {
+    push.servidor = await api("GET", "/api/notificacoes");
+  } catch { /* sem conexão ou sem permissão: fica como estava */ }
+}
+
+function mesmaChave(inscricao, chave) {
+  const atual = inscricao.options && inscricao.options.applicationServerKey;
+  return !atual || !chave || b64u(new Uint8Array(atual)) === chave;
+}
+
+/* Ao abrir o app, com a conta carregada: a inscrição que este navegador tem ainda vale para esta conta?
+ * Não vale quando o aparelho foi removido em outro lugar, quando a senha foi trocada, quando a chave
+ * do servidor mudou ou quando a inscrição era de outra conta. Nesses casos, desfaz aqui também. */
+async function conferirNotificacoes() {
+  push.inscricao = null;
+  push.id = null;
+  if (!push.suportado || !estado.eu) return;
+  await carregarNotificacoes();
+  const registro = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 5000))]);
+  if (!registro) return;
+  const inscricao = await registro.pushManager.getSubscription().catch(() => null);
+  if (!inscricao) return;
+  const s = push.servidor;
+  if (s && (!s.disponivel || !mesmaChave(inscricao, s.chave))) {
+    await api("POST", "/api/notificacoes/desligar", { endpoint: inscricao.endpoint }).catch(() => {});
+    await inscricao.unsubscribe().catch(() => {});
+    return;
+  }
+  try {
+    const r = await api("POST", "/api/notificacoes/conferir", { ...inscricao.toJSON(), instalado: app.instalado });
+    if (r.ligado) {
+      push.inscricao = inscricao;
+      push.id = r.id;
+    } else {
+      await inscricao.unsubscribe().catch(() => {});
+    }
+  } catch { /* sem conexão agora: confere na próxima vez que o app abrir */ }
+}
+
+/* Chamada direto do toque no botão: o Safari só pede a permissão dentro do gesto, então nada de
+ * esperar outra coisa antes do subscribe(). */
+async function ligarNotificacoes(botao) {
+  const s = push.servidor;
+  if (!push.suportado || !s || !s.disponivel) {
+    avisar("As notificações não estão disponíveis neste aparelho.", true);
+    return;
+  }
+  if (!app.ativo) {
+    avisar("O app ainda está se preparando. Espere alguns segundos e tente de novo.", true);
+    return;
+  }
+  if (botao) botao.disabled = true;
+  try {
+    const inscricao = await app.ativo.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: deB64u(s.chave) });
+    const r = await api("PUT", "/api/notificacoes/inscricao", { ...inscricao.toJSON(), instalado: app.instalado });
+    push.inscricao = inscricao;
+    push.id = r.id;
+    push.servidor = { ...s, aparelhos: r.aparelhos };
+    avisar("Notificações ligadas neste aparelho.");
+  } catch (e) {
+    if (e instanceof ErroApi) avisar(e.message, true);
+    else if (Notification.permission === "denied") avisar("As notificações ficaram bloqueadas. Dá para liberar nas permissões do site.", true);
+    else if (e && e.name === "InvalidStateError") {
+      // Inscrição antiga, feita com outra chave do servidor: desfaz para a próxima tentativa dar certo.
+      const velha = await app.ativo.pushManager.getSubscription().catch(() => null);
+      if (velha) await velha.unsubscribe().catch(() => {});
+      avisar("Era preciso refazer a inscrição deste aparelho. Toque de novo em Ligar notificações.", true);
+    } else avisar("Não deu para ligar as notificações agora. Tente de novo em instantes.", true);
+  } finally {
+    if (botao) botao.disabled = false;
+    redesenharNotificacoes();
+  }
+}
+
+async function desligarNotificacoes(botao) {
+  const inscricao = push.inscricao;
+  if (!inscricao) return;
+  if (botao) botao.disabled = true;
+  try {
+    const r = await api("POST", "/api/notificacoes/desligar", { endpoint: inscricao.endpoint });
+    if (push.servidor) push.servidor = { ...push.servidor, aparelhos: r.aparelhos };
+    await inscricao.unsubscribe().catch(() => {});
+    push.inscricao = null;
+    push.id = null;
+    avisar("Notificações desligadas neste aparelho.");
+  } catch (e) {
+    avisar(e.message, true);
+  } finally {
+    if (botao) botao.disabled = false;
+    redesenharNotificacoes();
+  }
+}
+
+async function testarNotificacao(botao) {
+  if (!push.inscricao) return;
+  botao.disabled = true;
+  try {
+    await api("POST", "/api/notificacoes/teste", { endpoint: push.inscricao.endpoint });
+    avisar("Teste enviado. A notificação chega em alguns segundos.");
+  } catch (e) {
+    avisar(e.message, true);
+  } finally {
+    botao.disabled = false;
+  }
+}
+
+async function removerAparelho(a) {
+  const ok = await confirmar({ titulo: "Desligar as notificações nesse aparelho?", semSenha: true, botao: "Desligar",
+    texto: `${a.aparelho || "Esse aparelho"} deixa de receber os avisos do MeterWatt. Para voltar, é só ligar de novo por lá.` });
+  if (!ok) return;
+  try {
+    const r = await api("DELETE", `/api/notificacoes/aparelhos/${a.id}`);
+    push.servidor = { ...push.servidor, aparelhos: r.aparelhos };
+    avisar("Pronto: esse aparelho não recebe mais notificações.");
+  } catch (e) {
+    avisar(e.message, true);
+  }
+  desenharNotificacoes();
+}
+
+/* Sair da conta neste aparelho desliga as notificações dela aqui (o servidor também apaga, por garantia). */
+async function desligarNotificacoesAoSair() {
+  const inscricao = push.inscricao;
+  push.inscricao = null;
+  push.id = null;
+  push.servidor = null;
+  if (!inscricao) return;
+  await api("POST", "/api/notificacoes/desligar", { endpoint: inscricao.endpoint }).catch(() => {});
+  await inscricao.unsubscribe().catch(() => {});
+}
+
+/* ------------------------------------------------------------------ sem conexão */
+
+async function entrarNoApp() {
+  estado.semConexao = false;
+  try {
+    estado.info = await api("GET", "/api/publico/info");
+    $("#aviso-teste").hidden = !estado.info.email_de_teste;
+    $("#link-plano").hidden = !estado.info.plano.disponivel;
+  } catch { /* segue sem as informações públicas */ }
+  try {
+    await carregarEu();
+  } catch (e) {
+    estado.eu = null;
+    if (e.status === 0) estado.semConexao = true;          // não deu nem para saber se a conta está aberta
+    else if (e.codigo === "etapa_aguardando_2fa" && !location.hash) location.hash = "2fa";
+  }
+  await mostrar();
+  if (estado.eu) conferirNotificacoes().then(redesenharNotificacoes).catch(() => {});
+}
+
+let reconectando = false;
+async function reconectar() {
+  if (reconectando) return;
+  reconectando = true;
+  const botao = $("#botao-reconectar");
+  botao.disabled = true;
+  botao.textContent = "Tentando…";
+  try {
+    await entrarNoApp();
+  } finally {
+    reconectando = false;
+    botao.disabled = false;
+    botao.textContent = "Tentar de novo";
+  }
+}
+
 /* ------------------------------------------------------------------ conta (no celular) */
 
 function telaConta() {
   const eu = estado.eu;
   $("#conta-quem").textContent = `Você entrou como ${eu.nome} (${eu.email}).`;
-  $("#conta-avisos").textContent = eu.avisos_nao_lidos ? `${eu.avisos_nao_lidos} não lido(s)` : "nenhum novo";
+  $("#conta-instalar").hidden = !podeInstalar();
+  const naoLidos = eu.avisos_nao_lidos ? `${eu.avisos_nao_lidos} não lido(s)` : "nenhum novo";
+  $("#conta-avisos").textContent = push.suportado && push.servidor && push.servidor.disponivel
+    ? `${naoLidos}, notificações ${push.inscricao ? "ligadas" : "desligadas"}` : naoLidos;
   const cobranca = estado.info && estado.info.plano;
   $("#conta-plano-atual").textContent = cobranca && !cobranca.disponivel ? "sem cobrança por enquanto" : eu.plano === "casa" ? "plano Casa" : "plano grátis";
 }
@@ -2140,18 +2506,9 @@ async function iniciar() {
   $("#botao-parear").addEventListener("click", abrirPareamento);
   $$('[data-acao="sair"]').forEach((b) => b.addEventListener("click", sair));
   addEventListener("hashchange", mostrar);
-  try {
-    estado.info = await api("GET", "/api/publico/info");
-    $("#aviso-teste").hidden = !estado.info.email_de_teste;
-    $("#link-plano").hidden = !estado.info.plano.disponivel;
-  } catch { /* segue sem as informações públicas */ }
-  try {
-    await carregarEu();
-  } catch (e) {
-    estado.eu = null;
-    if (e.codigo === "etapa_aguardando_2fa" && !location.hash) location.hash = "2fa";
-  }
-  await mostrar();
+  ligarAppInstalado();
+  registrarServiceWorker();
+  await entrarNoApp();
 }
 
 document.addEventListener("DOMContentLoaded", iniciar);

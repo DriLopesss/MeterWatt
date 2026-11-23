@@ -414,11 +414,15 @@ input[type=range]:disabled{opacity:.4;cursor:not-allowed}
 
 /* ---------- conta (aba do celular) ---------- */
 .lista-conta{display:grid;background:var(--painel);border:1px solid var(--linha);border-radius:var(--raio);overflow:hidden}
-.lista-conta a{display:flex;align-items:center;gap:12px;min-height:58px;padding:12px 18px;color:var(--tinta);text-decoration:none;font-weight:600;border-top:1px solid var(--linha)}
-.lista-conta a:first-child{border-top:0}
-.lista-conta a::after{content:"";width:8px;height:8px;flex:none;border-right:2px solid var(--apagado);border-bottom:2px solid var(--apagado);transform:rotate(-45deg)}
-.lista-conta a:hover{background:rgba(255,255,255,.04)}
-.lista-conta a>span:first-child{margin-right:auto}
+.lista-conta>a,.lista-conta>button{display:flex;align-items:center;gap:12px;min-height:58px;padding:12px 18px;color:var(--tinta);text-decoration:none;
+  font:600 1rem var(--f-texto);border:0;border-top:1px solid var(--linha);border-radius:0;background:none;text-align:left;width:100%}
+.lista-conta>:first-child,.lista-conta>[hidden]+*{border-top:0}
+.lista-conta>a::after,.lista-conta>button::after{content:"";width:8px;height:8px;flex:none;border-right:2px solid var(--apagado);
+  border-bottom:2px solid var(--apagado);transform:rotate(-45deg)}
+.lista-conta>button{color:var(--ambar)}
+.lista-conta>a:hover,.lista-conta>button:hover{background:rgba(255,255,255,.04)}
+.lista-conta>button:active{transform:none}
+.lista-conta>a>span:first-child,.lista-conta>button>span:first-child{margin-right:auto}
 .lista-conta-extra{color:var(--apagado);font-weight:400;font-size:.86rem;text-align:right;max-width:60%}
 
 /* ---------- página inicial ---------- */
@@ -500,6 +504,29 @@ input[type=range]:disabled{opacity:.4;cursor:not-allowed}
   box-shadow:0 20px 50px -10px rgba(0,0,0,.7);animation:abre .25s}
 .aviso-flutuante.ruim{border-color:rgba(255,107,132,.5)}
 
+/* ---------- app instalado e notificações ---------- */
+.bloco.bloco-app{grid-column:span 12;display:flex;align-items:center;justify-content:space-between;gap:14px 22px;flex-wrap:wrap;
+  background:radial-gradient(420px 220px at 0% 0%,rgba(255,176,32,.16),transparent 70%),var(--painel);border-color:rgba(255,176,32,.3)}
+.bloco-app .eco-painel-texto h2{color:var(--ambar)}
+.bloco-app .botoes{align-items:center}
+.notificacoes-aqui{display:grid;gap:12px}
+.notificacoes-aqui p{color:var(--suave);max-width:64ch}
+.notificacoes-aqui .estado-aparelho{display:flex;align-items:center;gap:10px;color:var(--tinta);font-weight:600}
+.estado-aparelho::before{content:"";width:10px;height:10px;flex:none;border-radius:50%;background:var(--apagado)}
+.estado-aparelho[data-ligado]::before{background:var(--verde);box-shadow:0 0 0 4px rgba(70,240,160,.16)}
+#notificacoes-aparelhos{border-top:1px solid var(--linha)}
+.lista-canais li{grid-template-columns:minmax(0,1fr) auto;align-items:start}
+.canais{display:flex;gap:14px}
+.canal{display:grid;justify-items:center;gap:6px;font-size:.76rem;color:var(--apagado);min-width:64px}
+.canal .chave{align-self:center}
+.aviso-versao{display:flex;align-items:center;gap:14px;bottom:auto;top:calc(78px + env(safe-area-inset-top));z-index:85;border-color:rgba(255,176,32,.45)}
+.faixa-offline{background:rgba(255,107,132,.14);color:#ffc2cd}
+a,button,summary{-webkit-tap-highlight-color:transparent}
+@media (display-mode:standalone){
+  /* No app instalado, segurar o dedo nas abas não seleciona texto nem abre o menu de link. */
+  .abas,.topo .logo,.sino{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+}
+
 /* ---------- tela de erro ---------- */
 .tela-erro{position:relative;z-index:1;min-height:100vh;display:grid;place-content:center;justify-items:center;gap:18px;text-align:center;padding:24px}
 .tela-erro p{color:var(--suave);max-width:44ch}
@@ -547,6 +574,7 @@ body[data-tela="carregando"]::after{content:"";position:fixed;left:50%;top:50%;w
   .conta{margin-left:auto}
   .conta-nome{display:none}
   .aviso-flutuante{bottom:calc(84px + env(safe-area-inset-bottom))}
+  .aviso-flutuante.aviso-versao{bottom:auto}
   /* E se eu…?: o placar fica preso no alto enquanto a pessoa mexe nos controles */
   .eco-grade{grid-template-columns:minmax(0,1fr);gap:16px}
   .eco-lado{display:contents}
@@ -570,6 +598,10 @@ body[data-tela="carregando"]::after{content:"";position:fixed;left:50%;top:50%;w
   .marca-nota{display:none}
   .planos{grid-template-columns:1fr}
   .lista-avisos li{grid-template-columns:1fr}
+  .lista-canais li{grid-template-columns:1fr}
+  .canais{justify-content:flex-start}
+  .canal{grid-template-columns:auto auto;align-items:center;justify-items:start;gap:8px;font-size:.84rem}
+  .canal .chave{order:-1}
   .calc-item{grid-template-columns:1fr auto;row-gap:6px}
   .calc-nome{grid-column:1 / -1}
   .aparelho .medidas{grid-template-columns:repeat(2,minmax(0,1fr))}

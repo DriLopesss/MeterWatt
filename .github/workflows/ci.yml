@@ -1,5 +1,5 @@
 # Roda a cada pull request e a cada mudança no main:
-#  - testes do backend, do aplicativo com contas e das ferramentas (Python)
+#  - testes do backend, do aplicativo com contas, das notificações e das ferramentas (Python)
 #  - contas do simulador de economia e sintaxe do aplicativo (JavaScript)
 #  - teste do protocolo do PZEM (C++ no computador)
 #  - compilação dos dois firmwares para o ESP32, como a Arduino IDE faria
@@ -25,7 +25,8 @@ jobs:
           python-version: "3.12"
       # Para testar a senha própria por medidor contra um broker de verdade
       - run: sudo apt-get update -q && sudo apt-get install -y -q mosquitto && sudo systemctl stop mosquitto
-      - run: pip install -r src/requirements.txt pytest
+      # Pillow só nos testes: confere o tamanho dos ícones e das telas do app instalável
+      - run: pip install -r src/requirements.txt pytest pillow
       - run: python -m pytest tests -q
         timeout-minutes: 10
 
@@ -42,6 +43,7 @@ jobs:
       - run: |
           node --check src/meterwatt/estatico/app.js
           node --check src/meterwatt/estatico/economia-calculo.js
+          node --check src/meterwatt/estatico/sw.js
           node --check tools/demo/servidor_de_mentira.js
       - name: Demonstração em um arquivo só
         run: python3 tools/gerar_demo.py --saida "$RUNNER_TEMP/demonstracao.html"

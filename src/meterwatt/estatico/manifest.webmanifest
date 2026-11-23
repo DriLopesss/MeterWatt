@@ -1,0 +1,66 @@
+{
+  "id": "/",
+  "name": "MeterWatt",
+  "short_name": "MeterWatt",
+  "description": "O consumo de energia da sua casa no celular, segundo a segundo: o gasto de agora, a previsão da conta e o que fica ligado sem ninguém usar.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "/#painel",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0a12",
+  "theme_color": "#0b0a12",
+  "categories": ["utilities", "lifestyle"],
+  "launch_handler": { "client_mode": ["navigate-existing", "auto"] },
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/estatico/app/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/estatico/app/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/estatico/app/icone-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/estatico/app/icone-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/estatico/app/selo-notificacao-96.png", "sizes": "96x96", "type": "image/png", "purpose": "monochrome" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Consumo da casa agora",
+      "short_name": "Agora",
+      "url": "/#painel",
+      "icons": [{ "src": "/estatico/app/atalho-agora-96.png", "sizes": "96x96", "type": "image/png" }]
+    },
+    {
+      "name": "E se eu…? Simular a economia",
+      "short_name": "E se eu…?",
+      "url": "/#economia",
+      "icons": [{ "src": "/estatico/app/atalho-economia-96.png", "sizes": "96x96", "type": "image/png" }]
+    },
+    {
+      "name": "Avisos",
+      "short_name": "Avisos",
+      "url": "/#avisos",
+      "icons": [{ "src": "/estatico/app/atalho-avisos-96.png", "sizes": "96x96", "type": "image/png" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/estatico/app/tela-painel.webp",
+      "sizes": "780x1688",
+      "type": "image/webp",
+      "form_factor": "narrow",
+      "label": "O consumo da casa agora, quanto já foi hoje e a previsão da conta do mês"
+    },
+    {
+      "src": "/estatico/app/tela-economia.webp",
+      "sizes": "780x1688",
+      "type": "image/webp",
+      "form_factor": "narrow",
+      "label": "E se eu…?: quanto cada ajuste na rotina economiza por mês"
+    },
+    {
+      "src": "/estatico/app/tela-computador.webp",
+      "sizes": "1280x800",
+      "type": "image/webp",
+      "form_factor": "wide",
+      "label": "O painel no computador"
+    }
+  ]
+}
