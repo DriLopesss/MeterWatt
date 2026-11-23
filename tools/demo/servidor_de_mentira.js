@@ -66,6 +66,7 @@
     medidores: [{ id: "mw-DEMO0001", apelido: "Casa", pareado: MEDIDOR_DESDE }],
     aceites: { termos: true, privacidade: true, consumo: true, historico_longo: false, aparelhos: true, novidades: false },
     porEmail: { medidor_offline: true, meta: true, consumo_incomum: true, resumo_semanal: true },
+    porPush: { medidor_offline: true, meta: true, consumo_incomum: true, resumo_semanal: true },
     pareando: null, ocultos: new Set(),
     atividade: [["Entrada na conta", 0.02], ["Tarifa ou meta alteradas", 2.1],
       ["Plano de economia alterado", 7, "Cortar o consumo em espera: no plano"], ["Plano de economia alterado", 7.001, "Banho mais curto: no plano"],
@@ -172,7 +173,7 @@
       { id: 1, tipo: "medidor_offline", quando: iso(t - 4.2 * DIA), titulo: "Casa está sem sinal",
         texto: "O medidor Casa não envia leituras há mais de 30 minutos. Confira se ele está ligado e se o Wi-Fi da casa está funcionando. Enquanto isso, o consumo não está sendo registrado." },
     ].map((a) => ({ ...a, lido: E.avisosLidos }));
-    return { avisos: lista, config: Object.entries(TIPOS_DE_AVISO).map(([tipo, [nome, descricao]]) => ({ tipo, nome, descricao, por_email: E.porEmail[tipo] })) };
+    return { avisos: lista, config: Object.entries(TIPOS_DE_AVISO).map(([tipo, [nome, descricao]]) => ({ tipo, nome, descricao, por_email: E.porEmail[tipo], por_push: E.porPush[tipo] })) };
   }
   const PALPITES = { 1: "chuveiro elétrico ou torneira elétrica", 2: "micro-ondas, air fryer ou ferro de passar", 3: "geladeira, freezer ou ventilador forte", 4: "geladeira, freezer ou ventilador forte" };
   function aparelhos() {
@@ -295,7 +296,7 @@
   function privacidade() {
     const desde = iso(MEDIDOR_DESDE);
     return { finalidades: Object.entries(FINALIDADES).map(([id, [nome, descricao, obrigatorio, revogavel]]) => ({ id, nome, descricao, obrigatorio, revogavel,
-      aceito: E.aceites[id], versao_aceita: "2026-11-17", versao_vigente: "2026-11-17", desde })), historico: [], retencao: RETENCAO,
+      aceito: E.aceites[id], versao_aceita: "2026-11-23", versao_vigente: "2026-11-23", desde })), historico: [], retencao: RETENCAO,
       controlador: null, email_privacidade: null, encarregado: null };
   }
   function eu() {
@@ -310,7 +311,7 @@
     const partes = rota.split("/").filter(Boolean).slice(1);          // sem o "api"
     const chave = `${metodo} /${partes.join("/")}`;
     if (chave === "GET /publico/info") {
-      return [200, { versao: "demonstração", modo: "demonstracao", exigir_2fa: false, termos_versao: "2026-11-16", privacidade_versao: "2026-11-17",
+      return [200, { versao: "demonstração", modo: "demonstracao", exigir_2fa: false, termos_versao: "2026-11-16", privacidade_versao: "2026-11-23",
         finalidades: {}, retencao: RETENCAO, contato: { controlador: null, email_privacidade: null, encarregado: null }, email_de_teste: false,
         plano: { disponivel: true, preco_mensal: 14.9, limite_gratis: 1, limite_pago: 5 }, na_lista_de_espera: 0 }];
     }
@@ -346,7 +347,13 @@
 
     if (chave === "GET /avisos") return [200, avisos()];
     if (chave === "POST /avisos/lidos") { E.avisosLidos = true; return [200, { ok: true }]; }
-    if (partes[0] === "avisos" && partes[1] === "config") { E.porEmail[partes[2]] = corpo.por_email === true; return [200, avisos()]; }
+    if (partes[0] === "avisos" && partes[1] === "config") {
+      if ("por_email" in corpo) E.porEmail[partes[2]] = corpo.por_email === true;
+      if ("por_push" in corpo) E.porPush[partes[2]] = corpo.por_push === true;
+      return [200, avisos()];
+    }
+    // Na demonstração nada sai do navegador: as notificações ficam desligadas.
+    if (chave === "GET /notificacoes") return [200, { disponivel: false, chave: null, aparelhos: [], demonstracao: true }];
 
     if (chave === "GET /aparelhos") return [200, aparelhos()];
     if (partes[0] === "aparelhos" && metodo === "PATCH") {

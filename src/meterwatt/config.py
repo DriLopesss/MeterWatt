@@ -4,12 +4,15 @@ Em produção (MW_MODO=producao) o servidor se recusa a iniciar sem chave de cif
 endereço público HTTPS, cookies seguros e envio de e-mail por SMTP. É melhor não subir
 do que subir inseguro.
 """
+import base64
 import os
+import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.asymmetric import ec
 
 
 class ConfiguracaoInvalida(Exception):
@@ -77,6 +80,12 @@ class Config:
     # cópias de segurança
     backup_automatico: bool = False
     backup_manter: int = 14
+    # notificações no celular (Web Push): chave do servidor (VAPID) e contato que vai junto de cada envio
+    vapid_chave_privada: str | None = None
+    vapid_contato: str = "mailto:nao-responda@localhost"
+    # app na Play Store (Trusted Web Activity): pacote e impressões SHA-256 da chave que assina o app
+    android_pacote: str | None = None
+    android_sha256: tuple = ()
 
     @property
     def producao(self):
@@ -97,17 +106,43 @@ def gerar_chave():
     return Fernet.generate_key().decode()
 
 
-def _chave_de_desenvolvimento(pasta):
+def gerar_chave_vapid():
+    """Chave nova para MW_VAPID_CHAVE_PRIVADA: o número secreto de uma chave P-256, em base64url."""
+    privada = ec.generate_private_key(ec.SECP256R1())
+    return base64.urlsafe_b64encode(privada.private_numbers().private_value.to_bytes(32, "big")).decode().rstrip("=")
+
+
+def _chave_local(pasta, nome, gerar):
     """Só em desenvolvimento: cria e reaproveita uma chave local, legível só pelo dono."""
-    caminho = os.path.join(pasta, "chave-desenvolvimento.key")
+    caminho = os.path.join(pasta, nome)
     if os.path.exists(caminho):
         with open(caminho, "rb") as f:
             return f.read().strip()
-    chave = Fernet.generate_key()
+    chave = gerar()
     descritor = os.open(caminho, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descritor, "wb") as f:
         f.write(chave)
     return chave
+
+
+def _chave_de_desenvolvimento(pasta):
+    return _chave_local(pasta, "chave-desenvolvimento.key", Fernet.generate_key)
+
+
+def _vapid_valida(texto):
+    try:
+        bruta = base64.urlsafe_b64decode(texto + "=" * (-len(texto) % 4))
+        valor = int.from_bytes(bruta, "big")
+        if len(bruta) != 32:
+            return False
+        ec.derive_private_key(valor, ec.SECP256R1())
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+PACOTE_ANDROID = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
+IMPRESSAO_SHA256 = re.compile(r"^([0-9A-F]{2}:){31}[0-9A-F]{2}$")
 
 
 def carregar(env=None):
@@ -176,6 +211,32 @@ def carregar(env=None):
     if tarifa is not None and not 0 < tarifa <= 10:
         raise ConfiguracaoInvalida("MW_TARIFA_PADRAO precisa estar entre 0 e 10 reais por kWh.")
 
+    # Notificações: em produção, só com chave definida (sem ela, o resto funciona e as notificações ficam
+    # desligadas). Em desenvolvimento, uma chave local é criada sozinha, como a de cifra.
+    vapid = env.get("MW_VAPID_CHAVE_PRIVADA", "").strip()
+    if vapid and not _vapid_valida(vapid):
+        raise ConfiguracaoInvalida("MW_VAPID_CHAVE_PRIVADA inválida. Gere uma com: python -m meterwatt --gerar-vapid")
+    if not vapid and not producao:
+        vapid = _chave_local(pasta, "vapid-desenvolvimento.key", lambda: gerar_chave_vapid().encode()).decode()
+    contato = env.get("MW_VAPID_CONTATO", "").strip()
+    if contato and not contato.startswith(("mailto:", "https://")):
+        raise ConfiguracaoInvalida("MW_VAPID_CONTATO precisa começar com mailto: ou https:// (é o contato que os "
+                                   "serviços de notificação usam se houver problema com os envios).")
+    if not contato:
+        email_privacidade = (env.get("MW_EMAIL_PRIVACIDADE") or "").strip()
+        contato = (f"mailto:{email_privacidade}" if email_privacidade
+                   else url if url.startswith("https://") else "mailto:nao-responda@localhost")
+
+    pacote = (env.get("MW_ANDROID_PACOTE") or "").strip() or None
+    impressoes = tuple(i.strip().upper() for i in (env.get("MW_ANDROID_SHA256") or "").split(",") if i.strip())
+    if bool(pacote) != bool(impressoes):
+        raise ConfiguracaoInvalida("Defina MW_ANDROID_PACOTE e MW_ANDROID_SHA256 juntos (ou nenhum dos dois).")
+    if pacote and not PACOTE_ANDROID.match(pacote):
+        raise ConfiguracaoInvalida("MW_ANDROID_PACOTE precisa ser um nome de pacote Android, como br.com.meterwatt.app")
+    if any(not IMPRESSAO_SHA256.match(i) for i in impressoes):
+        raise ConfiguracaoInvalida("MW_ANDROID_SHA256 precisa ter impressões SHA-256 no formato AA:BB:...:FF "
+                                   "(32 pares), separadas por vírgula.")
+
     return Config(
         modo=modo,
         pasta_instancia=pasta,
@@ -221,4 +282,8 @@ def carregar(env=None):
         mqtt_provisao_senha=env.get("MW_MQTT_PROVISAO_SENHA") or None,
         backup_automatico=_bool(env.get("MW_BACKUP_AUTOMATICO"), producao),
         backup_manter=max(1, int(env.get("MW_BACKUP_MANTER", "14"))),
+        vapid_chave_privada=vapid or None,
+        vapid_contato=contato,
+        android_pacote=pacote,
+        android_sha256=impressoes,
     )

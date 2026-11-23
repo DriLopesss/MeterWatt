@@ -1,6 +1,7 @@
 """Avisos: o MeterWatt conta quando algo merece atenção, sem a pessoa precisar abrir o painel.
 
-Cada aviso aparece dentro do aplicativo e, se a pessoa quiser, também vai por e-mail.
+Cada aviso aparece dentro do aplicativo e, se a pessoa quiser, também vai por e-mail e como
+notificação nos aparelhos em que ela ligou as notificações (notificacoes.py).
 A "chave" de cada aviso impede repetição: um medidor que caiu avisa uma vez por queda,
 a meta avisa uma vez por mês em cada nível, o consumo fora do normal uma vez por dia.
 
@@ -56,9 +57,14 @@ class Alertas:
 
     # ------------------------------------------------------------ criar e entregar
 
+    def _canais(self, conn, uid, tipo):
+        """Por onde o aviso sai além do app. Sem escolha gravada, sai por e-mail e por notificação."""
+        linha = conn.execute("SELECT por_email, por_push FROM avisos_config WHERE usuario_id = ? AND tipo = ?", (uid, tipo)).fetchone()
+        return {"por_email": True, "por_push": True} if linha is None else {"por_email": bool(linha["por_email"]),
+                                                                              "por_push": bool(linha["por_push"])}
+
     def _por_email(self, conn, uid, tipo):
-        linha = conn.execute("SELECT por_email FROM avisos_config WHERE usuario_id = ? AND tipo = ?", (uid, tipo)).fetchone()
-        return True if linha is None else bool(linha["por_email"])
+        return self._canais(conn, uid, tipo)["por_email"]
 
     def criar(self, uid, tipo, chave, titulo, texto):
         """Grava o aviso (uma vez por chave) e entrega. Devolve True se era novo."""
@@ -68,11 +74,19 @@ class Alertas:
                 "INSERT OR IGNORE INTO avisos (usuario_id, tipo, chave, criado_em, titulo, texto) VALUES (?, ?, ?, ?, ?, ?)",
                 (uid, tipo, chave, self.p.agora(), titulo, texto)).rowcount == 1
         if novo:
-            self._entregar(conn, uid, tipo, titulo, texto)
+            # Na bandeja do celular, o aviso novo substitui o anterior do mesmo assunto (o mesmo medidor, a meta…).
+            tag = f"offline-{chave.split(':')[1]}" if tipo == "medidor_offline" else tipo
+            self._entregar(conn, uid, tipo, titulo, texto, tag)
         return novo
 
-    def _entregar(self, conn, uid, tipo, titulo, texto):
-        if not self._por_email(conn, uid, tipo):
+    def _entregar(self, conn, uid, tipo, titulo, texto, tag=None):
+        canais = self._canais(conn, uid, tipo)
+        if canais["por_push"]:
+            try:
+                self.p.notificacoes.entregar(uid, tipo, titulo, texto, tag)
+            except Exception:   # notificação que falha não impede o e-mail
+                log.exception("Falha ao mandar a notificação do aviso %s", tipo)
+        if not canais["por_email"]:
             return
         u = conn.execute("SELECT nome, email FROM usuarios WHERE id = ?", (uid,)).fetchone()
         self.p.enviar_email(u["email"], f"MeterWatt: {titulo}", (
@@ -230,8 +244,8 @@ class Alertas:
         return {
             "avisos": [{"id": l["id"], "tipo": l["tipo"], "quando": self.p.iso(l["criado_em"]), "titulo": l["titulo"],
                         "texto": l["texto"], "lido": l["lido_em"] is not None} for l in linhas],
-            "config": [{"tipo": t, "nome": i["nome"], "descricao": i["descricao"],
-                        "por_email": self._por_email(conn, sessao["usuario_id"], t)} for t, i in TIPOS.items()],
+            "config": [{"tipo": t, "nome": i["nome"], "descricao": i["descricao"], **self._canais(conn, sessao["usuario_id"], t)}
+                       for t, i in TIPOS.items()],
         }
 
     def nao_lidos(self, conn, uid):
@@ -242,11 +256,15 @@ class Alertas:
         with conn:
             conn.execute("UPDATE avisos SET lido_em = ? WHERE usuario_id = ? AND lido_em IS NULL", (self.p.agora(), sessao["usuario_id"]))
 
-    def configurar(self, sessao, tipo, por_email):
-        if tipo not in TIPOS or not isinstance(por_email, bool):
+    def configurar(self, sessao, tipo, dados):
+        """Liga ou desliga o e-mail e a notificação de um tipo de aviso. Só muda o canal que vier no pedido."""
+        escolhas = {k: dados.get(k) for k in ("por_email", "por_push") if k in dados}
+        if tipo not in TIPOS or not escolhas or not all(isinstance(v, bool) for v in escolhas.values()):
             raise ErroDeNegocio("Aviso desconhecido.", 400)
         conn = self.p.db()
+        uid = sessao["usuario_id"]
         with conn:
-            conn.execute("INSERT INTO avisos_config (usuario_id, tipo, por_email) VALUES (?, ?, ?) "
-                         "ON CONFLICT (usuario_id, tipo) DO UPDATE SET por_email = excluded.por_email",
-                         (sessao["usuario_id"], tipo, 1 if por_email else 0))
+            canais = {**self._canais(conn, uid, tipo), **escolhas}
+            conn.execute("INSERT INTO avisos_config (usuario_id, tipo, por_email, por_push) VALUES (?, ?, ?, ?) "
+                         "ON CONFLICT (usuario_id, tipo) DO UPDATE SET por_email = excluded.por_email, por_push = excluded.por_push",
+                         (uid, tipo, int(canais["por_email"]), int(canais["por_push"])))

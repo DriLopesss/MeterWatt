@@ -54,6 +54,15 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - **Simulador**: as contas de quem só mexe nos controles rodam no navegador e não vão para o servidor. Só vai o que a pessoa põe no plano.
 - O resumo semanal por e-mail passa a dizer quanto a casa economizou desde o início do plano (mesma chave de e-mail do resumo).
 
+## O que entrou no bloco 6 (app no celular)
+- **App instalável**: o que fica gravado no aparelho é só a casca do app (página, estilo, código, fontes, ícones). Nada de `/api/` é guardado: o consumo, os avisos e os dados da conta não ficam no celular. A única coisa que o app guarda no navegador é a escolha "Agora não" do convite de instalação.
+- **Notificações**: só nos aparelhos em que a pessoa liga (o navegador também pede permissão). Guardamos o endereço que o navegador cria para receber notificações e as duas chaves que cifram cada mensagem, **cifrados** no banco, mais o tipo de aparelho e as datas. Base: parte do serviço que a pessoa pediu ao ligar. Saem quando a pessoa desliga, tira o aparelho da lista, sai da conta naquele aparelho, troca ou redefine a senha, ativa a verificação em duas etapas, encerra as outras sessões, exclui a conta, ou quando o serviço do navegador diz que a inscrição venceu. A sessão vencer por falta de uso **não** desliga (os avisos servem justamente para quando o app está fechado).
+- **Transferência internacional**: cada notificação passa pelo serviço do navegador (Google, Apple, Mozilla ou Microsoft), fora do Brasil. A mensagem vai cifrada de ponta a ponta (RFC 8291): o serviço não lê o conteúdo, mas sabe que um aparelho recebeu uma notificação e quando. O tamanho cifrado sobe de 256 em 256 bytes, para o tamanho não entregar qual aviso foi. Está na política de privacidade. [ADVOGADO: enquadrar no art. 33.]
+- **Na tela de bloqueio**: o texto do aviso (com kWh e reais) aparece como a pessoa configurou o celular. Cada tipo de aviso tem a sua chave de notificação, separada da de e-mail.
+- **Cópia dos dados**: `aparelhos_com_notificacoes` traz o aparelho e as datas. Endereço e chaves ficam de fora: são segredos que só servem para entregar mensagens naquele aparelho.
+- **Atividade da conta**: "Notificações ligadas num aparelho" e "Notificações desligadas num aparelho".
+- A política de privacidade passou para a versão 2026-11-23 (item novo "Notificações" e o trecho sobre os serviços dos navegadores).
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).

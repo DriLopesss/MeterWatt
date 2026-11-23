@@ -7,7 +7,7 @@ from .erros import ErroDeNegocio
 from .seguranca import confere_senha, confere_totp, normalizar_codigo_backup
 
 VERSAO_TERMOS = "2026-11-16"
-VERSAO_PRIVACIDADE = "2026-11-17"
+VERSAO_PRIVACIDADE = "2026-11-23"
 
 FINALIDADES = {
     "termos": {
@@ -77,6 +77,8 @@ EVENTOS = {
     "assinatura_cancelada": "Assinatura cancelada",
     "backup": "Cópia de segurança",
     "plano_economia": "Plano de economia alterado",
+    "notificacoes_ligadas": "Notificações ligadas num aparelho",
+    "notificacoes_desligadas": "Notificações desligadas num aparelho",
 }
 
 
@@ -175,6 +177,9 @@ class Privacidade:
             "aparelhos_detectados": self.p.detetive.exportar(conn, uid),
             "assinaturas": self.p.pagamentos.exportar(conn, uid),
             "plano_de_economia": self.p.economia.exportar(conn, uid),
+            # Só o aparelho e as datas: o endereço e as chaves de notificação são segredos que só servem para
+            # entregar mensagens naquele aparelho e não contam nada sobre você.
+            "aparelhos_com_notificacoes": self.p.notificacoes.exportar(conn, uid),
         }
         for m in medidores:
             agregados = conn.execute(

@@ -47,6 +47,7 @@ class Plataforma:
         from .economia import Economia
         from .espera import ListaDeEspera
         from .medidores import Medidores
+        from .notificacoes import Notificacoes
         from .pagamentos import Pagamentos
         from .privacidade import Privacidade
         self.contas = Contas(self)
@@ -57,6 +58,7 @@ class Plataforma:
         self.pagamentos = Pagamentos(self, provedor_de_pagamento)
         self.espera = ListaDeEspera(self)
         self.economia = Economia(self)
+        self.notificacoes = Notificacoes(self)
 
     # ------------------------------------------------------------ tempo
 

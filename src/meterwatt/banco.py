@@ -255,6 +255,27 @@ MIGRACOES = [
     """
     ALTER TABLE economia_plano ADD COLUMN linha_de_base TEXT;
     """,
+    # 9: notificações no celular e no computador (Web Push). O endereço e as chaves de cada aparelho
+    # ficam cifrados; o hmac do endereço evita repetir o mesmo aparelho. A inscrição sobrevive ao fim da
+    # sessão (senão a pessoa pararia de receber avisos um dia depois de fechar o app), mas sai junto
+    # quando a pessoa sai da conta naquele aparelho, troca a senha ou encerra as outras sessões.
+    """
+    CREATE TABLE push_inscricoes (
+        id INTEGER PRIMARY KEY,
+        usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        sessao_id INTEGER REFERENCES sessoes(id) ON DELETE SET NULL,
+        endpoint_hmac TEXT NOT NULL UNIQUE,
+        dados_cifrados BLOB NOT NULL,
+        navegador TEXT,
+        criada_em REAL NOT NULL,
+        atualizada_em REAL NOT NULL,
+        ultimo_envio REAL,
+        falhas INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX push_inscricoes_usuario ON push_inscricoes(usuario_id);
+    CREATE INDEX push_inscricoes_sessao ON push_inscricoes(sessao_id);
+    ALTER TABLE avisos_config ADD COLUMN por_push INTEGER NOT NULL DEFAULT 1 CHECK (por_push IN (0, 1));
+    """,
 ]
 
 

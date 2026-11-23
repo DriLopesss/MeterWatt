@@ -20,7 +20,7 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 - Token aleatório de 256 bits num cookie `HttpOnly`, `SameSite=Strict`, `Secure` e com prefixo `__Host-` em produção. No banco fica só o SHA-256 do token.
 - Token novo ao concluir a entrada (contra fixação de sessão). Expira com 24 h sem uso e, no máximo, em 14 dias.
 - A pessoa vê onde a conta está aberta (tipo de navegador e rede /24) e encerra qualquer sessão.
-- Trocar senha ou ativar 2FA encerra as outras sessões e avisa por e-mail.
+- Trocar senha ou ativar 2FA encerra as outras sessões (e as notificações nos outros aparelhos) e avisa por e-mail.
 
 ## Pedidos
 - **CSRF**: token por sessão, obrigatório no cabeçalho `X-CSRF-Token` em tudo que altera dados; comparação em tempo constante.
@@ -39,6 +39,15 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 - **Conexão criptografada**: firmware 3.3 usa TLS na porta 8883 e confere o certificado do servidor (raiz da Let's Encrypt em `ca_raiz.h`). Não testado em placa.
 - Limite conhecido: quem extrair a senha de provisão de um medidor consegue derrubar a conexão de outro (conectando com o mesmo id), mas não ler nem enviar consumo.
 - Sem o dynamic-security (rede de casa), vale o esquema antigo: `infra/mosquitto-acl.exemplo`.
+
+## App instalado e notificações
+- O service worker (`/sw.js`) guarda só a casca do app e **nunca** responde `/api/` com algo guardado: os dados da conta sempre vêm do servidor, com a sessão de verdade.
+- Notificações cifradas de ponta a ponta (RFC 8291 com aes128gcm, RFC 8188) e pedidos assinados pelo servidor (VAPID, RFC 8292, chave `MW_VAPID_CHAVE_PRIVADA`). A cifra confere byte a byte com o exemplo da RFC.
+- **SSRF**: o endereço de entrega vem do navegador. Só são aceitos endereços HTTPS, na porta 443 e sem usuário, dos serviços conhecidos (`fcm.googleapis.com`, `updates.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`), e o envio não segue redirecionamentos. Conferido de novo a cada envio.
+- Endereço e chaves de cada aparelho cifrados no banco (Fernet); o hmac do endereço evita duplicar. Inscrição que não abre mais (chave de cifra trocada) é descartada.
+- Inscrição de outra conta: ao entrar num navegador que estava inscrito por outra pessoa, a inscrição antiga sai (os avisos dela não aparecem no aparelho de quem entrou agora).
+- Trocar ou redefinir a senha, ativar o 2FA e encerrar sessões também desligam as notificações nos outros aparelhos.
+- Teste de notificação: 5 a cada 15 minutos por conta.
 
 ## Banco
 - SQLite com WAL, chaves estrangeiras e `secure_delete` (o que é apagado é sobrescrito). Arquivo com permissão 600.
