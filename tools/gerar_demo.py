@@ -4,8 +4,8 @@
     python tools/gerar_demo.py --saida X.html
 
 Junta a página, o estilo, as fontes e o código do aplicativo de verdade (src/meterwatt/estatico)
-com um servidor de mentira (tools/demo/servidor_de_mentira.js) que responde com uma casa
-inventada. Nada sai do navegador. Os números são SIMULADOS.
+com o servidor de mentira da demonstração (estatico/demonstracao.js, o mesmo do botão "Ver o app
+funcionando"), que responde com uma casa inventada. Nada sai do navegador. Os números são SIMULADOS.
 """
 import argparse
 import base64
@@ -14,12 +14,9 @@ import re
 
 RAIZ = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 ESTATICO = os.path.join(RAIZ, "src", "meterwatt", "estatico")
-FALSO = os.path.join(RAIZ, "tools", "demo", "servidor_de_mentira.js")
-
-FAIXA = ('<div class="faixa-demo" role="note">Demonstração com dados simulados: nada aqui é medição real e nada sai do '
-         'seu navegador. Para entrar, qualquer e-mail e senha servem.</div>')
-ESTILO_DA_FAIXA = (".faixa-demo{position:relative;z-index:40;background:#ff4fd8;color:#1a0016;font:600 .86rem/1.4 system-ui,sans-serif;"
-                   "text-align:center;padding:7px 16px}")
+FALSO = os.path.join(ESTATICO, "demonstracao.js")
+# No arquivo único não há "fora" da demonstração: o app esconde o botão de sair dela.
+MARCA_DO_ARQUIVO = "window.MW_DEMONSTRACAO_ARQUIVO = true;"
 
 
 def ler(caminho, modo="r"):
@@ -40,7 +37,7 @@ def gerar():
 
     css = re.sub(r"url\(fontes/([\w.-]+\.woff2)\)",
                  lambda m: f'url("{data_uri(os.path.join(ESTATICO, "fontes", m.group(1)), "font/woff2")}")', css)
-    css = css.replace("url(icone.svg)", f'url("{icone}")') + "\n" + ESTILO_DA_FAIXA
+    css = css.replace("url(icone.svg)", f'url("{icone}")')
     # Começa no painel, já dentro da conta de demonstração.
     js = js.replace('const alvo = rota || (estado.eu ? "painel" : "inicio");', 'const alvo = rota || (estado.eu ? "painel" : "entrar");')
 
@@ -52,12 +49,13 @@ def gerar():
     # Script embutido não respeita "defer": vai para o fim do corpo, depois dos elementos que ele usa.
     # Ordem: as contas do "E se eu…?" (o servidor de mentira também usa), o servidor de mentira e o aplicativo.
     html = re.sub(r'\s*<script src="/estatico/[\w.-]+\.js" defer></script>', "", html)
-    protegidos = [codigo.replace("</script", "<\\/script") for codigo in (contas, ler(FALSO), js)]
+    protegidos = [codigo.replace("</script", "<\\/script") for codigo in (contas, MARCA_DO_ARQUIVO + "\n" + ler(FALSO), js)]
     scripts = "".join(f"<script>\n{codigo}\n</script>\n" for codigo in protegidos)
     html = html.replace("</body>", scripts + "</body>")
     html = html.replace("<title>MeterWatt</title>", "<title>MeterWatt (demonstração)</title>")
-    html = html.replace('<a class="pular" href="#conteudo">', FAIXA + '\n<a class="pular" href="#conteudo">', 1)
-    if "/estatico/" in html:
+    # O arquivo precisa abrir sozinho: nenhum estilo, script, ícone ou fonte pode vir de /estatico/.
+    # (No código do app há o endereço da demonstração, que só é usado no site; aqui ela já vem embutida.)
+    if re.search(r'(?:src|href)="/estatico/|url\(["\']?/estatico/', html):
         raise SystemExit("Sobrou referência a /estatico/ no arquivo gerado.")
     return html
 

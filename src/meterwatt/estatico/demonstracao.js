@@ -1,8 +1,14 @@
-/* Servidor de mentira para a demonstração em um arquivo só (tools/gerar_demo.py).
+/* Demonstração: um servidor de mentira, dentro do navegador, com uma casa inventada.
  *
- * Responde às mesmas chamadas /api/... do servidor de verdade, com uma casa inventada.
- * Nada sai do navegador e nada é guardado: recarregar a página volta tudo ao começo.
- * Os números são SIMULADOS. Não use esta página como prova de medição.
+ * Serve a dois usos:
+ * - o botão "Ver o app funcionando" do site e do app (app.js carrega este arquivo só quando a
+ *   pessoa entra na demonstração). É o que quem não tem o medidor usa para conhecer o app,
+ *   inclusive quem revisa e quem testa o app na Play Store;
+ * - a demonstração em um arquivo só (tools/gerar_demo.py).
+ *
+ * Responde às mesmas chamadas /api/... do servidor de verdade. Nada sai do navegador e nada é
+ * guardado: recarregar a página volta tudo ao começo. Os números são SIMULADOS. Não use esta
+ * página como prova de medição.
  *
  * A história da casa: o medidor chegou há 21 dias. Há 7 dias a família pôs no plano de economia
  * banhos 2 minutos mais curtos e o corte de parte do consumo em espera; antes disso, os banhos
@@ -11,6 +17,7 @@
  */
 "use strict";
 (() => {
+  window.MW_DEMONSTRACAO = true;          // app.js mostra a faixa e não mexe nas notificações de verdade
   const DIA = 86400;
   const agora = () => Date.now() / 1000;
   const iso = (t) => new Date(t * 1000).toISOString();
@@ -95,7 +102,7 @@
     resumo_semanal: ["Resumo da semana", "Toda segunda-feira: quanto a casa gastou, a comparação com a semana anterior e o consumo fantasma."],
   };
   const RETENCAO = { leituras_detalhadas_horas: 48, consumo_5_minutos_dias: 90, consumo_5_minutos_dias_com_historico_longo: 730,
-    atividade_da_conta_dias: 180, conta_nao_confirmada_dias: 7 };
+    atividade_da_conta_dias: 180, conta_nao_confirmada_dias: 7, backup_copias: 14 };
   const NAO_NA_DEMO = [400, { erro: "Isto não funciona na demonstração: precisa do servidor de verdade.", codigo: "demonstracao" }];
   const reais = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const num = (v, c = 1) => v.toLocaleString("pt-BR", { minimumFractionDigits: c, maximumFractionDigits: c });

@@ -1,0 +1,101 @@
+# App Android do MeterWatt (Trusted Web Activity: o site em tela cheia, como app da Play Store).
+#
+#  - Em pull request que mexe no app: gera o projeto, compila e assina com uma chave descartável,
+#    criada na hora, só para provar que tudo funciona. Não usa segredo nenhum.
+#  - Manualmente (Actions > App Android > Run workflow): gera o app de verdade, com o domínio de
+#    android/app.json, e assina com a chave de envio guardada nos segredos do repositório:
+#      ANDROID_CHAVE_BASE64  o arquivo .keystore em base64
+#      ANDROID_CHAVE_SENHA   a senha dele
+#    O .aab (para a Play) e o .apk (para instalar direto) ficam nos artefatos da execução.
+#    Passo a passo em docs/app-celular.md.
+name: App Android
+
+on:
+  pull_request:
+    paths:
+      - "android/**"
+      - "src/meterwatt/estatico/manifest.webmanifest"
+      - "src/meterwatt/estatico/app/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: Gerar, compilar e assinar o app Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PUBLICAR: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: npm ci --prefix android --no-audit --no-fund
+
+      - name: Gerar o projeto Android
+        env:
+          # A Play exige um número de versão maior a cada envio: o número desta execução.
+          MW_ANDROID_VERSAO_CODIGO: ${{ github.run_number }}
+        run: |
+          if [ "$PUBLICAR" = "true" ]; then
+            node android/gerar-projeto.mjs --publicar
+          else
+            node android/gerar-projeto.mjs
+          fi
+
+      - name: Compilar (.aab e .apk)
+        working-directory: android/projeto
+        run: ./gradlew --no-daemon --stacktrace bundleRelease assembleRelease
+
+      - name: Assinar com uma chave descartável (só para conferir)
+        if: env.PUBLICAR != 'true'
+        env:
+          ANDROID_CHAVE_SENHA: descartavel-${{ github.run_id }}
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/descartavel.keystore" -storetype PKCS12 \
+            -alias meterwatt -keyalg RSA -keysize 2048 -validity 1 -dname "CN=MeterWatt teste" \
+            -storepass:env ANDROID_CHAVE_SENHA
+          bash android/assinar.sh "$RUNNER_TEMP/descartavel.keystore" meterwatt android/saida
+
+      - name: Assinar com a chave de envio
+        if: env.PUBLICAR == 'true'
+        env:
+          ANDROID_CHAVE_BASE64: ${{ secrets.ANDROID_CHAVE_BASE64 }}
+          ANDROID_CHAVE_SENHA: ${{ secrets.ANDROID_CHAVE_SENHA }}
+        run: |
+          if [ -z "$ANDROID_CHAVE_BASE64" ] || [ -z "$ANDROID_CHAVE_SENHA" ]; then
+            echo "::error::Faltam os segredos ANDROID_CHAVE_BASE64 e ANDROID_CHAVE_SENHA (veja docs/app-celular.md)."
+            exit 1
+          fi
+          printf '%s' "$ANDROID_CHAVE_BASE64" | base64 --decode > "$RUNNER_TEMP/envio.keystore"
+          apelido="$(node -p 'require("./android/app.json").chave_alias')"
+          bash android/assinar.sh "$RUNNER_TEMP/envio.keystore" "$apelido" android/saida
+          rm -f "$RUNNER_TEMP/envio.keystore"
+          {
+            echo "### MeterWatt para Android, versão ${{ github.run_number }}"
+            echo ""
+            echo "- **meterwatt.aab**: envie na Play Console (Testar e lançar > crie uma versão)."
+            echo "- **meterwatt.apk**: instala direto no celular, para testar antes."
+            echo "- Impressão SHA-256 da chave de envio: \`$(cat android/saida/impressao-sha256.txt)\`"
+            echo ""
+            echo "No servidor, MW_ANDROID_SHA256 leva a impressão da chave de assinatura da Play"
+            echo "(Play Console > Integridade do app) e, para o .apk de teste, também esta acima, separadas por vírgula."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: env.PUBLICAR == 'true'
+        with:
+          name: meterwatt-android-${{ github.run_number }}
+          path: |
+            android/saida/meterwatt.aab
+            android/saida/meterwatt.apk
+            android/projeto/twa-manifest.json
+          if-no-files-found: error

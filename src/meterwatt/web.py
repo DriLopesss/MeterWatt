@@ -20,6 +20,7 @@ from flask import Flask, Response, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
 from . import VERSAO
+from .documentos import Documentos
 from .erros import ErroDeNegocio
 from .instalavel import ServiceWorker, assetlinks
 from .privacidade import FINALIDADES, VERSAO_PRIVACIDADE, VERSAO_TERMOS
@@ -49,6 +50,7 @@ def criar_app(plataforma):
     alertas, detetive, pagamentos, espera = plataforma.alertas, plataforma.detetive, plataforma.pagamentos, plataforma.espera
     notificacoes = plataforma.notificacoes
     service_worker = ServiceWorker()
+    documentos = Documentos()
 
     # ------------------------------------------------------------ apoio
 
@@ -182,6 +184,19 @@ def criar_app(plataforma):
     @app.get("/manifest.webmanifest")
     def manifesto():
         resposta = send_from_directory(PASTA_ESTATICA, "manifest.webmanifest", mimetype="application/manifest+json")
+        resposta.headers["Cache-Control"] = "no-cache"
+        return resposta
+
+    # ------------------------------------------------------------ páginas soltas (a Play Store pede links que
+    # abram sem o app e sem login: política de privacidade e como excluir a conta)
+
+    @app.get("/politica-de-privacidade")
+    @app.get("/termos-de-uso")
+    @app.get("/excluir-conta")
+    def documento_solto():
+        valores = {**privacidade.regras_de_retencao(), **privacidade.contato(),
+                   "termos_versao": VERSAO_TERMOS, "privacidade_versao": VERSAO_PRIVACIDADE}
+        resposta = Response(documentos.pagina(request.path.strip("/"), valores), mimetype="text/html")
         resposta.headers["Cache-Control"] = "no-cache"
         return resposta
 

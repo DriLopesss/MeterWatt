@@ -286,6 +286,7 @@ class Privacidade:
             "consumo_5_minutos_dias_com_historico_longo": c.retencao_agregada_longa_dias,
             "atividade_da_conta_dias": c.retencao_auditoria_dias,
             "conta_nao_confirmada_dias": c.retencao_conta_nao_confirmada_dias,
+            "backup_copias": c.backup_manter,     # uma cópia por dia: o que é apagado some delas nesse número de dias
         }
 
     def contato(self):
