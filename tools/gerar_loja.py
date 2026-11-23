@@ -5,7 +5,7 @@
 - icone-512.png: o ícone da ficha (512 x 512, PNG com canal alfa). O fundo vai até a borda: a Play
   arredonda os cantos sozinha.
 - destaque-1024x500.png: o gráfico de destaque (PNG sem transparência, como a Play pede).
-- tela-1-agora.png ... tela-6-avisos.png: capturas de celular em 1080 x 1920 (9:16, o tamanho que a
+- tela-1-agora.png ... tela-8-avisos.png: capturas de celular em 1080 x 1920 (9:16, o tamanho que a
   Play usa para destacar apps), com uma frase em cima. A frase ocupa menos de 20% da altura.
 
 As capturas saem da demonstração (a casa simulada do botão "Ver o app funcionando"), sem a faixa
@@ -25,7 +25,7 @@ from PIL import Image
 AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, AQUI)
 from gerar_demo import gerar as gerar_demo  # noqa: E402
-from gerar_icones import desenhar, svg_raio  # noqa: E402
+from gerar_icones import FUSO_DAS_TELAS, MOMENTO_DAS_TELAS, desenhar, svg_raio  # noqa: E402
 
 RAIZ = os.path.join(AQUI, "..")
 ESTATICO = os.path.join(RAIZ, "src", "meterwatt", "estatico")
@@ -40,11 +40,13 @@ DENSIDADE = 2.4               # 390 pontos de largura do celular viram 936 pixel
 # arquivo, frase, tela do app, título do cartão até onde rolar (None: o começo da tela)
 TELAS = [
     ("tela-1-agora.png", "Quanto sua casa gasta agora, em reais", "painel", None),
-    ("tela-2-meta.png", "A previsão da conta antes de ela chegar", "painel", "Meta do mês"),
-    ("tela-3-fantasma.png", "O que fica ligado sem ninguém usar", "painel", "Consumo fantasma"),
-    ("tela-4-e-se-eu.png", "Teste uma mudança e veja quanto economiza", "economia", None),
-    ("tela-5-detetive.png", "Pistas de quais aparelhos pesam na conta", "aparelhos", None),
-    ("tela-6-avisos.png", "Avisos quando o consumo foge do normal", "avisos", None),
+    ("tela-2-para-onde.png", "Para onde vai a energia neste momento", "painel", "Para onde vai agora"),
+    ("tela-3-perfil.png", "Cada hora do dia comparada ao normal", "painel", "Perfil do dia"),
+    ("tela-4-meta.png", "A previsão da conta antes de ela chegar", "painel", "Meta do mês"),
+    ("tela-5-fantasma.png", "O que fica ligado sem ninguém usar", "painel", "Consumo fantasma"),
+    ("tela-6-e-se-eu.png", "Teste uma mudança e veja quanto economiza", "economia", None),
+    ("tela-7-detetive.png", "Pistas de quais aparelhos pesam na conta", "aparelhos", None),
+    ("tela-8-avisos.png", "Avisos quando o consumo foge do normal", "avisos", None),
 ]
 
 FUNDO = ("radial-gradient(1000px 640px at 0% -10%,rgba(167,139,250,.18),transparent 60%),"
@@ -61,8 +63,9 @@ def capturar(navegador, demo, rota, cartao):
     altura_da_tela = (ALTURA - TOPO_DA_TELA - MARGEM) / DENSIDADE
     contexto = navegador.new_context(viewport={"width": 390, "height": round(altura_da_tela)},
                                      device_scale_factor=DENSIDADE, is_mobile=True, has_touch=True,
-                                     reduced_motion="reduce")
+                                     reduced_motion="reduce", timezone_id=FUSO_DAS_TELAS)
     pagina = contexto.new_page()
+    pagina.clock.set_system_time(MOMENTO_DAS_TELAS)
     pagina.goto(f"{demo.as_uri()}#{rota}")
     pagina.wait_for_selector(f'section[data-rota="{rota}"]:not([hidden])')
     # Sem a faixa da demonstração; cabeçalho opaco (no celular ele é 97% opaco e, parado numa imagem,

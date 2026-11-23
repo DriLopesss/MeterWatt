@@ -46,6 +46,7 @@ class Plataforma:
         from .detetive import Detetive
         from .economia import Economia
         from .espera import ListaDeEspera
+        from .graficos import Graficos
         from .medidores import Medidores
         from .notificacoes import Notificacoes
         from .pagamentos import Pagamentos
@@ -58,6 +59,7 @@ class Plataforma:
         self.pagamentos = Pagamentos(self, provedor_de_pagamento)
         self.espera = ListaDeEspera(self)
         self.economia = Economia(self)
+        self.graficos = Graficos(self)
         self.notificacoes = Notificacoes(self)
 
     # ------------------------------------------------------------ tempo

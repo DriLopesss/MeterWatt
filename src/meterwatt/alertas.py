@@ -148,7 +148,7 @@ class Alertas:
         return (linha["wh"] or 0.0, linha["n"])
 
     def _incomum(self, conn, uid):
-        ids = [r["id"] for r in conn.execute("SELECT id FROM medidores WHERE usuario_id = ?", (uid,))]
+        ids = self.p.medidores.ids_da_casa(conn, uid)      # circuito não soma de novo
         agora = self.p.agora()
         fim = int(agora // 3600 * 3600)          # última hora cheia
         inicio = fim - 3600
@@ -186,7 +186,7 @@ class Alertas:
             return 0
         fim = self.p.inicio_do_dia(agora)                       # segunda-feira, 0h
         inicio = self.p.inicio_do_dia(agora, 7)
-        ids = [r["id"] for r in conn.execute("SELECT id FROM medidores WHERE usuario_id = ?", (uid,))]
+        ids = self.p.medidores.ids_da_casa(conn, uid)      # circuito não soma de novo
         wh = self.p.medidores._wh_entre(conn, ids, inicio, fim)
         if wh <= 0:
             return 0

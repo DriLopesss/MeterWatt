@@ -55,7 +55,7 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - O resumo semanal por e-mail passa a dizer quanto a casa economizou desde o início do plano (mesma chave de e-mail do resumo).
 
 ## O que entrou no bloco 6 (app no celular)
-- **App instalável**: o que fica gravado no aparelho é só a casca do app (página, estilo, código, fontes, ícones). Nada de `/api/` é guardado: o consumo, os avisos e os dados da conta não ficam no celular. A única coisa que o app guarda no navegador é a escolha "Agora não" do convite de instalação.
+- **App instalável**: o que fica gravado no aparelho é só a casca do app (página, estilo, código, fontes, ícones). Nada de `/api/` é guardado: o consumo, os avisos e os dados da conta não ficam no celular. De uma visita para outra, o app guarda no navegador só escolhas de tela: o "Agora não" do convite de instalação e, desde o bloco 8, se a casa em 3D do painel fica ligada. Enquanto a aba está aberta, ele também lembra se está no modo demonstração ou dentro do app da Play.
 - **Notificações**: só nos aparelhos em que a pessoa liga (o navegador também pede permissão). Guardamos o endereço que o navegador cria para receber notificações e as duas chaves que cifram cada mensagem, **cifrados** no banco, mais o tipo de aparelho e as datas. Base: parte do serviço que a pessoa pediu ao ligar. Saem quando a pessoa desliga, tira o aparelho da lista, sai da conta naquele aparelho, troca ou redefine a senha, ativa a verificação em duas etapas, encerra as outras sessões, exclui a conta, ou quando o serviço do navegador diz que a inscrição venceu. A sessão vencer por falta de uso **não** desliga (os avisos servem justamente para quando o app está fechado).
 - **Transferência internacional**: cada notificação passa pelo serviço do navegador (Google, Apple, Mozilla ou Microsoft), fora do Brasil. A mensagem vai cifrada de ponta a ponta (RFC 8291): o serviço não lê o conteúdo, mas sabe que um aparelho recebeu uma notificação e quando. O tamanho cifrado sobe de 256 em 256 bytes, para o tamanho não entregar qual aviso foi. Está na política de privacidade. [ADVOGADO: enquadrar no art. 33.]
 - **Na tela de bloqueio**: o texto do aviso (com kWh e reais) aparece como a pessoa configurou o celular. Cada tipo de aviso tem a sua chave de notificação, separada da de e-mail.
@@ -69,6 +69,11 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - **Modo demonstração** ("Ver o app funcionando"): roda inteiro no navegador, com dados inventados. Não cria conta, não grava nada no servidor e não liga notificações.
 - **App da Play**: é o mesmo site em tela cheia; o app Android não coleta nada além do que o site já coleta e não tem anúncios nem ID de publicidade. Não vende a assinatura (dentro do app da Play não há pagamento).
 - **Formulário de segurança dos dados da Play**: as respostas têm de bater com a política. Proposta: nome, e-mail, ID da conta, consumo e o que a pessoa digita, registro de segurança, identificadores (notificações e medidor) e, com a assinatura ligada, histórico de compras; nada compartilhado. [ADVOGADO: conferir junto com a política.]
+
+## O que entrou no bloco 8 (gráficos e vários medidores)
+- **Gráficos do painel** (*Para onde vai agora*, *Perfil do dia*, mapa de 14 dias): saem na hora do consumo de 5 em 5 minutos que já está guardado. Não gravam nada novo; o "sempre ligado" de cada medidor fica alguns minutos só na memória do servidor. A divisão por aparelho usa o Detetive e só aparece com a autorização dele ligada; sem ela, o gráfico mostra só "sempre ligado" e "outros".
+- **O que cada medidor mede** (a entrada de um imóvel ou um circuito dentro de uma entrada): fica no cadastro do medidor, entra na cópia dos dados (`mede` e `dentro_de`, em cada medidor) e cada mudança vai para a atividade da conta ("O que o medidor mede mudou").
+- **Casa em 3D**: a escolha de mostrar ou esconder fica só no navegador daquele aparelho (`mw-casa-3d`), como o "Agora não" do convite. Não vai para o servidor.
 
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).

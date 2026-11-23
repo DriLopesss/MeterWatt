@@ -14,6 +14,9 @@
  * banhos 2 minutos mais curtos e o corte de parte do consumo em espera; antes disso, os banhos
  * duravam 11 minutos e a casa deixava 96 W ligados de madrugada. É isso que o "Deu certo?" mostra.
  * As contas do plano usam economia-calculo.js, o mesmo arquivo do aplicativo.
+ *
+ * O medidor que a pessoa parear aqui (depois de assinar o plano de teste) mede o circuito da
+ * cozinha: geladeira e micro-ondas. Serve para ver a casa com circuitos e o "para onde vai agora".
  */
 "use strict";
 (() => {
@@ -50,10 +53,15 @@
     if (hora >= 8 && hora < 18) w += 35;                       // coisas pequenas do dia
     return comRuido ? w * (1 + (ruido(Math.floor(t)) - 0.5) * 0.02) : w;
   }
+  function wattsCozinha(t) {                                   // o circuito da cozinha: geladeira, micro-ondas e o relógio dele
+    let w = 9;
+    for (const ap of APARELHOS) if ((ap.id === 2 || ap.id === 3) && ligado(ap, t)) w += ap.potencia;
+    return w;
+  }
   const cacheDia = new Map();
-  function whEntre(a, b) {                                     // soma minuto a minuto
+  function whEntre(a, b, f = (t) => watts(t, false)) {       // soma minuto a minuto
     let wh = 0;
-    for (let t = a; t < b; t += 60) wh += watts(t, false) / 60;
+    for (let t = a; t < b; t += 60) wh += f(t) / 60;
     return wh;
   }
   function kwhDoDia(inicio) {
@@ -111,16 +119,17 @@
   function listaDeMedidores() {
     const t = agora();
     if (E.pareando && t > E.pareando) {                       // o "medidor novo" aparece alguns segundos depois do código
-      E.medidores.push({ id: "mw-DEMO0002", apelido: "Medidor 0002", pareado: t, parado: true });
+      E.medidores.push({ id: "mw-DEMO0002", apelido: "Medidor 0002", pareado: t, cozinha: true, papel: "casa", dentro: null });
       E.pareando = null;
     }
     const principal = E.aceites.consumo;
     return { tarifa_kwh: E.tarifa, limite_offline_s: 20, servidor_em: iso(t), medidores: E.medidores.map((m) => {
       const vivo = principal && !m.parado;
-      const w = vivo ? Math.round(watts(t) * 10) / 10 : null;
+      const w = vivo ? Math.round((m.cozinha ? wattsCozinha(t) : watts(t)) * 10) / 10 : null;
       const v = 127 + Math.sin(t / 900) * 1.5;
-      const kwh = m.parado ? 0 : kwhHoje();
+      const kwh = m.parado ? 0 : m.cozinha ? whEntre(Math.max(m.pareado, inicioDoDia(t)), t, wattsCozinha) / 1000 : kwhHoje();
       return { id: m.id, apelido: m.apelido, tipo: m.parado ? null : "pzem", fw: "3.3.0", pareado_em: iso(m.pareado), online: vivo,
+        papel: m.papel || "casa", dentro_de: m.dentro || null,
         segundos_desde_mensagem: vivo ? 0.6 : (m.parado ? null : 120), sensor_ok: vivo ? true : null, erro_sensor: null, simulado: true,
         unidade: "W", energia_estimada: false, tensao_v: vivo ? Math.round(v * 10) / 10 : null,
         corrente_a: vivo ? Math.round(w / v / 0.94 * 1000) / 1000 : null, potencia: w, fp: vivo ? 0.94 : null, frequencia_hz: vivo ? 60 : null,
@@ -131,10 +140,12 @@
   function historico(id, periodo) {
     const t = agora(), passo = { "2h": 10, "24h": 300, "7d": 1800 }[periodo] || 10, janela = { "2h": 7200, "24h": DIA, "7d": 7 * DIA }[periodo] || 7200;
     const pontos = [];
-    if (id === "mw-DEMO0001") {
-      for (let x = t - janela; x <= t; x += passo) {
-        let w = watts(x, periodo === "2h");
-        if (passo > 60) { w = 0; for (let k = 0; k < passo; k += 60) w += watts(x + k, false); w /= passo / 60; }   // média do intervalo
+    const m = E.medidores.find((x) => x.id === id);
+    if (m && !m.parado) {
+      const f = m.cozinha ? wattsCozinha : (x, ruidoso) => watts(x, ruidoso);
+      for (let x = Math.max(t - janela, m.pareado); x <= t; x += passo) {
+        let w = f(x, periodo === "2h");
+        if (passo > 60) { w = 0; for (let k = 0; k < passo; k += 60) w += f(x + k, false); w /= passo / 60; }   // média do intervalo
         pontos.push([Math.round(x + (passo > 60 ? passo : 0)), Math.round(w * 10) / 10]);
       }
     }
@@ -169,6 +180,101 @@
       dias_restantes: Math.round(restam * 10) / 10, percentual: E.meta ? projecao / E.meta : null, status,
       folga_diaria: E.meta && restam >= 1 ? Math.round((E.meta - gasto) / restam * 100) / 100 : null, base_de_dias: 7, tarifa_kwh: E.tarifa, sem_tarifa: false };
   }
+  /* ---------------- perfil do dia e para onde vai agora ---------------- */
+  const r3 = (v) => (v == null ? null : Math.round(v * 1000) / 1000);
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const cacheHora = new Map();
+  // Uma hora de um dia já fechado, com o mesmo ajuste do dia: a soma das horas bate com "Últimos 14 dias".
+  // Antes do plano de economia, os banhos eram 2 minutos mais longos (7h e 19h) e a casa deixava 22 W a mais.
+  function kwhDaHora(d0, h) {
+    const chave = `${d0}:${h}`;
+    if (!cacheHora.has(chave)) {
+      const inicio = d0 + h * 3600;
+      let kwh = whEntre(inicio, inicio + 3600) / 1000 * (0.9 + ruido(d0 / DIA) * 0.25);
+      if (d0 + DIA <= inicioDoDia(PLANO_DESDE)) kwh += 0.022 + (h === 7 || h === 19 ? 5400 * 2 / 60 / 1000 : 0);
+      cacheHora.set(chave, kwh);
+    }
+    return cacheHora.get(chave);
+  }
+  const mediana = (v) => { const o = [...v].sort((a, b) => a - b), m = Math.floor(o.length / 2); return o.length % 2 ? o[m] : (o[m - 1] + o[m]) / 2; };
+  const diaDaSemana = (d0) => (new Date(d0 * 1000).getDay() + 6) % 7;       // 0 = segunda, como no servidor
+  let faixaGuardada = null;
+  function horas(n) {
+    const t = agora(), hoje0 = inicioDoDia(t), horaAtual = new Date(t * 1000).getHours();
+    const medido = (d0) => d0 > inicioDoDia(MEDIDOR_DESDE);
+    if (!E.aceites.consumo) n = Math.max(1, n);
+    const mapa = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const d0 = inicioDoDia(hoje0 - i * DIA + 3600);
+      const lista = [];
+      for (let h = 0; h < 24; h++) {
+        if (i === 0) lista.push(h > horaAtual ? null : r3(whEntre(d0 + h * 3600, Math.min(t, d0 + (h + 1) * 3600)) / 1000));
+        else lista.push(medido(d0) ? r3(kwhDaHora(d0, h)) : null);
+      }
+      mapa.push({ dia: diaLocal(d0), dia_da_semana: diaDaSemana(d0), horas: lista, kwh: r3(i === 0 ? kwhHoje() : kwhMedido(d0)) });
+    }
+    const util = diaDaSemana(hoje0) < 5;
+    const dias = [];
+    for (let i = 1; i <= 28; i++) { const d0 = inicioDoDia(hoje0 - i * DIA + 3600); if (medido(d0) && (diaDaSemana(d0) < 5) === util) dias.push(d0); }
+    const normalHoras = Array.from({ length: 24 }, (_, h) => (dias.length >= 2 ? r3(mediana(dias.map((d0) => kwhDaHora(d0, h)))) : null));
+    const normal = dias.length >= 2 ? { tipo: util ? "util" : "fim_de_semana", dias: dias.length, horas: normalHoras } : null;
+    let pico = null, comparacao = null;
+    if (normal) {
+      const h = normalHoras.indexOf(Math.max(...normalHoras));
+      const porMes = 365 / 12 * (util ? 5 / 7 : 2 / 7);
+      pico = { hora: h, kwh: normalHoras[h], custo: E.tarifa == null ? null : Math.round(normalHoras[h] * E.tarifa * 100) / 100,
+        custo_mes: E.tarifa == null ? null : Math.round(normalHoras[h] * E.tarifa * porMes * 100) / 100 };
+      if (horaAtual >= 3) {
+        const hoje = mapa[mapa.length - 1].horas.slice(0, horaAtual);
+        comparacao = { horas: horaAtual, hoje_kwh: r3(hoje.reduce((a, b) => a + b, 0)), normal_kwh: r3(normalHoras.slice(0, horaAtual).reduce((a, b) => a + b, 0)) };
+      }
+    }
+    if (!faixaGuardada) {
+      const amostras = [];
+      for (let x = t - 14 * DIA; x < t; x += 300) amostras.push(watts(x, false));
+      amostras.sort((a, b) => a - b);
+      faixaGuardada = { base_w: r1(amostras[Math.floor(0.05 * (amostras.length - 1))]), alto_w: r1(amostras[Math.floor(0.95 * (amostras.length - 1))]) };
+    }
+    return { tarifa_kwh: E.tarifa, estimado: false, hora_atual: horaAtual, hoje: { dia: diaLocal(hoje0), horas: mapa[mapa.length - 1].horas },
+      normal, mapa, pico, comparacao, faixa: faixaGuardada };
+  }
+  function partesAgora() {
+    const t = agora();
+    const vivos = E.aceites.consumo ? E.medidores.filter((m) => !m.parado) : [];
+    const entradas = vivos.filter((m) => (m.papel || "casa") === "casa"), circuitos = vivos.filter((m) => m.papel === "circuito");
+    if (!entradas.length) {
+      return { disponivel: false, partes: [], motivo: E.medidores.length ? "Nenhum medidor da entrada está enviando leituras agora." : "Nenhum medidor pareado." };
+    }
+    const wDe = (m) => (m.cozinha ? wattsCozinha(t) : watts(t));
+    const kwhDe = (m) => (m.cozinha ? whEntre(Math.max(m.pareado, inicioDoDia(t)), t, wattsCozinha) / 1000 : kwhHoje());
+    const total = entradas.reduce((x, m) => x + wDe(m), 0);
+    let partes, fonte;
+    if (circuitos.length) {
+      fonte = "circuitos";
+      partes = circuitos.map((c) => ({ id: c.id, nome: c.apelido, tipo: "circuito", watts: r1(wDe(c)), kwh_hoje: r3(kwhDe(c)), dentro_de: c.dentro }));
+      const soma = partes.reduce((x, p) => x + p.watts, 0);
+      partes.push({ nome: "Resto da casa", tipo: "resto", watts: r1(Math.max(0, total - soma)),
+        kwh_hoje: r3(Math.max(0, entradas.reduce((x, m) => x + kwhDe(m), 0) - partes.reduce((x, p) => x + p.kwh_hoje, 0))) });
+    } else if (entradas.length > 1) {
+      fonte = "imoveis";
+      partes = entradas.map((m) => ({ id: m.id, nome: m.apelido, tipo: "entrada", watts: r1(wDe(m)), kwh_hoje: r3(kwhDe(m)) }));
+    } else {
+      fonte = E.aceites.aparelhos ? "detetive" : "base";
+      partes = !E.aceites.aparelhos ? [] : APARELHOS.filter((a) => !E.ocultos.has(a.id) && ligado(a, t)).map((a) => {
+        let desde = t;
+        while (desde > t - DIA && ligado(a, desde - 60)) desde -= 60;
+        return { id: a.id, tipo: "aparelho", nome: a.nome || `Aparelho de ${a.potencia.toLocaleString("pt-BR")} W`, palpite: a.nome ? null : PALPITES[a.id],
+          watts: a.potencia, desde: iso(desde) };
+      }).sort((a, b) => b.watts - a.watts);
+      const usado = partes.reduce((x, p) => x + p.watts, 0);
+      const base = Math.min(FANTASMA_W, Math.max(0, total - usado));
+      partes.push({ nome: "Sempre ligado", tipo: "base", watts: r1(base) }, { nome: "Outros", tipo: "resto", watts: r1(Math.max(0, total - usado - base)) });
+    }
+    const custo = (w) => (E.tarifa == null || w == null ? null : r3(w / 1000 * E.tarifa));
+    partes.forEach((p) => { p.custo_por_hora = custo(p.watts); });
+    return { disponivel: true, fonte, total: r1(total), unidade: "W", custo_por_hora: custo(total), partes, aviso: null, em: iso(t) };
+  }
+
   function avisos() {
     const t = agora(), m = meta(), f = fantasma(), semana = dias(8).dias.slice(0, 7).reduce((s, d) => s + d.kwh, 0);
     const lista = [
@@ -312,6 +418,28 @@
       avisos_nao_lidos: E.avisosLidos ? 0 : 3, plano: E.plano };
   }
 
+  function alterarMedidor(m, corpo) {
+    if ("apelido" in corpo) {
+      const nome = String(corpo.apelido || "").trim().slice(0, 40);
+      if (!nome) return [400, { erro: "O nome do medidor precisa ter de 1 a 40 caracteres.", codigo: null }];
+      m.apelido = nome;
+    }
+    if ("papel" in corpo) {
+      if (corpo.papel === "casa") { m.papel = "casa"; m.dentro = null; }
+      else if (corpo.papel === "circuito") {
+        const entradas = E.medidores.filter((x) => x !== m && (x.papel || "casa") === "casa");
+        if (!entradas.length) return [400, { erro: "Um circuito fica dentro de um medidor de entrada, e a conta precisa ter pelo menos um.", codigo: "sem_entrada" }];
+        if (E.medidores.some((x) => x.dentro === m.id && x.papel === "circuito")) return [400, { erro: "Há circuitos dentro deste medidor. Mude esses circuitos antes.", codigo: "tem_circuitos" }];
+        const dentro = corpo.dentro_de || (entradas.length === 1 ? entradas[0].id : null);
+        if (!entradas.some((x) => x.id === dentro)) return [400, { erro: "Escolha dentro de qual medidor de entrada este circuito fica.", codigo: "dentro_de" }];
+        m.papel = "circuito";
+        m.dentro = dentro;
+      } else return [400, { erro: "Diga se o medidor mede a entrada (casa) ou um circuito.", codigo: null }];
+      E.atividade.unshift(["O que o medidor mede mudou", 0, `${m.id}: ${m.papel === "casa" ? "entrada" : "circuito"}`]);
+    }
+    return [200, { ok: true }];
+  }
+
   function responder(metodo, caminho, corpo) {
     const [rota, consulta = ""] = caminho.split("?");
     const p = new URLSearchParams(consulta);
@@ -345,10 +473,17 @@
     if (partes[0] === "medidores" && partes.length === 2) {
       const m = E.medidores.find((x) => x.id === decodeURIComponent(partes[1]));
       if (!m) return [404, { erro: "Medidor não encontrado.", codigo: null }];
-      if (metodo === "PATCH") { m.apelido = String(corpo.apelido || "").trim().slice(0, 40) || m.apelido; return [200, { ok: true }]; }
-      if (metodo === "DELETE") { E.medidores = E.medidores.filter((x) => x !== m); return [200, { ok: true }]; }
+      if (metodo === "PATCH") return alterarMedidor(m, corpo);
+      if (metodo === "DELETE") {
+        E.medidores = E.medidores.filter((x) => x !== m);
+        if (!E.medidores.some((x) => (x.papel || "casa") === "casa")) E.medidores.forEach((x) => { x.papel = "casa"; x.dentro = null; });
+        E.medidores.forEach((x) => { if (x.dentro === m.id) x.dentro = null; });
+        return [200, { ok: true }];
+      }
     }
     if (chave === "GET /consumo/dias") return [200, dias(Number(p.get("dias")) || 14)];
+    if (chave === "GET /consumo/horas") return [200, horas(Math.max(1, Math.min(31, Number(p.get("dias")) || 14)))];
+    if (chave === "GET /agora/partes") return [200, partesAgora()];
     if (chave === "GET /fantasma") return [200, E.medidores.some((m) => !m.parado) ? fantasma() : { disponivel: false, motivo: "Precisamos de pelo menos 2 noites medidas (entre 0h e 5h) para calcular.", medidores: [] }];
     if (chave === "GET /meta") return [200, meta()];
 

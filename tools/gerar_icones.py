@@ -16,6 +16,7 @@ import os
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 
 from PIL import Image
 
@@ -90,6 +91,11 @@ def desenhar(pagina, svg, lado):
 
 
 # As telas do manifesto: nome, largura e altura da janela, densidade de pixels e a tela do app.
+# As telas mostram sempre o mesmo momento da casa simulada: uma quinta às 19h35 em São Paulo (22h35 em
+# UTC; o Brasil não tem horário de verão desde 2019), com o chuveiro ligado e o pico do fim do dia.
+MOMENTO_DAS_TELAS = datetime(2026, 11, 19, 22, 35, tzinfo=timezone.utc)
+FUSO_DAS_TELAS = "America/Sao_Paulo"
+
 TELAS = [
     ("tela-painel.webp", 390, 844, 2, "painel"),
     ("tela-economia.webp", 390, 844, 2, "economia"),
@@ -106,8 +112,10 @@ def telas(navegador):
             f.write(gerar())
         for nome, largura, altura, densidade, rota in TELAS:
             contexto = navegador.new_context(viewport={"width": largura, "height": altura}, device_scale_factor=densidade,
-                                             is_mobile=largura < 600, has_touch=largura < 600, reduced_motion="reduce")
+                                             is_mobile=largura < 600, has_touch=largura < 600, reduced_motion="reduce",
+                                             timezone_id=FUSO_DAS_TELAS)
             pagina = contexto.new_page()
+            pagina.clock.set_system_time(MOMENTO_DAS_TELAS)
             pagina.goto(f"file://{demo}#{rota}")
             pagina.wait_for_selector(f'section[data-rota="{rota}"]:not([hidden])')
             pagina.add_style_tag(content=".faixa-demo{display:none!important}")

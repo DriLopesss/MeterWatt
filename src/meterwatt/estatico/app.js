@@ -402,13 +402,17 @@ function criarVisor(caixa) {
 const visor = criarVisor($("#visor-agora"));
 
 async function telaPainel() {
-  await Promise.all([atualizarAgora(), atualizarMeta(), atualizarFantasma(), atualizarDias()]);
+  prepararCasa3d();
+  await Promise.all([atualizarAgora(), atualizarMeta(), atualizarFantasma(), atualizarDias(),
+    atualizarPerfil().catch(() => {}), atualizarFluxo().catch(() => {})]);
   await atualizarEconomiaPainel().catch(() => {});
   desenharConviteApp();
   estado.timers.push(setInterval(() => { if (!document.hidden) atualizarAgora().catch(() => {}); }, 2000));
+  estado.timers.push(setInterval(() => { if (!document.hidden) atualizarFluxo().catch(() => {}); }, 5000));
   estado.timers.push(setInterval(() => {
     if (document.hidden) return;
     atualizarMeta().catch(() => {});
+    atualizarPerfil().catch(() => {});
     atualizarFantasma().then(atualizarEconomiaPainel).catch(() => {});
   }, 60000));
   const f = $("#form-preferencias");
@@ -425,8 +429,11 @@ async function atualizarAgora() {
   $(".relogio").hidden = vazio;
   $(".grade-painel").hidden = vazio;
   if (vazio) return;
-  const online = r.medidores.filter((m) => m.online && m.potencia != null);
+  // O total é o das entradas: um medidor de circuito mede uma parte do que a entrada já mede.
+  const daCasa = r.medidores.filter((m) => m.papel !== "circuito");
+  const online = daCasa.filter((m) => m.online && m.potencia != null);
   const total = online.reduce((s, m) => s + m.potencia, 0);
+  if (estado.casa3d) estado.casa3d.definir(online.length ? total : 0, estado.faixa);
   const unidade = online.length && online.every((m) => m.unidade === "VA") ? "VA" : "W";
   const texto = online.length ? String(Math.round(total)) : "---";
   visor.mostrar(texto, unidade);
@@ -436,8 +443,8 @@ async function atualizarAgora() {
   $("#agora-sub").textContent = online.length
     ? `${custoHora != null ? `${fmt.reais(custoHora)} por hora neste ritmo` : "Informe a tarifa para ver em reais"}${simulado ? " (dados simulados)" : ""}`
     : "Nenhum medidor enviando leituras agora.";
-  const kwh = r.medidores.reduce((s, m) => s + m.kwh_hoje, 0);
-  const custo = r.medidores.reduce((s, m) => (m.custo_hoje == null ? s : (s ?? 0) + m.custo_hoje), null);
+  const kwh = daCasa.reduce((s, m) => s + m.kwh_hoje, 0);
+  const custo = daCasa.reduce((s, m) => (m.custo_hoje == null ? s : (s ?? 0) + m.custo_hoje), null);
   $("#hoje-kwh").textContent = fmt.kwh(kwh);
   $("#hoje-custo").textContent = custo != null ? `${fmt.reais(custo)} até agora` : "Informe a tarifa para ver em reais";
 }
@@ -530,6 +537,92 @@ async function atualizarDias() {
     el("div", {}, el("dt", {}, "Média em reais"), el("dd", {}, media != null && r.tarifa_kwh != null ? fmt.reais(media * r.tarifa_kwh) : "—")));
 }
 
+/* A casa em 3D em volta do número de agora. Fica guardado, neste aparelho, se a pessoa preferiu esconder. */
+function prepararCasa3d() {
+  if (!window.MWGraficos) return;
+  if (!estado.casa3d) {
+    estado.casa3d = new MWGraficos.CasaEm3D($("#casa-3d"), $(".relogio"), $("#visor-agora"));
+    const ligada = lembrar("mw-casa-3d") !== "0";               // sem armazenamento (aba anônima): fica ligada
+    const aplicar = (sim) => {
+      $("#botao-3d").setAttribute("aria-pressed", String(sim));
+      $(".relogio").classList.toggle("com-3d", sim);
+      estado.casa3d.ligar(sim);
+    };
+    aplicar(ligada);
+    $("#botao-3d").addEventListener("click", () => {
+      const sim = $("#botao-3d").getAttribute("aria-pressed") !== "true";
+      aplicar(sim);
+      lembrar("mw-casa-3d", sim ? "1" : "0");
+    });
+  }
+  requestAnimationFrame(() => { estado.casa3d.medir(); estado.casa3d.agendar(); });
+}
+
+const NOTAS_DO_FLUXO = {
+  circuitos: "Cada circuito tem o seu medidor. O resto da casa é a entrada menos os circuitos.",
+  imoveis: "Um medidor de entrada por imóvel. O número grande lá em cima soma todos.",
+};
+
+async function atualizarFluxo() {
+  const r = await api("GET", "/api/agora/partes");
+  const caixa = $("#fluxo"), nota = $("#fluxo-nota"), aviso = $("#fluxo-aviso");
+  aviso.hidden = !r.aviso;
+  aviso.textContent = r.aviso || "";
+  if (!r.disponivel) {
+    caixa.replaceChildren(el("p", { class: "fluxo-vazio" }, r.motivo));
+    $("#fluxo-total").textContent = "";
+    nota.textContent = "";
+    return;
+  }
+  $("#fluxo-total").textContent = `${fmt.num(r.total)} ${r.unidade}${r.custo_por_hora != null ? `, ${fmt.reais(r.custo_por_hora)} por hora` : ""}`;
+  window.MWGraficos.desenharFluxo(caixa, r);
+  const aparelhos = r.partes.some((p) => p.tipo === "aparelho");
+  const base = r.partes.some((p) => p.tipo === "base");
+  const paraODetetive = el("a", { href: "#aparelhos" }, "Aparelhos");
+  if (NOTAS_DO_FLUXO[r.fonte]) nota.replaceChildren(NOTAS_DO_FLUXO[r.fonte]);
+  else if (r.fonte === "detetive") {
+    nota.replaceChildren(aparelhos
+      ? "Os aparelhos são palpites do Detetive: degraus de potência que ainda não desligaram. Sempre ligado é o mínimo das madrugadas."
+      : "O Detetive não reconheceu nenhum aparelho ligado agora. Sempre ligado é o mínimo das madrugadas.");
+  } else {
+    nota.replaceChildren(base ? "Sempre ligado é o mínimo das madrugadas. " : "Com duas madrugadas medidas, aparece o que fica sempre ligado. ",
+      "Para ver aparelho por aparelho, ligue o Detetive em ", paraODetetive, ".");
+  }
+}
+
+// "das 19h às 20h", com a concordância da meia-noite e da 1h.
+function deHoraEmHora(h) {
+  const fim = (h + 1) % 24;
+  const de = h === 0 ? "da meia-noite" : h === 1 ? "da 1h" : `das ${h}h`;
+  const ate = fim === 0 ? "à meia-noite" : fim === 1 ? "à 1h" : `às ${fim}h`;
+  return `${de} ${ate}`;
+}
+
+async function atualizarPerfil() {
+  const r = await api("GET", "/api/consumo/horas?dias=14");
+  estado.faixa = r.faixa;
+  if (!window.MWGraficos) return;
+  estado.perfil = estado.perfil || window.MWGraficos.criarPerfil($("#bloco-perfil"));
+  estado.perfil.atualizar(r);
+  const partes = [];
+  const tipo = r.normal && r.normal.tipo === "fim_de_semana" ? "um fim de semana" : "um dia útil";
+  if (r.comparacao) {
+    // A comparação usa só as horas inteiras antes desta: a hora que está correndo fica de fora.
+    const { hoje_kwh: hoje, normal_kwh: normal, horas } = r.comparacao;
+    const dif = normal > 0 ? (hoje - normal) / normal : 0;
+    const pct = Math.round(Math.abs(dif) * 100);
+    const periodo = horas === r.hora_atual ? `Da meia-noite até as ${r.hora_atual}h` : `Nas ${horas} horas medidas até as ${r.hora_atual}h`;
+    partes.push(pct < 5 ? `${periodo}, hoje está perto do normal de ${tipo}: ${fmt.kwh(hoje)}.`
+      : `${periodo}, hoje gastou ${fmt.kwh(hoje)}: ${pct}% ${dif < 0 ? "abaixo" : "acima"} do normal de ${tipo} no mesmo horário.`);
+  }
+  if (r.pico) {
+    partes.push(`O horário mais pesado costuma ser ${deHoraEmHora(r.pico.hora)}: ${fmt.kwh(r.pico.kwh)}`
+      + (r.pico.custo_mes != null ? `, cerca de ${fmt.reais(r.pico.custo_mes)} por mês só nessa hora.` : "."));
+  }
+  if (!r.normal) partes.push("Com alguns dias de medição, aparece aqui o normal da casa para comparar com hoje.");
+  $("#perfil-resumo").textContent = partes.join(" ");
+}
+
 function ligarPreferencias() {
   formulario($("#form-preferencias"), async (d) => {
     const meta = numeroDigitado(d.meta_mensal_reais);
@@ -539,7 +632,8 @@ function ligarPreferencias() {
     estado.eu.meta_mensal_reais = meta;
     estado.eu.tarifa_kwh = tarifa;
     avisar("Meta e tarifa salvas.");
-    await Promise.all([atualizarAgora(), atualizarMeta(), atualizarFantasma(), atualizarDias()]);
+    await Promise.all([atualizarAgora(), atualizarMeta(), atualizarFantasma(), atualizarDias(),
+      atualizarPerfil().catch(() => {}), atualizarFluxo().catch(() => {})]);
   });
 }
 
@@ -624,9 +718,11 @@ function cartaoMedidor(m) {
   } }, campoNome, el("button", { class: "secundario", type: "submit" }, "Salvar nome"),
   el("button", { class: "discreto", type: "button", onclick: () => { formNome.hidden = true; } }, "Cancelar"));
 
+  const entrada = m.papel === "circuito" ? estado.medidores.find((x) => x.id === m.dentro_de) : null;
   const cartao = el("article", { class: "medidor", "data-id": m.id },
     el("div", { class: "medidor-topo" },
       el("h2", {}, el("span", { class: "ponto", "aria-hidden": "true" }), m.apelido),
+      m.papel === "circuito" ? el("span", { class: "etiqueta circuito" }, entrada ? `circuito de ${entrada.apelido}` : "circuito") : null,
       m.simulado ? el("span", { class: "etiqueta simulado" }, "simulado") : null,
       m.energia_estimada ? el("span", { class: "etiqueta estimado", title: "Medidor só de corrente: potência aparente e consumo estimado" }, "estimado") : null,
       el("span", { class: "medidor-id" }, m.id)),
@@ -635,6 +731,7 @@ function cartaoMedidor(m) {
       medida("potencia", "Potência", true), medida("tensao", "Tensão"), medida("corrente", "Corrente"), medida("fp", "Fator de potência"),
       medida("frequencia", "Frequência"), medida("hoje", "Hoje"), medida("custo", "Custo hoje"), medida("sinal", "Sinal do Wi-Fi")),
     el("div", { class: "grafico" }, el("div", { class: "periodos", role: "group", "aria-label": "Período do gráfico" }, botoesPeriodo), canvas),
+    estado.medidores.length > 1 ? papelDoMedidor(m) : null,
     formNome,
     el("div", { class: "medidor-acoes" },
       el("button", { type: "button", class: "discreto", onclick: () => { formNome.hidden = false; campoNome.focus(); } }, "Renomear"),
@@ -643,6 +740,35 @@ function cartaoMedidor(m) {
   preencherMedidas(cartao, m);
   requestAnimationFrame(() => desenharGrafico(canvas, m.id, periodo));
   return cartao;
+}
+
+/* Entrada ou circuito: com mais de um medidor, cada um diz o que mede, para o total não somar a mesma
+ * energia duas vezes (o medidor do ar-condicionado já está dentro do medidor da casa). */
+function papelDoMedidor(m) {
+  const entradas = estado.medidores.filter((x) => x.papel === "casa" && x.id !== m.id);
+  const nome = `papel-${m.id}`;
+  const selecao = entradas.length > 1
+    ? el("select", { "aria-label": "Dentro de qual medidor de entrada", onchange: () => salvar("circuito") },
+      entradas.map((e) => el("option", { value: e.id, selected: e.id === m.dentro_de }, e.apelido)))
+    : null;
+  async function salvar(papel) {
+    const dados = { papel };
+    if (papel === "circuito" && selecao) dados.dentro_de = selecao.value;
+    try {
+      await api("PATCH", `/api/medidores/${encodeURIComponent(m.id)}`, dados);
+      avisar(papel === "casa" ? `${m.apelido} agora soma no total da conta.` : `${m.apelido} agora é um circuito: não soma de novo no total.`);
+    } catch (e) { avisar(e.message, true); }
+    await desenharMedidores();
+  }
+  const opcao = (valor, titulo, detalhe, ...extra) => el("label", { class: "papel-opcao" },
+    el("input", { type: "radio", name: nome, value: valor, checked: m.papel === valor, onchange: () => salvar(valor) }),
+    el("span", { class: "papel-texto" }, el("strong", {}, titulo), el("small", {}, detalhe), ...extra));
+  return el("fieldset", { class: "papel" }, el("legend", {}, "O que este medidor mede"),
+    opcao("casa", "A entrada de um imóvel", "Soma no total da conta."),
+    entradas.length
+      ? opcao("circuito", entradas.length === 1 ? `Um circuito dentro de ${entradas[0].apelido}` : "Um circuito dentro de",
+        "Parte do que a entrada já mede: não soma de novo.", selecao)
+      : null);
 }
 
 async function desenharGrafico(canvas, id, periodo) {
@@ -751,11 +877,37 @@ async function abrirPareamento() {
         clearInterval(consulta);
         status.className = "parear-status ok";
         status.textContent = `${novo.apelido} pareado!`;
-        setTimeout(() => { if (d.open) d.close(); }, 1600);
+        const entradas = lista.medidores.filter((m) => m.papel === "casa" && m.id !== novo.id);
+        if (!entradas.length) { setTimeout(() => { if (d.open) d.close(); }, 1600); return; }
+        perguntarPapel(d, novo, entradas);
       }
     } catch { /* tenta de novo */ }
   }, 3000);
-  d.addEventListener("close", () => { clearInterval(relogio); clearInterval(consulta); if (estado.rota === "medidores") desenharMedidores(); }, { once: true });
+  d.addEventListener("close", () => {
+    clearInterval(relogio); clearInterval(consulta);
+    $("#parear-papel").hidden = true;
+    if (estado.rota === "medidores") desenharMedidores();
+  }, { once: true });
+}
+
+/* Logo depois de parear o segundo medidor: ele mede outro imóvel ou um circuito de dentro da casa? */
+function perguntarPapel(dialogo, novo, entradas) {
+  const caixa = $("#parear-papel");
+  const escolher = async (dados) => {
+    try {
+      await api("PATCH", `/api/medidores/${encodeURIComponent(novo.id)}`, dados);
+    } catch (e) { avisar(e.message, true); }
+    if (dialogo.open) dialogo.close();
+  };
+  caixa.replaceChildren(
+    el("p", { class: "parear-pergunta" }, `O que o ${novo.apelido} mede?`),
+    el("div", { class: "botoes" },
+      ...entradas.map((e) => el("button", { type: "button", class: "secundario", onclick: () => escolher({ papel: "circuito", dentro_de: e.id }) },
+        `Um circuito dentro de ${e.apelido}`)),
+      el("button", { type: "button", class: "secundario", onclick: () => escolher({ papel: "casa" }) }, "A entrada de outro imóvel")),
+    el("p", { class: "dica" }, "Um circuito (o ar-condicionado, a cozinha) já passa pelo medidor da entrada, então não soma de novo no total. Dá para mudar depois, em Medidores."));
+  caixa.hidden = false;
+  caixa.querySelector("button").focus();
 }
 
 /* ------------------------------------------------------------------ segurança */

@@ -33,6 +33,7 @@ def gerar():
     css = ler(os.path.join(ESTATICO, "app.css"))
     js = ler(os.path.join(ESTATICO, "app.js"))
     contas = ler(os.path.join(ESTATICO, "economia-calculo.js"))
+    graficos = ler(os.path.join(ESTATICO, "graficos.js"))
     icone = data_uri(os.path.join(ESTATICO, "icone.svg"), "image/svg+xml")
 
     css = re.sub(r"url\(fontes/([\w.-]+\.woff2)\)",
@@ -47,9 +48,9 @@ def gerar():
     html = html.replace('<link rel="icon" href="/estatico/icone.svg" type="image/svg+xml">', f'<link rel="icon" href="{icone}">')
     html = html.replace('<link rel="stylesheet" href="/estatico/app.css">', f"<style>\n{css}\n</style>")
     # Script embutido não respeita "defer": vai para o fim do corpo, depois dos elementos que ele usa.
-    # Ordem: as contas do "E se eu…?" (o servidor de mentira também usa), o servidor de mentira e o aplicativo.
+    # Ordem: as contas do "E se eu…?" (o servidor de mentira também usa), o servidor de mentira, os gráficos e o aplicativo.
     html = re.sub(r'\s*<script src="/estatico/[\w.-]+\.js" defer></script>', "", html)
-    protegidos = [codigo.replace("</script", "<\\/script") for codigo in (contas, MARCA_DO_ARQUIVO + "\n" + ler(FALSO), js)]
+    protegidos = [codigo.replace("</script", "<\\/script") for codigo in (contas, MARCA_DO_ARQUIVO + "\n" + ler(FALSO), graficos, js)]
     scripts = "".join(f"<script>\n{codigo}\n</script>\n" for codigo in protegidos)
     html = html.replace("</body>", scripts + "</body>")
     html = html.replace("<title>MeterWatt</title>", "<title>MeterWatt (demonstração)</title>")

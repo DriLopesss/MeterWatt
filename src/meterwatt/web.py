@@ -48,7 +48,7 @@ def criar_app(plataforma):
     nome_cookie = "__Host-mw_sessao" if cfg.cookie_seguro else "mw_sessao"
     contas, medidores, privacidade = plataforma.contas, plataforma.medidores, plataforma.privacidade
     alertas, detetive, pagamentos, espera = plataforma.alertas, plataforma.detetive, plataforma.pagamentos, plataforma.espera
-    notificacoes = plataforma.notificacoes
+    notificacoes, graficos = plataforma.notificacoes, plataforma.graficos
     service_worker = ServiceWorker()
     documentos = Documentos()
 
@@ -377,8 +377,8 @@ def criar_app(plataforma):
 
     @app.patch("/api/medidores/<mid>")
     @exige_sessao()
-    def renomear(mid):
-        medidores.renomear(g.sessao, mid, corpo().get("apelido"), ip())
+    def alterar_medidor(mid):
+        medidores.alterar(g.sessao, mid, corpo(), ip())
         return ok()
 
     @app.delete("/api/medidores/<mid>")
@@ -400,6 +400,20 @@ def criar_app(plataforma):
         except ValueError:
             dias = 30
         return ok(medidores.consumo_por_dia(g.sessao, dias))
+
+    @app.get("/api/consumo/horas")
+    @exige_sessao()
+    def consumo_horas():
+        try:
+            dias = int(request.args.get("dias", "14"))
+        except ValueError:
+            dias = 14
+        return ok(graficos.horas(g.sessao, dias))
+
+    @app.get("/api/agora/partes")
+    @exige_sessao()
+    def agora_partes():
+        return ok(graficos.partes_agora(g.sessao))
 
     @app.get("/api/fantasma")
     @exige_sessao()
