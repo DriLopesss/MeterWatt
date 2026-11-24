@@ -264,8 +264,8 @@ class Privacidade:
             for mid in ids:
                 conn.execute("DELETE FROM leituras WHERE medidor_id = ?", (mid,))
                 conn.execute("DELETE FROM consumo_5min WHERE medidor_id = ?", (mid,))
-                conn.execute("UPDATE medidores SET contador_wh = NULL, potencia_anterior = NULL, fases = NULL, contadores_fases = NULL "
-                             "WHERE id = ?", (mid,))
+                conn.execute("UPDATE medidores SET contador_wh = NULL, potencia_anterior = NULL, fases = NULL, contadores_fases = NULL, "
+                             "ultima_recuperacao = NULL WHERE id = ?", (mid,))
             self.p.detetive.apagar_tudo(conn, uid)
             conn.execute("DELETE FROM avisos WHERE usuario_id = ?", (uid,))     # os avisos citam valores de consumo
             self.p.economia.apagar(conn, uid)                                  # o plano guarda hábitos (banhos, horas de uso)

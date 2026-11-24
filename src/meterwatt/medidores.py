@@ -25,6 +25,9 @@ CODIGOS_ATIVOS_MAXIMO = 3
 BALDE_S = 300                     # consumo agregado de 5 em 5 minutos
 PONTOS_NO_GRAFICO = 720
 PERIODOS = {"2h": 2 * 3600, "24h": 86400, "7d": 7 * 86400}
+ATRASADAS_POR_MENSAGEM = 20       # o firmware manda 8 minutos por mensagem
+ATRASO_MAXIMO_S = 13 * 3600       # o firmware guarda até 12 horas
+RECUPERACAO_VISIVEL_S = 7 * 86400
 NOITE_INICIO_H, NOITE_FIM_H = 0, 5
 COBERTURA_MINIMA_NOITE = 0.8
 
@@ -166,6 +169,8 @@ class Medidores:
         if not isinstance(dados, dict):
             return "ignorada"
         if tipo == "telemetria":
+            if dados.get("tipo") == "atrasadas":
+                return self.registrar_atrasadas(mid, dados)
             return self.registrar_leitura(mid, dados)
         if tipo == "pareamento":
             return self.parear(mid, dados)
@@ -314,6 +319,83 @@ class Medidores:
             self.p.detetive.observar(conn, mid, m["usuario_id"], agora, potencia)
         return "gravada"
 
+    def registrar_atrasadas(self, mid, dados):
+        """Minutos que o medidor guardou sem conexão (firmware 3.5): cada um no seu horário.
+
+        O horário vem como o tempo ligado do medidor; o de agora vem junto, então instante = agora - (uptime
+        de agora - uptime do minuto). A energia sai dos contadores do PZEM, como nas leituras ao vivo: o
+        firmware manda os minutos guardados antes de voltar às leituras ao vivo, então os contadores seguem
+        em ordem e nada é contado duas vezes. Uma mensagem repetida não entra de novo (atrasadas_ate).
+        """
+        conn = self.p.db()
+        m = conn.execute("SELECT * FROM medidores WHERE id = ?", (mid,)).fetchone()
+        if not m:
+            return "desconhecido"
+        if not self.p.consentimento(conn, m["usuario_id"], "consumo"):
+            return "sem_autorizacao"
+        agora = self.p.agora()
+        uptime = numero(dados, "uptime_agora", 0, 2 ** 32)
+        lista = dados.get("minutos")
+        if uptime is None or not isinstance(lista, list) or not 1 <= len(lista) <= ATRASADAS_POR_MENSAGEM:
+            return "invalida"
+        itens = []
+        for item in lista:
+            if not isinstance(item, dict):
+                return "invalida"
+            u, n = numero(item, "u", 0, uptime), numero(item, "n", 1, 120)
+            w, minimo, maximo = numero(item, "w", 0, 30000), numero(item, "min", 0, 30000), numero(item, "max", 0, 30000)
+            e = item.get("e")
+            if None in (u, n, w, minimo, maximo) or not isinstance(e, list) or not 1 <= len(e) <= 3:
+                return "invalida"
+            if any(x is not None and (isinstance(x, bool) or not isinstance(x, int) or not 0 <= x <= 1e10) for x in e):
+                return "invalida"
+            itens.append((u, int(n), w, minimo, maximo, e))
+        itens.sort(key=lambda i: i[0])
+        simulado = 1 if dados.get("simulado") is True else 0
+        contador = m["contador_wh"]
+        contadores = json.loads(m["contadores_fases"]) if m["contadores_fases"] else {}
+        ate = m["atrasadas_ate"] or 0
+        entraram, primeiro = 0, None
+        with conn:
+            for u, n, w, minimo, maximo, e in itens:
+                instante = agora - (uptime - u)
+                if uptime - u > ATRASO_MAXIMO_S or instante <= ate or instante < m["pareado_em"]:
+                    continue
+                wh = 0.0
+                if len(e) == 1:
+                    if e[0] is not None:
+                        if contador is not None and contador <= e[0] <= contador + 30000:
+                            wh = e[0] - contador
+                        contador = e[0]
+                else:
+                    for fase, novo in enumerate(e, start=1):
+                        if novo is None:
+                            continue
+                        anterior = contadores.get(str(fase))
+                        if anterior is not None and anterior <= novo <= anterior + 30000:
+                            wh += novo - anterior
+                        contadores[str(fase)] = novo
+                conn.execute(
+                    "INSERT INTO consumo_5min (medidor_id, inicio, n, soma_w, min_w, max_w, wh, simulado) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT (medidor_id, inicio) DO UPDATE SET n = n + excluded.n, soma_w = soma_w + excluded.soma_w, "
+                    "min_w = MIN(min_w, excluded.min_w), max_w = MAX(max_w, excluded.max_w), wh = wh + excluded.wh, "
+                    "simulado = MAX(simulado, excluded.simulado)",
+                    (mid, int(instante // BALDE_S * BALDE_S), n, w * n, minimo, maximo, wh, simulado))
+                ate = instante
+                entraram += 1
+                primeiro = instante if primeiro is None else primeiro
+            if entraram:
+                # As mensagens de uma recuperação chegam em segundos: somam no mesmo resumo.
+                r = json.loads(m["ultima_recuperacao"]) if m["ultima_recuperacao"] else None
+                if not r or agora - r["em"] > 120:
+                    r = {"de": primeiro, "minutos": 0, "perdidos": 0}
+                r.update(em=agora, ate=ate, minutos=r["minutos"] + entraram,
+                         perdidos=max(r["perdidos"], int(numero(dados, "perdidos", 0, 1e6) or 0)))
+                conn.execute("UPDATE medidores SET contador_wh = ?, contadores_fases = ?, atrasadas_ate = ?, ultima_recuperacao = ?, "
+                             "ultima_mensagem = ?, status_mqtt = 'online' WHERE id = ?",
+                             (contador, json.dumps(contadores) if contadores else None, ate, json.dumps(r), agora, mid))
+        return "atrasadas"
+
     # ------------------------------------------------------------ pareamento pelo painel
 
     def gerar_codigo(self, sessao, ip=None):
@@ -450,9 +532,18 @@ class Medidores:
                 # para a tela avisar quando o medidor de entrada mede menos fases do que a casa tem.
                 "fases": [{k: v for k, v in f.items() if k != "desde"} for f in json.loads(m["fases"])] if atual and m["fases"] else None,
                 "fases_esperadas": FASES_POR_LIGACAO.get(sessao.get("ligacao")) if m["papel"] == "casa" else None,
+                # A última vez que o medidor ficou sem conexão e mandou depois o que mediu (firmware 3.5).
+                "recuperacao": self._recuperacao(m, agora),
             })
         return {"medidores": saida, "tarifa_kwh": tarifa, "limite_offline_s": LIMITE_OFFLINE_S,
                 "servidor_em": self.p.iso(agora)}
+
+    def _recuperacao(self, m, agora):
+        r = json.loads(m["ultima_recuperacao"]) if m["ultima_recuperacao"] else None
+        if not r or agora - r["em"] > RECUPERACAO_VISIVEL_S:
+            return None
+        return {"de": self.p.iso(r["de"]), "ate": self.p.iso(r["ate"]), "em": self.p.iso(r["em"]), "minutos": r["minutos"],
+                "perdidos": r["perdidos"]}
 
     def historico(self, sessao, mid, periodo="2h"):
         conn = self.p.db()

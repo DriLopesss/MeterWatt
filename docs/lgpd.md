@@ -99,6 +99,9 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - Nenhum dado de outro tipo: com um PZEM por fase, o medidor manda as mesmas medidas, uma vez por fase. O servidor guarda só a **última leitura de cada fase** (sobrescrita a cada segundo) e o contador de energia de cada uma. Entram na cópia dos dados (`ultima_leitura_por_fase`) e saem ao apagar o consumo ou excluir a conta.
 - **Fase sem resposta**: aviso novo, na mesma base dos outros avisos, com chave própria de e-mail e notificação em Avisos.
 
+## O que entrou no bloco 15 (sem Wi-Fi, a medição não se perde)
+- O medidor guarda na própria memória (RAM, até 12 horas) um resumo por minuto enquanto está sem conexão, e apaga cada minuto assim que o envia. O servidor grava esses minutos no mesmo consumo de 5 em 5 minutos de sempre (mesma retenção, mesma cópia, mesmo apagamento). Guarda também o resumo da última recuperação (de que hora a que hora, quantos minutos), para a tela; ele sai ao apagar o consumo.
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).

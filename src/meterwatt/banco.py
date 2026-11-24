@@ -340,6 +340,12 @@ MIGRACOES = [
     ALTER TABLE medidores ADD COLUMN fases TEXT;
     ALTER TABLE medidores ADD COLUMN contadores_fases TEXT;
     """,
+    # 15: minutos medidos sem conexão e mandados depois (firmware 3.5). Até onde já chegaram (para não
+    # contar duas vezes uma mensagem repetida) e o resumo da última recuperação, para a tela.
+    """
+    ALTER TABLE medidores ADD COLUMN atrasadas_ate REAL;
+    ALTER TABLE medidores ADD COLUMN ultima_recuperacao TEXT;
+    """,
 ]
 
 

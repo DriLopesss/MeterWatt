@@ -60,6 +60,8 @@ jobs:
       - run: ./teste_pzem
       - run: g++ -std=c++11 -Wall -Wextra -Werror -o teste_fases tests/firmware/teste_fases.cpp
       - run: ./teste_fases
+      - run: g++ -std=c++11 -Wall -Wextra -Werror -o teste_fila tests/firmware/teste_fila_offline.cpp
+      - run: ./teste_fila
       - run: g++ -std=c++11 -Wall -Wextra -Werror -o teste_ajustes tests/firmware/teste_ajustes.cpp
       - run: ./teste_ajustes
       - run: g++ -std=c++11 -Wall -Wextra -Werror -o teste_pareamento tests/firmware/teste_pareamento.cpp
