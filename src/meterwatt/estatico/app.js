@@ -140,7 +140,7 @@ function formulario(form, enviar) {
 /* ------------------------------------------------------------------ rotas */
 
 const ROTAS_PUBLICAS = new Set(["entrar", "cadastro", "enviado", "confirmar", "esqueci", "redefinir", "2fa"]);
-const ROTAS_APP = new Set(["painel", "medidores", "aparelhos", "economia", "conta", "avisos", "plano", "pagamento-teste", "seguranca", "privacidade"]);
+const ROTAS_APP = new Set(["painel", "medidores", "aparelhos", "economia", "conta", "avisos", "plano", "pagamento-teste", "seguranca", "privacidade", "relatorio"]);
 // No celular, estas telas ficam dentro da aba "Conta".
 const DENTRO_DE_CONTA = new Set(["conta", "seguranca", "privacidade", "plano", "avisos", "pagamento-teste"]);
 const ROTAS_INICIO = new Set(["inicio", "fila", "convite", "sair-da-fila"]);
@@ -148,7 +148,7 @@ const DOCUMENTOS = new Set(["politica", "termos", "excluir-conta"]);
 const TITULOS = { entrar: "Entrar", cadastro: "Criar conta", painel: "Painel", medidores: "Medidores", seguranca: "Segurança",
   privacidade: "Privacidade", politica: "Política de privacidade", termos: "Termos de uso", "2fa": "Verificação",
   inicio: "Energia que você enxerga", fila: "Lista de espera", "sair-da-fila": "Sair da lista", aparelhos: "Aparelhos",
-  avisos: "Avisos", plano: "Plano", "pagamento-teste": "Pagamento de teste", economia: "E se eu…?", conta: "Conta",
+  avisos: "Avisos", plano: "Plano", relatorio: "Relatório do mês", "pagamento-teste": "Pagamento de teste", economia: "E se eu…?", conta: "Conta",
   "excluir-conta": "Excluir a conta" };
 
 function ir(rota) {
@@ -209,7 +209,8 @@ async function mostrar() {
   const raiz = area === "app" ? $("#area-app") : area === "inicio" ? $("#area-inicio") : $("#area-publica");
   $$("section[data-rota]", raiz).forEach((s) => { s.hidden = s.dataset.rota !== alvo; });
   $$(".abas a").forEach((a) => {
-    const atual = a.dataset.aba === alvo || (a.dataset.aba === "conta" && DENTRO_DE_CONTA.has(alvo));
+    const atual = a.dataset.aba === alvo || (a.dataset.aba === "conta" && DENTRO_DE_CONTA.has(alvo))
+      || (a.dataset.aba === "painel" && alvo === "relatorio");
     if (atual) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
   if (estado.rota !== null && estado.rota !== alvo) $(area === "app" ? "#conteudo-app" : area === "inicio" ? "#conteudo-inicio" : "#conteudo").focus({ preventScroll: true });
@@ -219,7 +220,7 @@ async function mostrar() {
 
   const telas = { painel: telaPainel, medidores: telaMedidores, seguranca: telaSeguranca, privacidade: telaPrivacidade,
     aparelhos: telaAparelhos, avisos: telaAvisos, plano: telaPlano, "pagamento-teste": () => telaPagamentoTeste(token),
-    economia: () => telaEconomia(token), conta: telaConta,
+    economia: () => telaEconomia(token), conta: telaConta, relatorio: () => telaRelatorio(token),
     inicio: telaInicio, fila: () => telaFila(token), "sair-da-fila": () => { estado.tokenFila = token; },
     confirmar: () => confirmarEmail(token), redefinir: () => { estado.tokenRedefinir = token; }, "2fa": tela2fa };
   if (DOCUMENTOS.has(alvo)) return mostrarDocumento(alvo, raiz);
@@ -661,6 +662,91 @@ function ligarPreferencias() {
     await Promise.all([atualizarAgora(), atualizarMeta(), atualizarFantasma(), atualizarDias(),
       atualizarPerfil().catch(() => {}), atualizarFluxo().catch(() => {})]);
   });
+}
+
+/* ------------------------------------------------------------------ relatório do mês */
+
+const SEMANA_CURTA = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
+const diaDoMes = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+async function telaRelatorio(mes) {
+  const lista = await api("GET", "/api/relatorios");
+  const escolha = $("#rel-mes");
+  const meses = lista.meses.length ? lista.meses : [{ mes: lista.atual, nome: "este mês" }];
+  // Sem mês no endereço: o último mês fechado (no começo do mês, é o que interessa); se não há, o atual.
+  const alvo = mes && /^\d{4}-\d{2}$/.test(mes) ? mes : (meses.find((m) => m.mes !== lista.atual) || meses[0]).mes;
+  escolha.replaceChildren(...meses.map((m) => el("option", { value: m.mes, selected: m.mes === alvo }, m.nome)));
+  if (!meses.some((m) => m.mes === alvo)) escolha.prepend(el("option", { value: alvo, selected: true }, alvo));
+  escolha.onchange = () => ir(`relatorio/${escolha.value}`);
+  $("#rel-imprimir").onclick = () => window.print();
+  const r = await api("GET", `/api/relatorios/${alvo}`);
+  estado.relatorio = r;
+  $("#rel-planilha").onclick = () => baixarPlanilha(r);
+  desenharRelatorio(r);
+}
+
+function desenharRelatorio(r) {
+  const nome = r.nome.charAt(0).toUpperCase() + r.nome.slice(1);
+  $("#rel-titulo").textContent = `Relatório de ${r.nome}`;
+  document.title = `Relatório de ${r.nome} | MeterWatt`;
+  const aviso = $("#rel-aviso");
+  const avisos = [];
+  if (r.parcial) avisos.push("O mês ainda não acabou: os números vão até ontem, e o total inclui o que já foi medido hoje.");
+  if (r.dias_medidos < r.dias.filter((d) => !r.parcial || d.dia < r.dias[r.dias.length - 1].dia).length) {
+    avisos.push(`Dias medidos por inteiro: ${r.dias_medidos} de ${r.dias_no_mes}.`);
+  }
+  aviso.textContent = avisos.join(" ");
+  aviso.hidden = !avisos.length;
+
+  const variacao = r.anterior && r.anterior.variacao != null ? r.anterior.variacao : null;
+  const numero = (rotulo, valor, sub) => el("div", { class: "rel-numero" }, el("dt", {}, rotulo), el("dd", {}, valor), sub ? el("dd", { class: "rel-sub" }, sub) : null);
+  $("#rel-numeros").replaceChildren(
+    numero("Consumo", fmt.kwh(r.kwh), r.parcial ? "até agora" : `${r.dias_no_mes} dias`),
+    numero("Custo estimado", r.custo != null ? fmt.reais(r.custo) : "—", r.bandeira ? `bandeira ${r.bandeira.nome}` : r.custo != null ? "energia × tarifa" : "informe a tarifa"),
+    numero("Média por dia", r.media_dia != null ? fmt.kwh(r.media_dia) : "—", r.dias_medidos ? `${r.dias_medidos} dias medidos` : "sem dia inteiro medido"),
+    numero(`Contra ${r.anterior ? r.anterior.nome.split(" de ")[0] : "o mês anterior"}`,
+      variacao == null ? "—" : `${variacao > 0 ? "+" : variacao < 0 ? "−" : ""}${fmt.num(Math.abs(variacao) * 100, 0)}%`,
+      variacao == null ? "precisa de 7 dias medidos em cada mês" : "na média por dia"));
+
+  if (window.MWGraficos) window.MWGraficos.desenharDiasDoMes($("#rel-grafico"), r);
+  $("#rel-legenda").textContent = [
+    r.media_dia != null ? `Linha tracejada: a média, ${fmt.kwh(r.media_dia)} por dia medido.` : "",
+    r.dias.some((d) => !d.inteiro && d.kwh > 0) ? "Barras só com contorno: dias com medição incompleta (o consumo de verdade foi maior)." : "",
+  ].filter(Boolean).join(" ");
+  $("#rel-tabela").replaceChildren(el("table", {},
+    el("thead", {}, el("tr", {}, el("th", { scope: "col" }, "Dia"), el("th", { scope: "col" }, "kWh"), el("th", { scope: "col" }, "Custo"), el("th", { scope: "col" }, "Medido"))),
+    el("tbody", {}, ...r.dias.map((d) => el("tr", {}, el("th", { scope: "row" }, `${SEMANA_CURTA[d.dia_da_semana]} ${diaDoMes(d.dia)}`),
+      el("td", {}, fmt.num(d.kwh, 2)), el("td", {}, d.custo != null ? fmt.reais(d.custo) : "—"), el("td", {}, d.inteiro ? "inteiro" : "em parte"))))));
+
+  const itens = [];
+  if (r.mais_caro) itens.push(`O dia que mais gastou foi ${diaDoMes(r.mais_caro.dia)}, com ${fmt.kwh(r.mais_caro.kwh)}; o que menos gastou, ${diaDoMes(r.mais_barato.dia)}, com ${fmt.kwh(r.mais_barato.kwh)}.`);
+  if (r.semana && r.semana.dia_util != null && r.semana.fim_de_semana != null) {
+    itens.push(`Num dia útil, a casa gastou em média ${fmt.kwh(r.semana.dia_util)}; num dia de fim de semana, ${fmt.kwh(r.semana.fim_de_semana)}.`);
+  }
+  if (r.pico) itens.push(`O horário mais pesado foi das ${r.pico.hora}h às ${(r.pico.hora + 1) % 24}h: ${fmt.kwh(r.pico.kwh)} por dia, em média${r.tarifa_kwh != null ? `, cerca de ${fmt.reais(r.pico.kwh * r.tarifa_kwh * r.dias_medidos)} no mês` : ""}.`);
+  if (r.fantasma) itens.push(`O consumo em espera foi de ${fmt.num(r.fantasma.watts, 0)} W, ${fmt.kwh(r.fantasma.kwh)} nos dias medidos${r.fantasma.fatia != null ? ` (${Math.round(r.fantasma.fatia * 100)}% do consumo)` : ""}.`);
+  if (r.anterior) itens.push(`Em ${r.anterior.nome}, a média foi de ${fmt.kwh(r.anterior.media_dia)} por dia.`);
+  if (!itens.length) itens.push("Com pelo menos um dia inteiro medido, aparecem aqui o dia mais caro, o horário mais pesado e o consumo em espera.");
+  $("#rel-lista").replaceChildren(...itens.map((t) => el("li", {}, t)));
+
+  $("#rel-aparelhos").hidden = !r.aparelhos.length;
+  $("#rel-aparelhos-lista").replaceChildren(...r.aparelhos.map((a) => el("li", {}, el("strong", {}, a.nome),
+    a.palpite ? ` (parece ${a.palpite})` : "", `: ${fmt.kwh(a.kwh)} em ${a.vezes} vez${a.vezes === 1 ? "" : "es"}`,
+    a.custo != null ? `, ${fmt.reais(a.custo)}` : "")));
+}
+
+/* Planilha dos dias, montada aqui mesmo (funciona também na demonstração). Ponto e vírgula e vírgula decimal:
+ * o Excel em português abre direto. */
+function baixarPlanilha(r) {
+  const n = (v, c) => (v == null ? "" : v.toFixed(c).replace(".", ","));
+  const linhas = [["dia", "dia_da_semana", "kwh", "custo_reais", "medido_por_inteiro"].join(";"),
+    ...r.dias.map((d) => [d.dia, SEMANA_CURTA[d.dia_da_semana], n(d.kwh, 3), n(d.custo, 2), d.inteiro ? "sim" : "não"].join(";"))];
+  const arquivo = new Blob(["\ufeff" + linhas.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
+  const a = el("a", { href: URL.createObjectURL(arquivo), download: `meterwatt-${r.mes}.csv` });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
 /* ------------------------------------------------------------------ medidores */

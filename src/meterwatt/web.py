@@ -496,6 +496,16 @@ def criar_app(plataforma):
     def economia():
         return ok(plataforma.economia.estado(g.sessao))
 
+    @app.get("/api/relatorios")
+    @exige_sessao()
+    def relatorios():
+        return ok(plataforma.relatorios.disponiveis(g.sessao))
+
+    @app.get("/api/relatorios/<mes>")
+    @exige_sessao()
+    def relatorio(mes):
+        return ok(plataforma.relatorios.mes(g.sessao, mes))
+
     @app.get("/api/contas-de-luz")
     @exige_sessao()
     def contas_de_luz():

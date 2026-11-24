@@ -356,6 +356,7 @@
         <article class="bloco bloco-dias">
           <h2>Últimos 14 dias</h2>
           <div class="barras" id="barras-dias" role="img" aria-label="Consumo por dia"></div>
+          <a class="link link-relatorio" href="#relatorio">Relatório do mês</a>
         </article>
 
         <article class="bloco bloco-economia" id="bloco-economia" hidden></article>
@@ -396,6 +397,38 @@
     </section>
 
     <!-- ----------------------------------------------- avisos -->
+    <section data-rota="relatorio" class="relatorio" hidden>
+      <div class="rel-cabeca">
+        <h1 id="rel-titulo">Relatório do mês</h1>
+        <div class="rel-controles">
+          <label class="rel-escolha">Mês<select id="rel-mes"></select></label>
+          <button type="button" class="secundario" id="rel-imprimir">Imprimir ou salvar em PDF</button>
+          <button type="button" class="discreto" id="rel-planilha">Baixar os dias (planilha)</button>
+        </div>
+      </div>
+      <p class="rel-aviso" id="rel-aviso" hidden></p>
+      <dl class="rel-numeros" id="rel-numeros"></dl>
+      <article class="bloco rel-dias">
+        <h2>Dia a dia</h2>
+        <div class="rel-grafico" id="rel-grafico" role="img"></div>
+        <p class="dica" id="rel-legenda"></p>
+        <details class="perfil-detalhes rel-tabela-detalhes">
+          <summary>Ver como tabela</summary>
+          <div class="perfil-tabela" id="rel-tabela"></div>
+        </details>
+      </article>
+      <article class="bloco rel-destaques">
+        <h2>O que se destacou</h2>
+        <ul class="rel-lista" id="rel-lista"></ul>
+      </article>
+      <article class="bloco rel-aparelhos" id="rel-aparelhos" hidden>
+        <h2>Aparelhos que mais gastaram</h2>
+        <ul class="rel-lista" id="rel-aparelhos-lista"></ul>
+        <p class="dica">Palpites do Detetive de aparelhos: só os ciclos que ele reconheceu.</p>
+      </article>
+      <p class="dica rel-rodape">O custo é a energia vezes a tarifa informada, mais a bandeira do mês (sem os impostos sobre ela). A conta de luz tem outro período de leitura, iluminação pública e impostos, então o valor dela é diferente. Os números de dias com medição incompleta entram no total, mas não nas médias.</p>
+    </section>
+
     <section data-rota="avisos" hidden>
       <h1>Avisos</h1>
       <article class="bloco">

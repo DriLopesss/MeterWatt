@@ -336,7 +336,7 @@ class Notificacoes:
 
     # ------------------------------------------------------------ entrega dos avisos
 
-    def entregar(self, uid, tipo, titulo, texto, tag=None):
+    def entregar(self, uid, tipo, titulo, texto, tag=None, url=None):
         """Manda um aviso para todos os aparelhos da conta. Devolve quantos aceitaram."""
         if not self.vapid:
             return 0
@@ -345,7 +345,7 @@ class Notificacoes:
         if not linhas:
             return 0
         dados = {"titulo": titulo, "texto": texto if len(texto) <= 1500 else texto[:1499] + "…", "tag": tag or tipo,
-                 "url": "/#avisos", "quando": self.p.iso(self.p.agora()), "nao_lidos": self.p.alertas.nao_lidos(conn, uid)}
+                 "url": url or "/#avisos", "quando": self.p.iso(self.p.agora()), "nao_lidos": self.p.alertas.nao_lidos(conn, uid)}
         return sum(1 for linha in linhas if self._entregar_para(conn, linha, tipo, dados) in (200, 201, 202))
 
     def _entregar_para(self, conn, linha, tipo, dados):

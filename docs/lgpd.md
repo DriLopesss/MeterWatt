@@ -84,6 +84,10 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 ## O que entrou no bloco 11 (conferir com a conta de luz)
 - **Contas de luz digitadas**: período, kWh faturado e total em reais, junto do consumo medido no período e de quanto dele foi medido (guardados na hora, porque o consumo de 5 em 5 minutos some com a retenção). É dado de consumo, então segue o consumo: faz parte do serviço autorizado em "dados de consumo", entra na cópia dos dados (`contas_de_luz`), some ao apagar o consumo e ao excluir a conta, e cada conta guardada ou apagada vai para a atividade. No máximo 36 contas por pessoa.
 
+## O que entrou no bloco 12 (relatório do mês)
+- O relatório sai na hora do consumo já guardado; nada novo é gravado. A planilha é montada no navegador da pessoa, sem passar por outro serviço.
+- **Resumo do mês**: um aviso novo (dia 1º), com a mesma base dos outros avisos (parte do serviço autorizado em "dados de consumo"); cada canal (e-mail e notificação) tem a sua chave em Avisos. O texto do e-mail tem kWh e reais do mês.
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).

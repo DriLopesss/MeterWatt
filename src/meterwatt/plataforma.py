@@ -49,6 +49,7 @@ class Plataforma:
         from .graficos import Graficos
         from .tarifas import Tarifas
         from .contas_luz import ContasDeLuz
+        from .relatorios import Relatorios
         from .medidores import Medidores
         from .notificacoes import Notificacoes
         from .pagamentos import Pagamentos
@@ -64,6 +65,7 @@ class Plataforma:
         self.graficos = Graficos(self)
         self.tarifas = Tarifas(self)
         self.contas_luz = ContasDeLuz(self)
+        self.relatorios = Relatorios(self)
         self.notificacoes = Notificacoes(self)
 
     # ------------------------------------------------------------ tempo

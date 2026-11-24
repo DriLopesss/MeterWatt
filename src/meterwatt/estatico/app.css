@@ -403,6 +403,45 @@ input[type=range]:disabled{opacity:.4;cursor:not-allowed}
 
 .eco-cabeca{display:grid;gap:10px}
 
+/* Relatório do mês */
+.link-relatorio{justify-self:start;font-size:.92rem}
+.relatorio:not([hidden]){display:grid;gap:18px}
+.rel-cabeca{display:grid;gap:12px}
+.rel-controles{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.rel-escolha{min-width:200px}
+.rel-aviso{color:var(--ambar);font-size:.92rem;max-width:66ch}
+.rel-numeros{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0}
+.rel-numero{background:var(--painel);border:1px solid var(--linha);border-radius:var(--raio);padding:14px 16px;display:grid;gap:4px;align-content:start}
+.rel-numero dt{color:var(--suave);font-size:.84rem}
+.rel-numero dd{margin:0;font:600 1.35rem var(--f-numero);font-variant-numeric:tabular-nums;color:var(--tinta)}
+.rel-numero dd.rel-sub{font:400 .8rem var(--f-texto);color:var(--apagado)}
+.rel-grafico{min-height:150px}
+.rel-grafico svg{display:block;max-width:100%;height:auto}
+.rel-grafico .grade{stroke:rgba(255,255,255,.07);stroke-width:1;shape-rendering:crispEdges}
+.rel-grafico .eixo{fill:var(--apagado);font:400 11px var(--f-numero)}
+.rel-grafico .rel-media{stroke-width:1.5;stroke-dasharray:4 4}
+.rel-grafico .rel-media-rotulo{fill:var(--suave)}
+.rel-lista{margin:0;padding-left:1.1em;display:grid;gap:8px;color:var(--tinta);max-width:70ch}
+.rel-lista strong{font-weight:600}
+.rel-rodape{max-width:70ch}
+@media (max-width:760px){.rel-numeros{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Imprimir ou salvar em PDF: só o relatório, em papel branco. */
+@media print{
+  @page{margin:14mm}
+  :root{--painel:#fff;--linha:#ccc;--tinta:#111;--suave:#333;--apagado:#555;--noite2:#fff}
+  body{background:#fff!important;color:#111}
+  body::before,body::after,.topo,.abas,.faixa-demo,.aviso-flutuante,.rel-controles,#aviso,canvas{display:none!important}
+  .bloco,.rel-numero{background:#fff!important;border-color:#ccc!important;box-shadow:none!important;break-inside:avoid}
+  .rel-grafico .grade{stroke:#ddd}
+  .rel-grafico .eixo,.rel-grafico .rel-media-rotulo{fill:#444}
+  .rel-tabela-detalhes > :not(summary){display:block!important}
+  .rel-tabela-detalhes summary{display:none}
+  .perfil-tabela{max-height:none!important;overflow:visible!important}
+  .perfil-tabela thead th{background:#fff!important}
+  .relatorio a{color:#111}
+}
+
 /* Conferir com a conta de luz */
 .contas-luz{margin-top:26px;gap:16px}
 .cl-lista{display:grid;gap:12px}
