@@ -110,6 +110,14 @@ Em Medidores, o bloco **Qualidade da energia** mostra os últimos 30 dias: quant
 - Falta de energia = o medidor voltou reiniciado depois de 3 minutos ou mais sem leituras (ele se alimenta da rede da casa). Pode ser também alguém ter tirado o medidor da tomada; uma queda só do Wi-Fi não conta.
 - O MeterWatt não é o medidor oficial. Os números de tempo em cada faixa não são os indicadores oficiais DRP e DRC, e quedas de menos de um segundo não aparecem (o PZEM dá uma leitura por segundo). O registro serve para dar datas, horários e números à distribuidora: pedir a verificação do nível de tensão ou o ressarcimento de um aparelho queimado (prazo de 5 anos; ela pede a data e o horário prováveis).
 
+### Home Assistant
+
+Em Conta > **Home Assistant**, a pessoa cria uma chave só de leitura (até 3, cada uma com nome; a chave aparece uma vez e o servidor guarda só o resumo dela) e recebe o trecho pronto para o `configuration.yaml`, usando a integração RESTful do Home Assistant (`rest:`). Ele busca `GET /api/integracao/estado` a cada 30 segundos com `Authorization: Bearer <chave>` e cria quatro sensores: potência (W), energia total (kWh, `total_increasing`, aceita no painel de Energia), consumo de hoje e tensão.
+
+- O total de energia só cresce: soma as leituras (e os minutos guardados sem Wi-Fi) dos medidores de entrada. Não sai do consumo de 5 em 5 minutos porque a retenção apaga o que é antigo. Volta a zero só quando a pessoa apaga o consumo.
+- A chave não muda nada e não vê o Detetive, a economia, os avisos nem os dados de cadastro. Cancelada, para de funcionar na hora.
+- Em produção o endereço precisa ser `https://` (o Caddy do `infra/` cuida disso): a chave vai no cabeçalho de cada pedido.
+
 ## 🧪 Como testar
 
 ### 1. Broker MQTT com senha (Mosquitto)

@@ -811,6 +811,8 @@
     if (chave === "GET /relatorios") return [200, relatoriosDisponiveis()];
     if (chave === "GET /qualidade") return [200, E.medidores.some((m) => !m.parado && !m.cozinha) ? qualidade()
       : { dias: 30, disponivel: false, medidores: [], eventos: [], leituras_minimas: 300, falta_minima_min: 3 }];
+    if (chave === "GET /integracao") return [200, { chaves: [], maximo: 3 }];
+    if (partes[0] === "integracao") return NAO_NA_DEMO;
     if (chave === "GET /casa") return [200, casa()];
     if (chave === "POST /casa/convites") return convidarParaCasa(corpo || {});
     if (metodo === "DELETE" && partes[0] === "casa" && partes[1] === "convites") {

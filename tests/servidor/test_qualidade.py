@@ -84,7 +84,7 @@ def test_falta_de_fase_quando_ela_volta(cliente, plataforma, relogio):
                 "fases": [{"fase": 1, "ok": True, "tensao_v": 127.0, "corrente_a": 1, "potencia_w": 100, "energia_wh": 5, "fp": 0.9},
                           {"fase": 2, "ok": True, "tensao_v": 221.0, "corrente_a": 1, "potencia_w": 100, "energia_wh": 5, "fp": 0.9}
                           if ok2 else {"fase": 2, "ok": False, "erro": "sem_resposta"}]}
-    pub = lambda c: plataforma.medidores.processar_mqtt(f"meterwatt/{mid}/telemetria", json.dumps(c).encode())  # noqa: E731
+    pub = lambda c: plataforma.medidores.processar_mqtt(f"meterwatt/{mid}/telemetria", json.dumps(c).encode())
     pub(fases(True))
     relogio.avancar(1)
     pub(fases(False))

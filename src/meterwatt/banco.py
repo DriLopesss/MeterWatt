@@ -371,6 +371,20 @@ MIGRACOES = [
     CREATE INDEX eventos_energia_medidor ON eventos_energia(medidor_id, inicio);
     ALTER TABLE medidores ADD COLUMN uptime_s REAL;
     """,
+    # 17: integração (Home Assistant). Chaves só de leitura (guardadas como hash) e um total de energia que só
+    # cresce, para o painel de Energia de lá (o consumo de 5 em 5 minutos é apagado pela retenção).
+    """
+    CREATE TABLE chaves_integracao (
+        id INTEGER PRIMARY KEY,
+        usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        nome TEXT NOT NULL,
+        chave_hash TEXT NOT NULL UNIQUE,
+        criada_em REAL NOT NULL,
+        ultimo_uso REAL
+    );
+    CREATE INDEX chaves_integracao_usuario ON chaves_integracao(usuario_id);
+    ALTER TABLE usuarios ADD COLUMN energia_total_wh REAL NOT NULL DEFAULT 0;
+    """,
 ]
 
 
