@@ -496,6 +496,16 @@ def criar_app(plataforma):
     def economia():
         return ok(plataforma.economia.estado(g.sessao))
 
+    @app.get("/api/economia/tarifa-branca")
+    @exige_sessao()
+    def tarifa_branca():
+        return ok(plataforma.tarifas.tarifa_branca(g.sessao))
+
+    @app.put("/api/conta/tarifa-branca")
+    @exige_sessao()
+    def tarifa_branca_salvar():
+        return ok(plataforma.tarifas.salvar(g.sessao, corpo(), ip()))
+
     @app.get("/api/economia/resumo")
     @exige_sessao()
     def economia_resumo():

@@ -328,6 +328,63 @@
     return { atualizar(d) { dados = d; desenhar(); } };
   }
 
+  /* ------------------------------------------------------------ Tarifa Branca: o dia útil típico */
+
+  // Do mais barato ao mais caro: o mesmo caminho de cores da casa em 3D (frio quando a casa está calma,
+  // magenta no pico). Conferidas no validador de paleta sobre o fundo #171428 (contraste, daltonismo).
+  const COR_POSTO = { fora: "#14a3bf", intermediario: "#c78602", ponta: "#ee3dc9" };
+  const NOME_POSTO = { fora: "fora de ponta", intermediario: "intermediário", ponta: "ponta" };
+  const meiaHora = (i) => `${Math.floor(i / 2)}h${i % 2 ? "30" : ""}`;
+  const horaCurta = (texto) => {             // "18:00" -> "18h", "17:30" -> "17h30", "00:00" (fim) -> "24h"
+    const [h, m] = texto.split(":").map(Number);
+    return `${h === 0 ? 24 : h}h${m ? String(m).padStart(2, "0") : ""}`;
+  };
+
+  function desenharTarifaBranca(caixa, r) {
+    const W = largura(caixa), H = 196;
+    const m = { e: 40, d: 4, t: 28, b: 22 };
+    const pw = W - m.e - m.d, ph = H - m.t - m.b;
+    const dados = r.perfil.dia_util;
+    const max = teto(Math.max(0.02, ...dados.filter((v) => v != null)));
+    const y = (v) => m.t + ph - (v / max) * ph;
+    const slot = pw / 48, bw = Math.max(2, Math.min(14, slot - 1.5));
+    const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, "aria-hidden": "true" });
+    // As faixas da ponta e do intermediário, atrás das barras.
+    const faixas = [];
+    for (let i = 0; i < 48;) {
+      let j = i;
+      while (j < 48 && r.postos[j] === r.postos[i]) j++;
+      if (r.postos[i] !== "fora") faixas.push([r.postos[i], i, j]);
+      i = j;
+    }
+    faixas.forEach(([p, a, b]) => svg.append(s("rect", { x: m.e + a * slot, y: m.t, width: (b - a) * slot, height: ph, class: `tb-faixa tb-faixa-${p}` })));
+    const ponta = faixas.find(([p]) => p === "ponta");
+    if (ponta) {
+      svg.append(s("text", { x: m.e + ((ponta[1] + ponta[2]) / 2) * slot, y: m.t - 9, class: "eixo tb-rotulo", "text-anchor": "middle" },
+        `ponta ${horaCurta(r.ponta.inicio)}–${horaCurta(r.ponta.fim)}`));
+    }
+    for (let i = 0; i <= 2; i++) {
+      const v = (max / 2) * i;
+      const casas = [0, 1, 2].find((c) => Math.abs(v * 10 ** c - Math.round(v * 10 ** c)) < 1e-9) ?? 2;
+      svg.append(s("line", { x1: m.e, x2: W - m.d, y1: y(v), y2: y(v), class: "grade" }),
+        s("text", { x: m.e - 6, y: y(v) + 4, class: "eixo", "text-anchor": "end" }, num(v, casas)));
+    }
+    svg.append(s("text", { x: m.e - 6, y: 10, class: "eixo", "text-anchor": "end" }, "kWh"));
+    dados.forEach((v, i) => {
+      if (v == null || v <= 0) return;
+      const x = m.e + i * slot + (slot - bw) / 2;
+      svg.append(s("path", { d: colunaPath(x, y(v), bw, m.t + ph - y(v), Math.min(3, bw / 2)), fill: COR_POSTO[r.postos[i]] },
+        s("title", {}, `${meiaHora(i)} às ${meiaHora(i + 1)}: ${kwh(v)} (${NOME_POSTO[r.postos[i]]})`)));
+    });
+    [0, 6, 12, 18, 24].forEach((h) => svg.append(s("text", { x: m.e + h * 2 * slot, y: H - 6, class: "eixo",
+      "text-anchor": h === 0 ? "start" : h === 24 ? "end" : "middle" }, `${h}h`)));
+    caixa.replaceChildren(svg);
+    const pct = (k) => `${Math.round(r.mes.percentual[k] * 100)}%`;
+    caixa.setAttribute("aria-label", `Consumo de um dia útil típico, de meia em meia hora. Ponta das ${horaCurta(r.ponta.inicio)} às ` +
+      `${horaCurta(r.ponta.fim)}. No mês, ${pct("ponta")} do consumo cai na ponta, ${pct("intermediario")} no intermediário e ` +
+      `${pct("fora")} fora de ponta. A tabela abaixo tem os totais.`);
+  }
+
   /* ------------------------------------------------------------ a casa em 3D */
 
   // A cor acompanha a carga: ciano perto do que a casa gasta parada, âmbar no meio, magenta perto dos picos.
@@ -480,5 +537,5 @@
     }
   }
 
-  window.MWGraficos = { desenharFluxo, criarPerfil, CasaEm3D };
+  window.MWGraficos = { desenharFluxo, criarPerfil, CasaEm3D, desenharTarifaBranca, COR_POSTO, horaCurta };
 })();

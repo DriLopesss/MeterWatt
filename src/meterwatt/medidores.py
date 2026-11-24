@@ -532,11 +532,14 @@ class Medidores:
             return {"meta": u["meta_mensal_reais"], "sem_tarifa": True, "status": None}
         ids = self.ids_da_casa(conn, uid)
         inicio_mes, proximo = self.p.inicio_do_mes(agora), self.p.inicio_do_proximo_mes(agora)
-        gasto = self._wh_entre(conn, ids, inicio_mes, agora + 1) / 1000 * tarifa
+        kwh_gasto = self._wh_entre(conn, ids, inicio_mes, agora + 1) / 1000
+        gasto = kwh_gasto * tarifa
         dias_medidos = self._dias_com_dados(conn, ids, agora)
-        media_dia = (self._wh_entre(conn, ids, agora - 7 * 86400, agora + 1) / 1000 * tarifa / dias_medidos) if dias_medidos else 0.0
+        kwh_dia = (self._wh_entre(conn, ids, agora - 7 * 86400, agora + 1) / 1000 / dias_medidos) if dias_medidos else 0.0
+        media_dia = kwh_dia * tarifa
         dias_restantes = max(0.0, (proximo - agora) / 86400)
-        projecao = gasto + media_dia * dias_restantes
+        # A conta de verdade cobra pelo menos o mínimo da ligação e soma a bandeira do mês (veja tarifas.py).
+        projecao, conta = self.p.tarifas.ajustar_previsao(conn, u, kwh_gasto + kwh_dia * dias_restantes, tarifa, agora)
         meta = u["meta_mensal_reais"]
         status = None
         if meta:
@@ -546,5 +549,5 @@ class Medidores:
             "projecao": round(projecao, 2), "dias_restantes": round(dias_restantes, 1),
             "percentual": round(projecao / meta, 3) if meta else None, "status": status,
             "folga_diaria": round((meta - gasto) / dias_restantes, 2) if meta and dias_restantes >= 1 else None,
-            "base_de_dias": round(dias_medidos, 1), "tarifa_kwh": tarifa, "sem_tarifa": False,
+            "base_de_dias": round(dias_medidos, 1), "tarifa_kwh": tarifa, "sem_tarifa": False, **conta,
         }

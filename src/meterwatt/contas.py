@@ -221,7 +221,7 @@ class Contas:
         conn = self.p.db()
         linha = conn.execute(
             "SELECT s.id AS sessao_id, s.usuario_id, s.csrf, s.etapa, s.tentativas_2fa, s.criada_em, s.ultimo_uso, "
-            "s.expira_em, u.email, u.nome, u.totp_ativado_em, u.tarifa_kwh, u.meta_mensal_reais "
+            "s.expira_em, u.email, u.nome, u.totp_ativado_em, u.tarifa_kwh, u.meta_mensal_reais, u.ligacao "
             "FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id WHERE s.token_hash = ?", (hash_token(token),)).fetchone()
         if not linha:
             return None
@@ -459,7 +459,7 @@ class Contas:
             "dois_fatores": bool(sessao["totp_ativado_em"]), "codigos_backup_restantes": restantes,
             "exigir_2fa": self.p.cfg.exigir_2fa,
             "tarifa_kwh": sessao["tarifa_kwh"], "tarifa_padrao": self.p.cfg.tarifa_padrao,
-            "meta_mensal_reais": sessao["meta_mensal_reais"],
+            "meta_mensal_reais": sessao["meta_mensal_reais"], "ligacao": sessao["ligacao"],
             "consentimento_consumo": self.p.consentimento(conn, sessao["usuario_id"], "consumo"),
             "avisos_nao_lidos": self.p.alertas.nao_lidos(conn, sessao["usuario_id"]),
             "plano": self.p.pagamentos.plano_de(conn, sessao["usuario_id"]),
@@ -477,8 +477,13 @@ class Contas:
             raise _invalido()
         tarifa = valor("tarifa_kwh", 0, 10, "A tarifa (R$ por kWh)")
         meta = valor("meta_mensal_reais", 0, 100000, "A meta do mês (R$)")
+        ligacao = dados.get("ligacao")
+        if ligacao not in (None, "monofasica", "bifasica", "trifasica"):
+            raise _invalido("O tipo de ligação é monofásica, bifásica ou trifásica.")
         conn = self.p.db()
         with conn:
             conn.execute("UPDATE usuarios SET tarifa_kwh = ?, meta_mensal_reais = ? WHERE id = ?",
                          (tarifa, meta, sessao["usuario_id"]))
+            if "ligacao" in dados:          # versões antigas do app não mandam: fica como estava
+                conn.execute("UPDATE usuarios SET ligacao = ? WHERE id = ?", (ligacao, sessao["usuario_id"]))
             self.p.auditar(conn, sessao["usuario_id"], "preferencias", None, ip)

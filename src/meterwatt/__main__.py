@@ -32,6 +32,10 @@ def _tarefas(plataforma, parar):
                 apagados = plataforma.privacidade.reter()
                 if any(apagados.values()):
                     log.info("Retenção: %s", {k: v for k, v in apagados.items() if v})
+            if volta % 288 == 1:                  # uma vez por dia (e logo depois de ligar)
+                falta = plataforma.tarifas.bandeira_pendente()
+                if falta:
+                    log.warning(falta)
             if plataforma.cfg.backup_automatico and copia.precisa(plataforma.cfg):
                 log.info("Cópia de segurança gravada em %s", copia.fazer(plataforma.cfg))
         except Exception:
@@ -48,6 +52,10 @@ def main(argv=None):
     ap.add_argument("--backup", action="store_true", help="tira uma cópia de segurança cifrada e sai")
     ap.add_argument("--restaurar", metavar="ARQUIVO", help="decifra uma cópia de segurança num arquivo novo e sai")
     ap.add_argument("--lista-espera", action="store_true", help="imprime a lista de espera confirmada (CSV) e sai")
+    ap.add_argument("--bandeira", nargs=2, metavar=("MES", "COR"),
+                    help="registra a bandeira tarifária do mês que a ANEEL anunciou (ex.: 2026-12 amarela; "
+                         "cores: verde, amarela, vermelha1, vermelha2) e sai")
+    ap.add_argument("--bandeiras", action="store_true", help="mostra as bandeiras registradas e sai")
     args = ap.parse_args(argv)
     if args.gerar_chave:
         print(config.gerar_chave())
@@ -81,6 +89,19 @@ def main(argv=None):
     plataforma = Plataforma(cfg)
     if args.backup:
         print(f"Cópia de segurança gravada em {copia.fazer(cfg)}")
+        return 0
+    if args.bandeira:
+        try:
+            b = plataforma.tarifas.registrar_bandeira(*args.bandeira)
+        except ValueError as erro:
+            print(erro, file=sys.stderr)
+            return 2
+        valor = f"{b['reais_por_100_kwh']:.3f}".replace(".", ",")
+        print(f"Bandeira de {b['mes']}: {b['nome']} (R$ {valor} a cada 100 kWh, sem impostos).")
+        return 0
+    if args.bandeiras:
+        for b in plataforma.tarifas.bandeiras():
+            print(f"{b['mes']}  {b['cor']}")
         return 0
     if args.lista_espera:
         linhas = plataforma.espera.exportar_confirmados()

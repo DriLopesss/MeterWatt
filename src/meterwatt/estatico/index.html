@@ -323,15 +323,22 @@
             </div>
           </div>
           <p class="meta-mensagem" id="meta-mensagem"></p>
+          <p class="meta-conta" id="meta-conta" hidden></p>
           <details class="ajustar">
-            <summary>Ajustar meta e tarifa</summary>
+            <summary>Ajustar meta, tarifa e ligação</summary>
             <form id="form-preferencias" class="linha-form" novalidate>
               <label>Meta do mês (R$)<input name="meta_mensal_reais" inputmode="decimal" placeholder="ex.: 180"></label>
               <label>Tarifa (R$ por kWh)<input name="tarifa_kwh" inputmode="decimal" placeholder="ex.: 0,92"></label>
+              <label>Tipo de ligação<select name="ligacao">
+                <option value="">Não sei</option>
+                <option value="monofasica">Monofásica (mínimo de 30 kWh)</option>
+                <option value="bifasica">Bifásica (mínimo de 50 kWh)</option>
+                <option value="trifasica">Trifásica (mínimo de 100 kWh)</option>
+              </select></label>
               <button class="secundario" type="submit">Salvar</button>
               <p class="erro" role="alert"></p>
             </form>
-            <p class="dica">A tarifa está na conta de luz, somando energia (TE) e uso da rede (TUSD), com impostos. Bandeiras mudam o valor de mês a mês.</p>
+            <p class="dica">A tarifa está na conta de luz, somando energia (TE) e uso da rede (TUSD), com impostos. O tipo de ligação também: a conta nunca fica abaixo do mínimo dele (na bifásica de dois fios, o mínimo é de 30 kWh). A bandeira do mês entra na previsão depois que a ANEEL anuncia.</p>
           </details>
         </article>
 
@@ -447,6 +454,51 @@
           <div class="eco-cartoes" id="eco-cartoes"></div>
         </div>
       </div>
+      <section class="bloco tarifa-branca" id="tarifa-branca" aria-labelledby="tb-titulo">
+        <h2 id="tb-titulo">Tarifa Branca: vale a pena?</h2>
+        <p class="tb-resultado" id="tb-resultado">Carregando…</p>
+        <figure class="tb-figura" id="tb-figura" hidden>
+          <figcaption class="tb-legenda-titulo">Um dia útil típico da sua casa, de meia em meia hora</figcaption>
+          <div class="tb-grafico" id="tb-grafico" role="img"></div>
+          <div class="perfil-legenda tb-legenda" id="tb-legenda"></div>
+          <p class="dica">Sábados, domingos e feriados nacionais são fora de ponta o dia inteiro.</p>
+        </figure>
+        <div class="tb-tabela" id="tb-tabela"></div>
+        <p class="tb-empate" id="tb-empate" hidden></p>
+        <div class="tb-aparelhos" id="tb-aparelhos" hidden></div>
+        <details class="ajustar tb-ajustar" id="tb-ajustar">
+          <summary>Horário e preços da sua distribuidora</summary>
+          <form id="form-tarifa-branca" class="tb-form" novalidate>
+            <label class="tb-campo-ponta">Começo da ponta<select name="ponta_inicio">
+              <option value="">Não sei (usar 18h como exemplo)</option>
+              <option>15:00</option><option>15:30</option><option>16:00</option><option>16:30</option><option>17:00</option>
+              <option>17:30</option><option>18:00</option><option>18:30</option><option>19:00</option><option>19:30</option><option>20:00</option>
+            </select></label>
+            <fieldset class="tb-precos">
+              <legend>Preços da mesma tabela, em R$ por kWh</legend>
+              <label>Convencional<input name="convencional" inputmode="decimal" placeholder="ex.: 0,90" autocomplete="off"></label>
+              <label>Branca fora de ponta<input name="fora" inputmode="decimal" placeholder="ex.: 0,75" autocomplete="off"></label>
+              <label>Branca intermediário<input name="intermediario" inputmode="decimal" placeholder="ex.: 1,10" autocomplete="off"></label>
+              <label>Branca ponta<input name="ponta" inputmode="decimal" placeholder="ex.: 1,73" autocomplete="off"></label>
+            </fieldset>
+            <button class="secundario" type="submit">Salvar</button>
+            <p class="erro" role="alert"></p>
+          </form>
+          <p class="dica">O horário de ponta e os preços estão no site da sua distribuidora (procure por "Tarifa Branca") e mudam a cada reajuste anual. Copie os quatro preços da mesma tabela, todos com impostos ou todos sem: a comparação usa a proporção entre eles e a tarifa que você informou na meta do mês.</p>
+        </details>
+        <details class="como tb-regras">
+          <summary>Antes de pedir a mudança</summary>
+          <ul>
+            <li>Na Tarifa Branca, o kWh fica mais barato fora de ponta e mais caro na ponta e no intermediário, que valem de segunda a sexta. Sábados, domingos e feriados nacionais são fora de ponta o dia inteiro.</li>
+            <li>A ponta são 3 horas seguidas que cada distribuidora define. O intermediário é a hora antes e a hora depois dela.</li>
+            <li>Pode pedir quem é atendido em baixa tensão, menos a subclasse baixa renda e a iluminação pública. A distribuidora tem até 30 dias para mudar.</li>
+            <li>Dá para voltar para a convencional quando quiser (também em até 30 dias), mas uma nova adesão à branca só depois de 180 dias.</li>
+            <li>A bandeira tarifária vale igual nas duas, então não muda a comparação. O resultado acima é uma estimativa com o consumo das últimas 4 semanas: verão, inverno e férias mudam o jeito de usar.</li>
+          </ul>
+          <p>Fontes: <a href="https://www.gov.br/aneel/pt-br/assuntos/tarifas/tarifa-branca/perguntas-frequentes-sobre-tarifa-branca" target="_blank" rel="noopener">perguntas frequentes da ANEEL sobre a Tarifa Branca</a>, <a href="https://www.gov.br/aneel/pt-br/assuntos/tarifas/entenda-a-tarifa/modalidades-tarifarias" target="_blank" rel="noopener">modalidades tarifárias (ANEEL)</a> e a Resolução Normativa ANEEL nº 1.000/2021 (art. 2º e arts. 222 e 223).</p>
+        </details>
+      </section>
+
       <details class="como eco-como">
         <summary>Como calculamos</summary>
         <p>A economia de cada ideia é a potência do aparelho vezes o tempo a menos que ele fica ligado. A potência e o tempo de uso do chuveiro e da geladeira vêm do Detetive de aparelhos. O consumo em espera vem das madrugadas, como no consumo fantasma. Um mês, aqui, é a média de um ano: 365 dias divididos por 12.</p>
