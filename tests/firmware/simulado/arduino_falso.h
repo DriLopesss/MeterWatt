@@ -22,29 +22,65 @@ inline void delay(unsigned long ms) { relogio_ms += ms; }
 #define WL_CONNECTED 3
 #define WIFI_STA 1
 struct SerialUsb {
+  std::deque<char> entrada;          // o que a pessoa digitou no Monitor Serial
+  std::string saida;                 // tudo o que o firmware escreveu
   void begin(int) {}
-  void printf(const char* f, ...) { va_list a; va_start(a, f); vprintf(f, a); va_end(a); }
-  void println(const char* s) { std::printf("%s\n", s); }
+  void digitar(const std::string& s) { for (char c : s) entrada.push_back(c); }
+  int available() { return (int)entrada.size(); }
+  int read() { char c = entrada.front(); entrada.pop_front(); return (uint8_t)c; }
+  void printf(const char* f, ...) {
+    char b[512]; va_list a; va_start(a, f); vsnprintf(b, sizeof(b), f, a); va_end(a); saida += b; std::printf("%s", b);
+  }
+  void println(const char* s) { saida += s; saida += "\n"; std::printf("%s\n", s); }
 } Serial;
 enum ModoPzem { NORMAL, MUDO, CORROMPIDO };
+// Um PZEM de mentira. Vários podem dividir o mesmo par de fios, cada um com o seu endereço.
+struct ModuloPzem {
+  uint8_t endereco = 0x01;           // de fábrica
+  ModoPzem modo = NORMAL; uint32_t energia = 1234567; bool zerou = false;
+  uint16_t tensao = 1273; uint32_t corrente = 4321, potencia = 5482; uint16_t fp = 98;
+};
 struct HardwareSerial {
-  std::deque<uint8_t> fila; ModoPzem modo = NORMAL; uint32_t energia = 1234567; int baud = 0, rx = -1, tx = -1; bool zerou = false;
+  std::deque<uint8_t> fila; int baud = 0, rx = -1, tx = -1;
+  // Espaço para 4 módulos desde o início: os atalhos abaixo apontam para o primeiro e não podem mudar de lugar.
+  static std::vector<ModuloPzem> criar() { std::vector<ModuloPzem> v; v.reserve(4); v.push_back(ModuloPzem()); return v; }
+  std::vector<ModuloPzem> modulos = criar();
+  // Atalhos para o caso de um módulo só (os testes antigos).
+  ModoPzem& modo = modulos[0].modo; bool& zerou = modulos[0].zerou;
+  HardwareSerial() {}
+  HardwareSerial(const HardwareSerial&) = delete;
   void begin(int b, int, int r, int t) { baud = b; rx = r; tx = t; }
   int available() { return (int)fila.size(); }
   int read() { uint8_t b = fila.front(); fila.pop_front(); return b; }
   void flush() {}
-  size_t write(const uint8_t* p, size_t n) {
-    if (modo == MUDO || !pzem::crcConfere(p, n)) return n;
+  void responder(ModuloPzem& m, const uint8_t* p, size_t n, std::vector<uint8_t>& saida) {
+    if (m.modo == MUDO) return;
     if (n == 8 && p[1] == 0x04) {
-      uint8_t r[25] = {0x01, 0x04, 20};
+      uint8_t r[25] = {m.endereco, 0x04, 20};
       auto w = [&](int pos, uint16_t x) { r[pos] = x >> 8; r[pos + 1] = x & 0xFF; };
-      w(3, 1273); w(5, 4321); w(7, 0); w(9, 5482); w(11, 0);
-      w(13, energia & 0xFFFF); w(15, energia >> 16); w(17, 600); w(19, 98); w(21, 0);
+      w(3, m.tensao); w(5, m.corrente & 0xFFFF); w(7, m.corrente >> 16); w(9, m.potencia & 0xFFFF); w(11, m.potencia >> 16);
+      w(13, m.energia & 0xFFFF); w(15, m.energia >> 16); w(17, 600); w(19, m.fp); w(21, 0);
       uint16_t c = pzem::crc16(r, 23); r[23] = c & 0xFF; r[24] = c >> 8;
-      if (modo == CORROMPIDO) r[10] ^= 0x40;
-      for (uint8_t b : r) fila.push_back(b);
-      energia += 1;
-    } else if (n == 4 && p[1] == 0x42) { for (size_t i = 0; i < 4; i++) fila.push_back(p[i]); energia = 0; zerou = true; }
+      if (m.modo == CORROMPIDO) r[10] ^= 0x40;
+      saida.insert(saida.end(), r, r + 25);
+      m.energia += 1;
+    } else if (n == 4 && p[1] == 0x42) {
+      saida.insert(saida.end(), p, p + 4); m.energia = 0; m.zerou = true;
+    } else if (n == 8 && p[1] == 0x06 && p[2] == 0x00 && p[3] == 0x02 && pzem::enderecoValido(p[5])) {
+      saida.insert(saida.end(), p, p + 8); m.endereco = p[5];
+    }
+  }
+  size_t write(const uint8_t* p, size_t n) {
+    if (!pzem::crcConfere(p, n)) return n;
+    // Todos os módulos ouvem; responde quem tem o endereço (o geral, 0xF8, faz TODOS responderem).
+    std::vector<std::vector<uint8_t>> respostas;
+    for (auto& m : modulos) {
+      if (p[0] != m.endereco && p[0] != pzem::ENDERECO_GERAL) continue;
+      std::vector<uint8_t> r; responder(m, p, n, r);
+      if (!r.empty()) respostas.push_back(r);
+    }
+    if (respostas.size() == 1) for (uint8_t b : respostas[0]) fila.push_back(b);
+    else if (respostas.size() > 1) for (size_t i = 0; i < respostas[0].size(); i++) fila.push_back(respostas[0][i] | respostas[1][i]);  // colisão
     return n;
   }
 } Serial2;

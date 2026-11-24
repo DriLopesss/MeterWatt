@@ -37,6 +37,12 @@
  *  - Com uma senha de atualização definida, o firmware pode ser atualizado pelo Wi-Fi
  *    (Arduino IDE > Ferramentas > Porta > porta de rede "mw-...").
  *
+ * CASA COM DUAS OU TRÊS FASES (v3.4):
+ *  - Um PZEM por fase, todos no mesmo par de fios da serial, cada um com o seu endereço Modbus
+ *    (PZEM_ENDERECOS no config.h). O medidor soma as fases e manda cada uma separada (fases.h).
+ *  - Para dar endereço a um módulo novo: ligue SÓ ele na serial, abra o Monitor Serial (115200)
+ *    e digite "endereco 2" (ou 1, 3...). "procurar" lista quem responde nos endereços 1 a 10.
+ *
  * Este firmware ainda NÃO foi testado com o módulo real. O protocolo foi testado no
  * computador (tests/firmware). O primeiro teste na bancada está descrito no README.
  */
@@ -47,11 +53,12 @@
 #include <ArduinoOTA.h>
 #include "config.h"
 #include "pzem_modbus.h"
+#include "fases.h"
 #include "ajustes.h"
 #include "pareamento.h"
 #include "ca_raiz.h"
 
-#define VERSAO_FW "3.3.0"
+#define VERSAO_FW "3.4.0"
 
 #ifndef USAR_PORTAL_WIFI
 #define USAR_PORTAL_WIFI 1
@@ -83,8 +90,13 @@ static_assert(sizeof(SENHA_PORTAL) >= 9 && sizeof(SENHA_PORTAL) <= 64,
 #ifndef MQTT_PORTA
 #define MQTT_PORTA 1883
 #endif
-#ifndef PZEM_ENDERECO
-#define PZEM_ENDERECO pzem::ENDERECO_GERAL
+// Um endereço por fase. Configs antigas só têm PZEM_ENDERECO (um módulo).
+#ifndef PZEM_ENDERECOS
+#ifdef PZEM_ENDERECO
+#define PZEM_ENDERECOS {PZEM_ENDERECO}
+#else
+#define PZEM_ENDERECOS {pzem::ENDERECO_GERAL}
+#endif
 #endif
 #ifndef PZEM_TIMEOUT_MS
 #define PZEM_TIMEOUT_MS 300
@@ -136,6 +148,14 @@ unsigned long ultimaTentativaMqtt = 0;
 unsigned long falhasLeitura = 0;   // desde que a placa ligou
 volatile bool pedidoZerarEnergia = false;
 
+const uint8_t enderecosPzem[] = PZEM_ENDERECOS;
+const size_t nFases = sizeof(enderecosPzem) / sizeof(enderecosPzem[0]);
+static_assert(sizeof(enderecosPzem) / sizeof(enderecosPzem[0]) >= 1 && sizeof(enderecosPzem) / sizeof(enderecosPzem[0]) <= fases::MAXIMO,
+              "PZEM_ENDERECOS precisa ter de 1 a 3 enderecos (um por fase).");
+bool enderecosOk = false;          // conferido no setup(): com mais de um módulo, nada de 0xF8 nem repetidos
+char linhaSerial[24];
+size_t tamLinhaSerial = 0;
+
 // Envia um pedido e espera `esperados` bytes. Devolve quantos chegaram.
 size_t trocarComPzem(const uint8_t* pedido, size_t tamPedido, uint8_t* resposta, size_t esperados) {
   while (serialPzem.available()) serialPzem.read();  // joga fora sobras de uma troca anterior
@@ -153,20 +173,82 @@ size_t trocarComPzem(const uint8_t* pedido, size_t tamPedido, uint8_t* resposta,
   return n;
 }
 
-pzem::Erro lerPzem(pzem::Medidas* m) {
+pzem::Erro lerPzem(uint8_t endereco, pzem::Medidas* m) {
   uint8_t pedido[pzem::TAM_PEDIDO_LEITURA];
   uint8_t resposta[pzem::TAM_RESPOSTA_LEITURA];
-  pzem::montarPedidoLeitura(PZEM_ENDERECO, pedido);
+  pzem::montarPedidoLeitura(endereco, pedido);
   size_t n = trocarComPzem(pedido, sizeof(pedido), resposta, sizeof(resposta));
-  return pzem::interpretar(resposta, n, PZEM_ENDERECO, m);
+  return pzem::interpretar(resposta, n, endereco, m);
 }
 
-bool zerarEnergiaNoPzem() {
+bool zerarEnergiaNoPzem(uint8_t endereco) {
   uint8_t pedido[pzem::TAM_PEDIDO_ZERAR];
   uint8_t resposta[pzem::TAM_PEDIDO_ZERAR];
-  pzem::montarPedidoZerar(PZEM_ENDERECO, pedido);
+  pzem::montarPedidoZerar(endereco, pedido);
   size_t n = trocarComPzem(pedido, sizeof(pedido), resposta, sizeof(resposta));
   return n == sizeof(resposta) && resposta[1] == pzem::FN_ZERAR_ENERGIA && pzem::crcConfere(resposta, n);
+}
+
+// ------------------------------------------------------------- comandos pelo Monitor Serial (cabo USB)
+// Só pelo cabo: dar endereço a um módulo não é coisa que se faça pela rede.
+
+void procurarModulos() {
+  Serial.println("Procurando PZEM nos enderecos 1 a 10...");
+  int achados = 0;
+  for (uint8_t e = 1; e <= 10; e++) {
+    pzem::Medidas m;
+    if (lerPzem(e, &m) == pzem::SEM_ERRO) {
+      Serial.printf("  endereco %u: responde (%.1f V)\n", (unsigned)e, m.tensao_v);
+      achados++;
+    }
+    delay(5);
+  }
+  if (!achados) Serial.println("  nenhum. Um modulo novo responde no endereco 1; confira 5V, GND, RX e TX.");
+}
+
+void trocarEndereco(int novo) {
+  if (!pzem::enderecoValido(novo)) {
+    Serial.println("Endereco precisa ser de 1 a 247. Exemplo: endereco 2");
+    return;
+  }
+  Serial.printf("Gravando o endereco %d no modulo ligado. Deixe SO ESTE modulo na serial.\n", novo);
+  uint8_t pedido[pzem::TAM_PEDIDO_ESCRITA];
+  uint8_t resposta[pzem::TAM_PEDIDO_ESCRITA];
+  pzem::montarPedidoEndereco(pzem::ENDERECO_GERAL, (uint8_t)novo, pedido);
+  size_t n = trocarComPzem(pedido, sizeof(pedido), resposta, sizeof(resposta));
+  delay(50);
+  pzem::Medidas m;
+  if (pzem::escritaConfirmada(pedido, resposta, n) && lerPzem((uint8_t)novo, &m) == pzem::SEM_ERRO) {
+    Serial.printf("Pronto: o modulo responde no endereco %d. Anote na etiqueta dele e no PZEM_ENDERECOS do config.h.\n", novo);
+  } else {
+    Serial.println("O modulo nao confirmou. Confira se ha UM modulo so na serial, ligado na rede (ele se alimenta dela).");
+  }
+}
+
+void executarComandoSerial(const char* linha) {
+  if (strcmp(linha, "procurar") == 0) {
+    procurarModulos();
+  } else if (strncmp(linha, "endereco ", 9) == 0) {
+    char* fim = nullptr;
+    long novo = strtol(linha + 9, &fim, 10);
+    trocarEndereco(fim && *fim == '\0' && fim != linha + 9 ? (int)novo : -1);
+  } else if (linha[0]) {
+    Serial.println("Comandos: procurar | endereco N (N de 1 a 247, com um modulo so na serial)");
+  }
+}
+
+void atenderSerial() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+    if (c != '\n') {
+      if (tamLinhaSerial < sizeof(linhaSerial) - 1) linhaSerial[tamLinhaSerial++] = c;
+      continue;
+    }
+    linhaSerial[tamLinhaSerial] = '\0';
+    tamLinhaSerial = 0;
+    executarComandoSerial(linhaSerial);
+  }
 }
 
 void aoReceberMqtt(char* topico, byte* dados, unsigned int tamanho) {
@@ -372,13 +454,20 @@ void setup() {
   Serial.printf("\nMeterWatt v%s (PZEM-004T v3) - id %s\n", VERSAO_FW, idDispositivo);
 
   serialPzem.begin(9600, SERIAL_8N1, PINO_RX_PZEM, PINO_TX_PZEM);
+  enderecosOk = fases::enderecosValidos(enderecosPzem, nFases);
+  if (!enderecosOk) {
+    Serial.println("ERRO no config.h: com mais de um PZEM, cada um precisa de um endereco de 1 a 247, sem repetir "
+                   "(o 0xF8 so serve com um modulo). O medidor nao vai ler ate isso ser corrigido.");
+  } else if (nFases > 1) {
+    Serial.printf("%u fases: um PZEM por fase no mesmo par de fios.\n", (unsigned)nFases);
+  }
   pinMode(PINO_BOTAO, INPUT_PULLUP);
   carregarAjustes();
   carregarCredencial();
   redeSegura.setCACert(CA_RAIZ);
 
   mqtt.setServer(cfg.host, cfg.porta);
-  mqtt.setBufferSize(512);
+  mqtt.setBufferSize(1024);         // com três fases, a mensagem passa de 512 bytes
   mqtt.setCallback(aoReceberMqtt);
 
   WiFi.mode(WIFI_STA);
@@ -427,11 +516,13 @@ void loop() {
     ultimaTentativaMqtt = 0;
   }
   enviarPareamentoSePreciso();
+  atenderSerial();
 
   if (pedidoZerarEnergia) {
     pedidoZerarEnergia = false;
     if (PERMITIR_ZERAR_ENERGIA) {
-      bool ok = zerarEnergiaNoPzem();
+      bool ok = enderecosOk;
+      for (size_t i = 0; i < nFases && enderecosOk; i++) ok = zerarEnergiaNoPzem(enderecosPzem[i]) && ok;
       Serial.printf("Zerar energia: %s\n", ok ? "feito" : "o modulo nao confirmou");
     } else {
       Serial.println("Zerar energia: ignorado (PERMITIR_ZERAR_ENERGIA esta em 0 no config.h)");
@@ -441,26 +532,28 @@ void loop() {
   if (millis() - ultimoEnvio < INTERVALO_ENVIO_MS) return;
   ultimoEnvio = millis();
 
-  pzem::Medidas m;
-  pzem::Erro erro = lerPzem(&m);
-
-  char json[384];
-  if (erro == pzem::SEM_ERRO) {
-    snprintf(json, sizeof(json),
-             "{\"fw\":\"%s\",\"sensor\":\"pzem004t-v3\",\"sensor_ok\":true,"
-             "\"tensao_v\":%.1f,\"corrente_a\":%.3f,\"potencia_w\":%.1f,\"energia_wh\":%lu,"
-             "\"frequencia_hz\":%.1f,\"fp\":%.2f,\"alarme\":%s,"
-             "\"falhas_leitura\":%lu,\"rssi\":%d,\"uptime_s\":%lu}",
-             VERSAO_FW, m.tensao_v, m.corrente_a, m.potencia_w, (unsigned long)m.energia_wh,
-             m.frequencia_hz, m.fp, m.alarme ? "true" : "false",
-             falhasLeitura, WiFi.RSSI(), millis() / 1000);
-  } else {
-    // Sem leitura válida: avisa o backend, mas NUNCA repete números antigos como se fossem novos.
+  char json[768];
+  if (!enderecosOk) {
     falhasLeitura++;
     snprintf(json, sizeof(json),
-             "{\"fw\":\"%s\",\"sensor\":\"pzem004t-v3\",\"sensor_ok\":false,\"erro_sensor\":\"%s\","
+             "{\"fw\":\"%s\",\"sensor\":\"pzem004t-v3\",\"sensor_ok\":false,\"erro_sensor\":\"enderecos_invalidos\","
              "\"falhas_leitura\":%lu,\"rssi\":%d,\"uptime_s\":%lu}",
-             VERSAO_FW, pzem::nomeDoErro(erro), falhasLeitura, WiFi.RSSI(), millis() / 1000);
+             VERSAO_FW, falhasLeitura, WiFi.RSSI(), millis() / 1000);
+  } else {
+    pzem::Medidas m[fases::MAXIMO];
+    pzem::Erro erros[fases::MAXIMO];
+    bool falhou = false;
+    for (size_t i = 0; i < nFases; i++) {
+      if (i) delay(5);               // silêncio entre pedidos no mesmo barramento (Modbus RTU)
+      erros[i] = lerPzem(enderecosPzem[i], &m[i]);
+      falhou = falhou || erros[i] != pzem::SEM_ERRO;
+    }
+    // Leitura perdida (de qualquer fase) conta uma falha. Sem leitura válida, a mensagem NUNCA repete números antigos.
+    if (falhou) falhasLeitura++;
+    if (!fases::montarTelemetria(json, sizeof(json), VERSAO_FW, m, erros, nFases, falhasLeitura, WiFi.RSSI(), millis() / 1000)) {
+      Serial.println("Mensagem maior que o espaco reservado: nao enviada.");
+      return;
+    }
   }
 
   Serial.println(json);

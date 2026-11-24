@@ -9,6 +9,7 @@ Os e-mails de aviso levam totais de consumo (kWh e reais). Quem não quiser isso
 de entrada desliga o envio por e-mail na tela Avisos e continua vendo tudo no aplicativo.
 Para enviar por outro canal (WhatsApp, por exemplo), o ponto de entrada é `_entregar`.
 """
+import json
 import logging
 import statistics
 from datetime import datetime, timedelta
@@ -19,6 +20,10 @@ TIPOS = {
     "medidor_offline": {
         "nome": "Medidor sem sinal",
         "descricao": "Quando um medidor fica mais de 30 minutos sem enviar leituras.",
+    },
+    "fase": {
+        "nome": "Fase sem resposta",
+        "descricao": "Em casa com duas ou três fases: quando o sensor de uma fase para de responder e as outras continuam.",
     },
     "meta": {
         "nome": "Meta do mês",
@@ -40,6 +45,7 @@ TIPOS = {
 log = logging.getLogger("meterwatt.alertas")
 OFFLINE_S = 30 * 60
 OFFLINE_MAXIMO_S = 3 * 86400       # depois de 3 dias parado, não adianta avisar de novo
+FASE_S = 5 * 60                    # uma fase sem resposta por 5 minutos, com as outras medindo
 INCOMUM_FATOR = 2.0
 INCOMUM_MINIMO_WH = 300            # diferença mínima para valer um aviso
 INCOMUM_DIAS_DE_BASE = 4
@@ -107,7 +113,7 @@ class Alertas:
         for uid in usuarios:
             if not self.p.consentimento(conn, uid, "consumo"):
                 continue
-            for regra in (self._offline, self._meta, self._incomum, self._resumo, self._resumo_mensal):
+            for regra in (self._offline, self._fases, self._meta, self._incomum, self._resumo, self._resumo_mensal):
                 try:
                     criados += regra(conn, uid)
                 except Exception:   # uma regra com problema não cala as outras
@@ -126,6 +132,30 @@ class Alertas:
                                 f"{m['apelido']} está sem sinal",
                                 f"O medidor {m['apelido']} não envia leituras desde {desde}. Confira se ele está ligado "
                                 "e se o Wi-Fi da casa está funcionando. Enquanto isso, o consumo não está sendo registrado.")
+        return n
+
+    def _fases(self, conn, uid):
+        """Uma fase muda enquanto as outras medem: falta de energia nessa fase ou fio solto no sensor dela."""
+        agora = self.p.agora()
+        n = 0
+        for m in conn.execute("SELECT id, apelido, ultima_mensagem, fases FROM medidores WHERE usuario_id = ? AND fases IS NOT NULL",
+                              (uid,)).fetchall():
+            if agora - (m["ultima_mensagem"] or 0) > 120:
+                continue                  # medidor parado: quem avisa é o "sem sinal"
+            fases = json.loads(m["fases"])
+            if not any(f.get("ok") for f in fases):
+                continue                  # nenhuma fase lida: problema do medidor, não de uma fase
+            for f in fases:
+                if f.get("ok") or agora - f.get("desde", agora) < FASE_S:
+                    continue
+                desde = datetime.fromtimestamp(f["desde"], self.p.cfg.zona).strftime("%H:%M de %d/%m")
+                n += self.criar(uid, "fase", f"fase:{m['id']}:{f['fase']}:{int(f['desde'])}",
+                                f"Fase {f['fase']} sem resposta em {m['apelido']}",
+                                f"Desde {desde}, o sensor da fase {f['fase']} não responde, e as outras fases continuam medindo. "
+                                "Pode ser falta de energia nessa fase: parte da casa e os aparelhos de 220 V podem estar sem funcionar. "
+                                "Se for isso, avise a distribuidora. Se a casa está normal, pode ser um fio solto no sensor: peça ao "
+                                "eletricista para conferir, com o disjuntor desligado. Enquanto isso, o consumo dessa fase não entra nas contas.",
+                                url="/#medidores")
         return n
 
     def _meta(self, conn, uid):

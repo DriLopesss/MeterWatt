@@ -72,6 +72,26 @@ O **MeterWatt** nasceu da necessidade de transformar a relação entre consumido
 
 **Nunca** ligue o TX do PZEM alimentado em 5 V direto no GPIO16.
 
+### Casa com duas ou três fases (firmware 3.4)
+
+Um PZEM mede a corrente de **um fio só**. Numa casa bifásica, um PZEM só na fase 1 mede mais ou menos metade da casa. Para medir a entrada inteira, é **um PZEM por fase**: 2 na bifásica, 3 na trifásica. O tipo de ligação aparece na conta de luz ou no disjuntor geral (uma, duas ou três alavancas presas juntas), mas quem confirma é o eletricista.
+
+**Lado da rede (eletricista):** cada PZEM com a pinça no fio de uma fase e os bornes de tensão entre **essa fase e o neutro**. Não use fase com fase aqui: a soma das fases só dá o total da casa quando cada módulo mede a sua fase contra o neutro. Assim os aparelhos de 220 V (entre duas fases, como o chuveiro) entram certo: aparecem divididos entre as duas fases, e a soma é o consumo deles.
+
+**Lado do ESP32:** todos os PZEM no mesmo par de fios (GPIO16 e GPIO17), com o 5V e o GND em comum. Cada módulo precisa de um endereço diferente, gravado nele **antes** de juntar os fios:
+
+1. Ligue só um PZEM na serial (e na rede, pelo eletricista: ele se alimenta dela).
+2. Abra o Monitor Serial a 115200 e digite `endereco 1`. O firmware confirma lendo o módulo no endereço novo. Anote o número numa etiqueta no módulo.
+3. Troque pelo próximo módulo e digite `endereco 2` (e `endereco 3` na trifásica).
+4. No `config.h`, troque para `#define PZEM_ENDERECOS {0x01, 0x02}` (ou `{0x01, 0x02, 0x03}`), na ordem das fases, e grave o firmware.
+5. Junte os módulos na serial e digite `procurar`: cada endereço precisa aparecer.
+
+**A confirmar na bancada:** quem já ligou vários PZEM v3 no mesmo par de fios relata que o TX de cada módulo precisa passar por um **diodo Schottky** (BAT38 ou parecido, com a faixa virada para o TX do PZEM) e que a linha precisa de um resistor de pull-up ([relato com 3 PZEM e Tasmota](https://zorruno.com/2020/whole-house-3-phase-power-with-pzem-004t/)). A plaquinha conversora de nível BSS138 já tem pull-up do lado HV. Sem os diodos, as respostas podem chegar com erro de CRC. Teste com um módulo, depois com dois.
+
+Com uma fase sem resposta (falta de energia nela, ou um fio solto), o medidor continua mandando as outras, o app mostra qual faltou e manda o aviso **Fase sem resposta** depois de 5 minutos. O consumo de cada fase é contado pelo contador dela: quando a fase volta, o que ela mediu no intervalo entra.
+
+**Limite:** o PZEM não mostra o sinal da potência. Um aparelho entre duas fases com fator de potência abaixo de 0,5 faria um dos módulos medir "ao contrário" e a soma sairia maior. Em casa isso é raro.
+
 ## 🧪 Como testar
 
 ### 1. Broker MQTT com senha (Mosquitto)
@@ -115,7 +135,7 @@ Com o broker e o backend rodando, em outro terminal:
 MQTT_USUARIO=meterwatt MQTT_SENHA=sua-senha python tools/simulador_pzem.py
 ```
 
-Ele publica as mesmas mensagens do firmware, com uma casa de mentira (geladeira, chuveiro, micro-ondas). Toda mensagem leva `"simulado": true`, e o painel mostra o aviso "Dados do simulador". Opções úteis: `--tensao 220`, `--acelerar 20` (o tempo da casa corre mais rápido) e `--falhas` (simula o PZEM sem responder).
+Ele publica as mesmas mensagens do firmware, com uma casa de mentira (geladeira, chuveiro, micro-ondas). Toda mensagem leva `"simulado": true`, e o painel mostra o aviso "Dados do simulador". Opções úteis: `--tensao 220`, `--acelerar 20` (o tempo da casa corre mais rápido), `--falhas` (simula o PZEM sem responder), `--fases 2` (casa bifásica, um PZEM por fase, com o chuveiro de 220 V entre as fases) e `--sem-fase 2` (a fase 2 sem energia).
 
 ### 4. Firmware do PZEM
 1. Copie `firmware/mwatt_pzem/config.example.h` para `firmware/mwatt_pzem/config.h`. O `config.h` está no `.gitignore` e **nunca deve ir para o GitHub**.
@@ -180,10 +200,11 @@ pip install pytest pillow
 python -m pytest tests -q
 node tests/web/teste_economia.js        # contas do "E se eu…?" no navegador
 g++ -std=c++11 -o teste_pzem tests/firmware/teste_pzem_modbus.cpp && ./teste_pzem
+g++ -std=c++11 -o teste_fases tests/firmware/teste_fases.cpp && ./teste_fases
 g++ -std=c++11 -o teste_ajustes tests/firmware/teste_ajustes.cpp && ./teste_ajustes
 ```
 
-Para rodar o firmware do PZEM num ESP32 simulado no computador (página de configuração, memória, falhas do sensor): `bash tests/firmware/simulado/rodar.sh`.
+Para rodar o firmware do PZEM num ESP32 simulado no computador (página de configuração, memória, falhas do sensor, dois PZEM no mesmo par de fios): `bash tests/firmware/simulado/rodar.sh`.
 
 O GitHub roda esses testes e **compila os dois firmwares para o ESP32** a cada pull request (aba *Actions*, arquivo `.github/workflows/ci.yml`). Se a compilação falhar ali, ela também falharia na Arduino IDE. A compilação usa o `config.example.h`: o `config.h` de verdade nunca vai para o GitHub.
 
@@ -222,7 +243,7 @@ Em desenvolvimento os e-mails (confirmação, senha) ficam em `src/instancia/cai
 - **Backup cifrado**: `python -m meterwatt --backup` e `--restaurar ARQUIVO`.
 - Produção: veja [`docs/implantacao.md`](docs/implantacao.md) (Docker) e `infra/`.
 - Testes: `python -m pytest tests -q` (com `pip install pytest pillow`) e `node tests/web/teste_economia.js`.
-- Ensaio geral sem placa: `python tools/ensaio_completo.py` sobe um Mosquitto com dynamic-security e a porta 8883 criptografada, o aplicativo com `python -m meterwatt` e dois medidores simulados, e confere o caminho inteiro (pareamento, senha própria, painel, circuito, permissões no broker, medidor que cai, remoção, cópia dos dados e backup). Roda também no GitHub a cada PR. Precisa do Mosquitto 2 (Linux, macOS ou WSL).
+- Ensaio geral sem placa: `python tools/ensaio_completo.py` sobe um Mosquitto com dynamic-security e a porta 8883 criptografada, o aplicativo com `python -m meterwatt` e dois medidores simulados (um deles bifásico), e confere o caminho inteiro (pareamento, fases, senha própria, painel, circuito, permissões no broker, medidor que cai, remoção, cópia dos dados e backup). Roda também no GitHub a cada PR. Precisa do Mosquitto 2 (Linux, macOS ou WSL).
 - Demonstração em um arquivo só, com uma casa inventada: `python tools/gerar_demo.py` (abre com dois cliques, nada sai do navegador).
 
 ## 🏆 Reconhecimento

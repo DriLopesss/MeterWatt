@@ -334,6 +334,12 @@ MIGRACOES = [
     );
     CREATE INDEX acessos_casa_convidado ON acessos_casa(convidado_id);
     """,
+    # 14: casa com duas ou três fases (um PZEM por fase). A última leitura de cada fase e o contador
+    # de energia de cada uma: a energia é contada fase a fase, e uma fase que some e volta não perde nada.
+    """
+    ALTER TABLE medidores ADD COLUMN fases TEXT;
+    ALTER TABLE medidores ADD COLUMN contadores_fases TEXT;
+    """,
 ]
 
 

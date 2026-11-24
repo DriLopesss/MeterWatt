@@ -838,7 +838,9 @@ function preencherMedidas(cartao, m) {
   const estadoTexto = !m.online ? (m.segundos_desde_mensagem != null
       ? `Sem sinal. Última mensagem ${fmt.relativo(new Date(Date.now() - m.segundos_desde_mensagem * 1000))}.`
       : "Ainda não mandou nenhuma mensagem.")
-    : m.sensor_ok === false ? `Medidor conectado, mas o sensor não respondeu (${m.erro_sensor})` : "Medindo agora";
+    : m.sensor_ok === false ? `Medidor conectado, mas o sensor não respondeu (${m.erro_sensor})`
+    : (m.fases || []).some((f) => !f.ok) ? `Medindo agora, sem a fase ${m.fases.filter((f) => !f.ok).map((f) => f.fase).join(" e ")}: o total está incompleto`
+    : "Medindo agora";
   $(".medidor-estado", cartao).textContent = estadoTexto;
   const valores = {
     potencia: m.potencia != null ? `${fmt.num(m.potencia)} ${m.unidade}` : "—",
@@ -851,6 +853,39 @@ function preencherMedidas(cartao, m) {
     sinal: m.rssi != null ? `${m.rssi} dBm` : "—",
   };
   Object.entries(valores).forEach(([k, v]) => { const dd = $(`[data-medida="${k}"]`, cartao); if (dd) dd.textContent = v; });
+  desenharFases(cartao, m);
+}
+
+const NOME_LIGACAO = { 1: "monofásica", 2: "bifásica", 3: "trifásica" };
+
+/* Casa com duas ou três fases: cada fase do medidor e o aviso quando ele mede menos fases do que a ligação da casa. */
+function desenharFases(cartao, m) {
+  const caixa = $(".fases", cartao);
+  const multi = Array.isArray(m.fases) && m.fases.length > 1;
+  $('[data-medida="tensao"]', cartao).previousElementSibling.textContent = multi ? "Tensão (média)" : "Tensão";
+  caixa.hidden = !multi;
+  if (multi) {
+    const linhas = m.fases.map((f) => (f.ok
+      ? el("tr", {}, el("th", { scope: "row" }, `Fase ${f.fase}`), el("td", {}, `${fmt.num(f.tensao_v, 1)} V`),
+        el("td", {}, `${fmt.num(f.corrente_a, 2)} A`), el("td", {}, `${fmt.num(f.potencia_w)} W`))
+      : el("tr", { class: "fase-muda" }, el("th", { scope: "row" }, `Fase ${f.fase}`),
+        el("td", { colspan: "3" }, "sem resposta: falta de energia nessa fase ou fio solto no sensor"))));
+    $("tbody", caixa).replaceChildren(...linhas);
+  }
+  // Quantas fases ele mede, contra quantas a ligação informada tem (só medidor de entrada, com leitura).
+  const aviso = $(".aviso-fases", cartao);
+  const mede = multi ? m.fases.length : 1;
+  const esperadas = m.fases_esperadas;
+  let texto = "";
+  if (esperadas && m.online && m.sensor_ok !== null && mede < esperadas) {
+    texto = `A ligação da casa está como ${NOME_LIGACAO[esperadas]}, mas este medidor mede ${mede === 1 ? "1 fase" : `${mede} fases`}. `
+      + "O consumo do que está ligado nas outras fases não entra no total. Para medir a casa inteira, é um PZEM por fase "
+      + "(o eletricista confere como é a entrada).";
+  } else if (esperadas && m.online && multi && mede > esperadas) {
+    texto = `Este medidor mede ${mede} fases, mas a ligação da casa está como ${NOME_LIGACAO[esperadas]}. Confira o tipo de ligação no Painel, em "Ajustar" da meta.`;
+  }
+  aviso.textContent = texto;
+  aviso.hidden = !texto;
 }
 
 function cartaoMedidor(m) {
@@ -888,6 +923,13 @@ function cartaoMedidor(m) {
     el("dl", { class: "medidas" },
       medida("potencia", "Potência", true), medida("tensao", "Tensão"), medida("corrente", "Corrente"), medida("fp", "Fator de potência"),
       medida("frequencia", "Frequência"), medida("hoje", "Hoje"), medida("custo", "Custo hoje"), medida("sinal", "Sinal do Wi-Fi")),
+    el("div", { class: "fases", hidden: true },
+      el("table", {}, el("caption", {}, "Por fase"),
+        el("thead", {}, el("tr", {}, el("th", { scope: "col" }, "Fase"), el("th", { scope: "col" }, "Tensão"),
+          el("th", { scope: "col" }, "Corrente"), el("th", { scope: "col" }, "Potência"))),
+        el("tbody")),
+      el("p", { class: "dica" }, "A potência da casa é a soma das fases. Um aparelho de 220 V ligado entre duas fases aparece dividido entre elas.")),
+    el("p", { class: "aviso-balanco aviso-fases", role: "status", hidden: true }),
     el("div", { class: "grafico" }, el("div", { class: "periodos", role: "group", "aria-label": "Período do gráfico" }, botoesPeriodo), canvas),
     estado.medidores.length > 1 ? papelDoMedidor(m) : null,
     formNome,

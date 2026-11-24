@@ -33,9 +33,15 @@
 #define PINO_RX_PZEM  16
 #define PINO_TX_PZEM  17
 
-// Endereço Modbus. 0xF8 é o endereço geral: funciona com UM módulo na serial.
-// Só troque se for ligar mais de um PZEM no mesmo par de fios (cada um com seu endereço).
-#define PZEM_ENDERECO 0xF8
+// Endereço Modbus de cada PZEM, um por fase, na ordem das fases.
+// Casa monofásica (um PZEM): deixe {0xF8}, o endereço geral, que só funciona com UM módulo na serial.
+// Casa bifásica ou trifásica: um PZEM por fase, todos no mesmo par de fios, cada um com o seu
+// endereço (de 1 a 247, sem repetir). Antes de juntar os fios, dê o endereço a cada módulo SOZINHO
+// na serial: no Monitor Serial (115200), digite "endereco 1", troque o módulo, "endereco 2"...
+// Veja "Casa com duas ou três fases" no README.
+//   Bifásica:  #define PZEM_ENDERECOS {0x01, 0x02}
+//   Trifásica: #define PZEM_ENDERECOS {0x01, 0x02, 0x03}
+#define PZEM_ENDERECOS {0xF8}
 
 // Tempo máximo de espera pela resposta do módulo.
 #define PZEM_TIMEOUT_MS 300

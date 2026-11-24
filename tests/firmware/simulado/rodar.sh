@@ -20,4 +20,13 @@ for permite in 0 1; do
     fi
   done
 done
+# Casa bifásica: dois PZEM no mesmo par de fios.
+sed "s/#define PZEM_ENDERECOS {0xF8}/#define PZEM_ENDERECOS {0x01, 0x02}/" \
+  ../../../firmware/mwatt_pzem/config.example.h > "$tmp/config.h"
+g++ -std=c++17 -Wall -Wextra -Wno-unused-parameter -Werror -DPERMITE=0 -I"$tmp" -I. -x c++ teste_fases.cpp -o "$tmp/teste_fases"
+if "$tmp/teste_fases" > "$tmp/saida.txt"; then
+  echo "ok: teste_fases (2 PZEM) - $(tail -1 "$tmp/saida.txt")"
+else
+  echo "FALHOU: teste_fases (2 PZEM)"; grep FALHOU "$tmp/saida.txt" || true; falhou=1
+fi
 exit $falhou

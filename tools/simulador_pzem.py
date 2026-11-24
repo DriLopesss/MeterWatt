@@ -9,6 +9,8 @@ inventados por este programa: NÃO são medições.
 Uso (com o broker e o backend já rodando):
     python tools/simulador_pzem.py
     python tools/simulador_pzem.py --tensao 220 --acelerar 20 --falhas
+    python tools/simulador_pzem.py --fases 2              # casa bifásica: um PZEM por fase (firmware 3.4)
+    python tools/simulador_pzem.py --fases 2 --sem-fase 2 # a fase 2 sem energia
 
 Usa as mesmas variáveis do backend: MQTT_HOST, MQTT_PORTA, MQTT_USUARIO, MQTT_SENHA.
 Com MQTT_TLS=1, conecta criptografado como o firmware 3.3; MQTT_CA aponta outra autoridade (só no ensaio local).
@@ -24,65 +26,103 @@ import time
 
 import paho.mqtt.client as mqtt
 
-# nome, potência (W), fator de potência, minutos ligado, minutos desligado, chance de ligar por minuto
+# nome, potência (W), fator de potência, minutos ligado, minutos desligado, chance de ligar por minuto, onde
+# "onde" só conta com mais de uma fase: o número da fase (aparelho de 127 V) ou "12" (220 V entre as fases 1 e 2).
 CARGAS = [
-    ("standby e roteador", 45, 0.62, None, None, None),     # sempre ligado
-    ("geladeira", 140, 0.78, 12, 18, None),                 # ciclo do compressor
-    ("iluminação", 60, 0.95, 40, 25, None),
-    ("micro-ondas", 1300, 0.90, 2, None, 0.03),
-    ("chuveiro", 5400, 1.00, 7, None, 0.012),
+    ("standby e roteador", 45, 0.62, None, None, None, 1),     # sempre ligado
+    ("geladeira", 140, 0.78, 12, 18, None, 2),                 # ciclo do compressor
+    ("iluminação", 60, 0.95, 40, 25, None, 1),
+    ("micro-ondas", 1300, 0.90, 2, None, 0.03, 2),
+    ("chuveiro", 5400, 1.00, 7, None, 0.012, "12"),
 ]
 
 
 class Casa:
-    def __init__(self, tensao_nominal, semente=None):
+    def __init__(self, tensao_nominal, semente=None, fases=1):
         self.rng = random.Random(semente)
         self.nominal = tensao_nominal
+        self.fases = fases
         self.t = 0.0
-        self.energia_wh = float(self.rng.randint(12_000, 90_000))   # contador já "rodado"
+        # Um contador por PZEM, já "rodado".
+        self.energia_wh = [float(self.rng.randint(12_000, 90_000)) for _ in range(fases)]
         self.ate = {}   # carga eventual -> instante em que desliga
 
     def cargas_ligadas(self):
         ligadas = []
         minuto = self.t / 60
-        for nome, p, fp, liga, desliga, chance in CARGAS:
+        for nome, p, fp, liga, desliga, chance, onde in CARGAS:
             if liga is None:
-                ligadas.append((p, fp))
+                ligadas.append((p, fp, onde))
             elif chance is None:
                 if minuto % (liga + desliga) < liga:
-                    ligadas.append((p, fp))
+                    ligadas.append((p, fp, onde))
             elif self.ate.get(nome, -1) > self.t:
-                ligadas.append((p, fp))
+                ligadas.append((p, fp, onde))
         return ligadas
 
     def passo(self, dt):
-        """Avança `dt` segundos e devolve as medidas como o PZEM as devolveria."""
+        """Avança `dt` segundos e devolve as medidas de cada fase como cada PZEM as devolveria."""
         self.t += dt
-        for nome, _p, _fp, liga, _desl, chance in CARGAS:
+        for nome, _p, _fp, liga, _desl, chance, _onde in CARGAS:
             if chance and self.ate.get(nome, -1) <= self.t and self.rng.random() < chance * dt / 60:
                 self.ate[nome] = self.t + liga * 60 * self.rng.uniform(0.6, 1.3)
 
-        p_total = q_total = 0.0
-        for p, fp in self.cargas_ligadas():
+        # Potência ativa e reativa que cada PZEM vê. Com uma fase, tudo cai nela.
+        p_fase, q_fase = [0.0] * self.fases, [0.0] * self.fases
+        for p, fp, onde in self.cargas_ligadas():
             p *= self.rng.uniform(0.985, 1.015)
-            p_total += p
-            q_total += p * math.tan(math.acos(fp))
-        s_total = math.hypot(p_total, q_total)
+            theta = math.acos(fp)
+            if self.fases == 1:
+                p_fase[0] += p
+                q_fase[0] += p * math.tan(theta)
+            elif onde == "12":
+                # 220 V entre duas fases (127/220): cada PZEM vê a tensão da sua fase para o neutro e a mesma
+                # corrente, defasada de 30° para um lado e para o outro. A soma das duas ativas é a do aparelho.
+                corrente = p / (self.nominal * math.sqrt(3) * fp)
+                for k, desvio in ((0, math.radians(30)), (1, -math.radians(30))):
+                    p_fase[k] += self.nominal * corrente * math.cos(theta + desvio)
+                    q_fase[k] += self.nominal * corrente * math.sin(theta + desvio)
+            else:
+                k = min(int(onde), self.fases) - 1
+                p_fase[k] += p
+                q_fase[k] += p * math.tan(theta)
 
-        tensao = self.nominal * (1 + 0.012 * math.sin(self.t / 900)) + self.rng.uniform(-0.4, 0.4)
-        corrente = s_total / tensao
-        tensao -= 0.03 * corrente                       # a tensão cai um pouco com carga alta
-        corrente = s_total / tensao
-        self.energia_wh += p_total * dt / 3600
-        return {
-            "tensao_v": round(tensao, 1),
-            "corrente_a": round(corrente, 3),
-            "potencia_w": round(p_total, 1),
-            "energia_wh": int(self.energia_wh),          # o PZEM conta em Wh inteiros
-            "frequencia_hz": round(60 + self.rng.uniform(-0.05, 0.05), 1),
-            "fp": round(p_total / s_total, 2) if s_total else 0.0,
-            "alarme": False,
-        }
+        saida = []
+        for k in range(self.fases):
+            s = math.hypot(p_fase[k], q_fase[k])
+            tensao = self.nominal * (1 + 0.012 * math.sin(self.t / 900 + k)) + self.rng.uniform(-0.4, 0.4)
+            tensao -= 0.03 * s / tensao                    # a tensão cai um pouco com carga alta
+            self.energia_wh[k] += p_fase[k] * dt / 3600
+            saida.append({
+                "tensao_v": round(tensao, 1),
+                "corrente_a": round(s / tensao, 3),
+                "potencia_w": round(p_fase[k], 1),
+                "energia_wh": int(self.energia_wh[k]),     # o PZEM conta em Wh inteiros
+                "frequencia_hz": round(60 + self.rng.uniform(-0.05, 0.05), 1),
+                "fp": round(p_fase[k] / s, 2) if s else 0.0,
+                "alarme": False,
+            })
+        return saida
+
+
+def mensagem(medidas, erros):
+    """O que o firmware 3.4 manda (fases.h): um módulo, igual às versões antigas; mais de um, o total e cada fase."""
+    lidas = [m for m, e in zip(medidas, erros) if not e]
+    if not lidas:
+        msg = {"sensor_ok": False, "erro_sensor": erros[0]}
+    elif len(medidas) == 1:
+        msg = {"sensor_ok": True, **lidas[0]}
+    else:
+        aparente = sum(m["tensao_v"] * m["corrente_a"] for m in lidas)
+        potencia = sum(m["potencia_w"] for m in lidas)
+        msg = {"sensor_ok": True, "tensao_v": round(sum(m["tensao_v"] for m in lidas) / len(lidas), 1),
+               "corrente_a": round(sum(m["corrente_a"] for m in lidas), 3), "potencia_w": round(potencia, 1),
+               "energia_wh": sum(m["energia_wh"] for m in lidas), "frequencia_hz": lidas[0]["frequencia_hz"],
+               "fp": round(min(1.0, potencia / aparente), 2) if aparente else 1.0, "alarme": False}
+    if len(medidas) > 1:
+        msg["fases"] = [{"fase": k + 1, "ok": True, **{c: m[c] for c in ("tensao_v", "corrente_a", "potencia_w", "energia_wh", "fp")}}
+                        if not e else {"fase": k + 1, "ok": False, "erro": e} for k, (m, e) in enumerate(zip(medidas, erros))]
+    return msg
 
 
 def main():
@@ -92,12 +132,16 @@ def main():
     ap.add_argument("--tensao", type=float, default=127.0, choices=[127.0, 220.0], help="tensão nominal da rede")
     ap.add_argument("--acelerar", type=float, default=1.0, help="quantas vezes o tempo da casa corre mais rápido")
     ap.add_argument("--falhas", action="store_true", help="de vez em quando simula o PZEM sem responder")
+    ap.add_argument("--fases", type=int, default=1, choices=[1, 2, 3], help="quantas fases (um PZEM por fase, firmware 3.4)")
+    ap.add_argument("--sem-fase", type=int, default=None, metavar="N", help="a fase N sem energia (o PZEM dela não responde)")
     ap.add_argument("--semente", type=int, default=None, help="para repetir a mesma sequência")
     ap.add_argument("--parear", metavar="CODIGO", default=None,
                     help="código do aplicativo (ex.: K7QM-2XPA): pede o pareamento como o firmware faz")
     ap.add_argument("--senha-propria", action="store_true",
                     help="entra com a senha própria deste medidor simulado (depois de um pareamento que a cadastrou)")
     args = ap.parse_args()
+    if args.sem_fase is not None and not 1 <= args.sem_fase <= args.fases:
+        ap.error("--sem-fase precisa ser uma das fases simuladas (use junto com --fases)")
 
     host = os.getenv("MQTT_HOST", "localhost")
     porta = int(os.getenv("MQTT_PORTA", "1883"))
@@ -165,7 +209,7 @@ def main():
             time.sleep(0.5)
             print("Nas próximas vezes, rode com --senha-propria (sem --parear).")
 
-    casa = Casa(args.tensao, args.semente)
+    casa = Casa(args.tensao, args.semente, args.fases)
     inicio = time.time()
     falhas = 0
     print(f"Simulando {args.id} em {host}:{porta} a cada {args.intervalo} s. Ctrl+C para parar.")
@@ -174,11 +218,13 @@ def main():
             comum = {"fw": "simulador", "sensor": "pzem004t-v3", "simulado": True,
                      "rssi": random.randint(-68, -52), "uptime_s": int(time.time() - inicio)}
             medidas = casa.passo(args.intervalo * args.acelerar)
-            if args.falhas and random.random() < 0.08:
+            erros = [None] * args.fases
+            for k in range(args.fases):
+                if (args.falhas and random.random() < 0.08) or args.sem_fase == k + 1:
+                    erros[k] = "sem_resposta"
+            if any(erros):
                 falhas += 1
-                msg = {**comum, "sensor_ok": False, "erro_sensor": "sem_resposta", "falhas_leitura": falhas}
-            else:
-                msg = {**comum, "sensor_ok": True, **medidas, "falhas_leitura": falhas}
+            msg = {**comum, **mensagem(medidas, erros), "falhas_leitura": falhas}
             cliente.publish(f"{base}/telemetria", json.dumps(msg))
             print(json.dumps(msg, ensure_ascii=False))
             time.sleep(args.intervalo)

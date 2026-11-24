@@ -94,6 +94,26 @@ int main() {
   pzem::montarPedidoZerar(0x01, z);
   CONFERE(z[0] == 0x01 && z[1] == 0x42 && pzem::crcConfere(z, 4));
 
+  // 11. Trocar o endereço: igual ao exemplo do manual (01 06 00 02 00 05 + CRC)
+  uint8_t e[8];
+  pzem::montarPedidoEndereco(0x01, 0x05, e);
+  const uint8_t esperadoEnd[] = {0x01, 0x06, 0x00, 0x02, 0x00, 0x05};
+  CONFERE(std::memcmp(e, esperadoEnd, 6) == 0 && pzem::crcConfere(e, 8));
+  // o módulo devolve o pedido: confirmado (também se a resposta vier do endereço novo)
+  CONFERE(pzem::escritaConfirmada(e, e, 8));
+  uint8_t eco[8];
+  std::memcpy(eco, e, 8); eco[0] = 0x05;
+  uint16_t ce = pzem::crc16(eco, 6); eco[6] = ce & 0xFF; eco[7] = ce >> 8;
+  CONFERE(pzem::escritaConfirmada(e, eco, 8));
+  // valor diferente, CRC errado, resposta curta ou exceção: não confirmado
+  std::memcpy(eco, e, 8); eco[5] = 0x06; ce = pzem::crc16(eco, 6); eco[6] = ce & 0xFF; eco[7] = ce >> 8;
+  CONFERE(!pzem::escritaConfirmada(e, eco, 8));
+  std::memcpy(eco, e, 8); eco[7] ^= 1;
+  CONFERE(!pzem::escritaConfirmada(e, eco, 8));
+  CONFERE(!pzem::escritaConfirmada(e, e, 5));
+  CONFERE(pzem::enderecoValido(1) && pzem::enderecoValido(0xF7));
+  CONFERE(!pzem::enderecoValido(0) && !pzem::enderecoValido(0xF8) && !pzem::enderecoValido(300));
+
   if (falhas == 0) std::printf("OK: todos os testes do protocolo passaram\n");
   return falhas == 0 ? 0 : 1;
 }

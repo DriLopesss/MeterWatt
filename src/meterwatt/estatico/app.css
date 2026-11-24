@@ -832,3 +832,14 @@ body.vendo-outra-casa .so-da-casa{display:none}
 .cp-lista>li:first-child{border-top:0}
 .cp-lista>li>span{min-width:0;overflow-wrap:anywhere}
 .cp-lista>li.dica{display:block}
+
+/* casa com duas ou três fases */
+.fases{margin-top:14px;overflow-x:auto}
+.fases table{border-collapse:collapse;width:100%;font:400 .88rem var(--f-numero);font-variant-numeric:tabular-nums}
+.fases caption{text-align:left;color:var(--suave);font:600 .88rem var(--f-texto);padding-bottom:6px}
+.fases th,.fases td{padding:6px 10px;text-align:right;border-bottom:1px solid var(--linha);white-space:nowrap}
+.fases th[scope=row],.fases thead th:first-child{text-align:left;font-family:var(--f-texto);color:var(--suave);font-weight:500}
+.fases thead th{color:var(--suave);font:600 .8rem var(--f-texto)}
+.fases .fase-muda td{text-align:left;white-space:normal;color:var(--vermelho);font-family:var(--f-texto)}
+.fases .dica{margin:8px 0 0}
+.aviso-fases{margin-top:12px}

@@ -236,20 +236,25 @@ def main():
         env_sim = {**os.environ, "MQTT_HOST": "localhost", "MQTT_PORTA": str(porta_tls), "MQTT_TLS": "1", "MQTT_CA": certs["ca.pem"],
                    "MQTT_USUARIO": PROVISAO, "MQTT_SENHA": PROVISAO_SENHA, "PYTHONUNBUFFERED": "1"}
 
-        def parear(mid, semente):
+        def parear(mid, semente, *extra):
             codigo = site.chamar("POST", "/api/medidores/codigo")[1]["codigo"]
-            iniciar(mid, [sys.executable, SIMULADOR, "--id", mid, "--intervalo", "1", "--semente", str(semente), "--parear", codigo],
+            iniciar(mid, [sys.executable, SIMULADOR, "--id", mid, "--intervalo", "1", "--semente", str(semente), "--parear", codigo, *extra],
                     env=env_sim, cwd=pasta)
             return esperar(lambda: any(m["id"] == mid for m in site.get("/api/medidores")["medidores"]), 40)
 
         def medidor(mid):
             return next((m for m in site.get("/api/medidores")["medidores"] if m["id"] == mid), None)
 
-        passo("Medidor 1 pareado pela porta 8883", parear(M1, 1))
+        passo("Medidor 1 (casa bifásica, dois PZEM) pareado pela porta 8883", parear(M1, 1, "--fases", "2"))
         passo("Medidor 1 ganhou a senha própria e voltou a conectar com ela",
               esperar(lambda: "Reconectando com ela" in log(M1) and "recusou" not in log(M1), 20), "veja o registro do simulador")
         vivo = esperar(lambda: (m := medidor(M1)) and m["online"] and m["potencia"] is not None and m, 20)
         passo("Leituras do medidor 1 chegando ao painel", vivo, f"{vivo['potencia']} W" if vivo else "")
+        fases = vivo and vivo.get("fases") or []
+        soma = sum(f["potencia_w"] for f in fases if f["ok"])
+        passo("Medidor 1 mostra as duas fases, e o total é a soma delas",
+              len(fases) == 2 and all(f["ok"] for f in fases) and abs(soma - vivo["potencia"]) < 0.5,
+              " + ".join(f"{f['potencia_w']} W" for f in fases))
 
         partes = esperar(lambda: (p := site.get("/api/agora/partes"))["disponivel"] and p, 15)
         passo("Para onde vai agora com o medidor 1", partes and partes["fonte"] in ("detetive", "base"), partes and partes["fonte"])

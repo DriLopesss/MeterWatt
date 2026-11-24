@@ -3,6 +3,8 @@
 Os textos jurídicos são rascunho. Itens marcados [ADVOGADO] em docs/lgpd.md precisam de
 revisão antes de qualquer cliente real.
 """
+import json
+
 from .erros import ErroDeNegocio
 from .seguranca import confere_senha, confere_totp, normalizar_codigo_backup
 
@@ -209,6 +211,7 @@ class Privacidade:
                 "id": m["id"], "apelido": m["apelido"], "pareado_em": self.p.iso(m["pareado_em"]),
                 "tipo_de_sensor": m["tipo"], "firmware": m["fw"],
                 "mede": "entrada" if m["papel"] == "casa" else "circuito", "dentro_de": m["dentro_de"],
+                "ultima_leitura_por_fase": json.loads(m["fases"]) if m["fases"] else None,
                 "consumo_5_minutos": [
                     {"inicio": self.p.iso(a["inicio"]), "leituras": a["n"],
                      "potencia_media": round(a["soma_w"] / a["n"], 1) if a["n"] else None,
@@ -261,7 +264,8 @@ class Privacidade:
             for mid in ids:
                 conn.execute("DELETE FROM leituras WHERE medidor_id = ?", (mid,))
                 conn.execute("DELETE FROM consumo_5min WHERE medidor_id = ?", (mid,))
-                conn.execute("UPDATE medidores SET contador_wh = NULL, potencia_anterior = NULL WHERE id = ?", (mid,))
+                conn.execute("UPDATE medidores SET contador_wh = NULL, potencia_anterior = NULL, fases = NULL, contadores_fases = NULL "
+                             "WHERE id = ?", (mid,))
             self.p.detetive.apagar_tudo(conn, uid)
             conn.execute("DELETE FROM avisos WHERE usuario_id = ?", (uid,))     # os avisos citam valores de consumo
             self.p.economia.apagar(conn, uid)                                  # o plano guarda hábitos (banhos, horas de uso)
