@@ -52,6 +52,12 @@ Um servidor só, com três peças: o site (`app`), o servidor de mensagens dos m
   ```
   Ele abre a cópia num arquivo novo e diz quantas contas encontrou, sem tocar no banco em uso.
 - **Lista de espera:** `docker compose exec app python -m meterwatt --lista-espera > fila.csv`.
+- **Bandeira tarifária (todo mês):** a ANEEL anuncia a bandeira do mês seguinte no fim de cada mês, em datas que ela publica (a de dezembro de 2026 sai em 27/11; o calendário de 2026 está em [gov.br/aneel](https://www.gov.br/aneel/pt-br/assuntos/noticias/2026/bandeira-tarifaria-aneel-divulga-calendario-de-acionamento-para-2026)). Registre no mesmo dia:
+  ```bash
+  docker compose exec app python -m meterwatt --bandeira 2026-12 amarela     # verde, amarela, vermelha1 ou vermelha2
+  docker compose exec app python -m meterwatt --bandeiras                    # o que já está registrado
+  ```
+  Sem isso, a previsão da conta não soma a bandeira, e o log do servidor lembra uma vez por dia. Os valores de cada cor (R$ por 100 kWh) estão em `src/meterwatt/tarifas.py`: confira quando a ANEEL mudar.
 - **Trocar a senha de provisão:** mude no `.env`, e no broker rode
   `docker compose exec mosquitto mosquitto_ctrl -u $MQTT_USUARIO -P 'SENHA' dynsec setClientPassword pareamento 'NOVA'`.
 

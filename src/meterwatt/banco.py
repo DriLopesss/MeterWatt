@@ -282,6 +282,21 @@ MIGRACOES = [
     ALTER TABLE medidores ADD COLUMN papel TEXT NOT NULL DEFAULT 'casa' CHECK (papel IN ('casa', 'circuito'));
     ALTER TABLE medidores ADD COLUMN dentro_de TEXT REFERENCES medidores(id) ON DELETE SET NULL;
     """,
+    # 11: a conta de luz mais perto da real. Tipo de ligação (o mínimo da conta), horário de ponta e os quatro
+    # preços da Tarifa Branca da distribuidora de cada pessoa, e a bandeira de cada mês (vale para todos).
+    """
+    ALTER TABLE usuarios ADD COLUMN ligacao TEXT CHECK (ligacao IN ('monofasica', 'bifasica', 'trifasica'));
+    ALTER TABLE usuarios ADD COLUMN ponta_inicio_min INTEGER CHECK (ponta_inicio_min BETWEEN 0 AND 1439);
+    ALTER TABLE usuarios ADD COLUMN tb_convencional REAL;
+    ALTER TABLE usuarios ADD COLUMN tb_fora REAL;
+    ALTER TABLE usuarios ADD COLUMN tb_intermediario REAL;
+    ALTER TABLE usuarios ADD COLUMN tb_ponta REAL;
+    CREATE TABLE bandeiras (
+        mes TEXT PRIMARY KEY CHECK (mes GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+        cor TEXT NOT NULL CHECK (cor IN ('verde', 'amarela', 'vermelha1', 'vermelha2')),
+        registrada_em REAL NOT NULL
+    );
+    """,
 ]
 
 

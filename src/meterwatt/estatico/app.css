@@ -69,6 +69,10 @@ input:not([type=checkbox],[type=range]){font:1rem var(--f-texto);color:var(--tin
   border-radius:10px;padding:.75em .9em;width:100%;min-height:48px}
 input:not([type=checkbox],[type=range]):focus{outline:none;border-color:var(--ambar);box-shadow:0 0 0 3px rgba(255,176,32,.2)}
 input[aria-invalid=true]{border-color:var(--vermelho)}
+select{font:1rem var(--f-texto);color:var(--tinta);background:var(--noite2);border:1px solid var(--linha);border-radius:10px;
+  padding:.7em .9em;min-height:48px;width:100%;max-width:100%}
+select:focus{outline:none;border-color:var(--ambar);box-shadow:0 0 0 3px rgba(255,176,32,.2)}
+.papel-texto select{width:auto;min-height:40px;padding:.45em .8em}
 .campo-senha{position:relative;display:block}
 .campo-senha input{padding-right:4.2em}
 .ver-senha{position:absolute;right:6px;top:50%;transform:translateY(-50%);padding:.4em .8em;font-size:.8rem;color:var(--suave)}
@@ -243,6 +247,7 @@ body[data-tela="politica"] .marca,body[data-tela="termos"] .marca{display:none}
 .bloco-meta[data-status="ok"] .anel-projecao{stroke:rgba(70,240,160,.3)}
 .meta-numeros{display:grid;gap:4px}
 .meta-mensagem{color:var(--tinta);max-width:62ch}
+.meta-conta{color:var(--suave);font-size:.88rem;max-width:62ch}
 details summary{cursor:pointer;color:var(--ciano);font-size:.92rem;font-weight:600;width:max-content;max-width:100%}
 details[open] summary{margin-bottom:12px}
 details p+p{margin-top:8px}
@@ -397,6 +402,44 @@ input[type=range]:focus-visible::-moz-range-thumb{box-shadow:0 0 0 4px var(--amb
 input[type=range]:disabled{opacity:.4;cursor:not-allowed}
 
 .eco-cabeca{display:grid;gap:10px}
+
+/* Tarifa Branca: vale a pena? */
+.tarifa-branca{margin-top:26px;gap:16px}
+.tb-resultado{color:var(--tinta);font-size:1.02rem;max-width:66ch}
+.tb-figura{margin:0;display:grid;gap:10px}
+.tb-legenda-titulo{color:var(--suave);font-size:.88rem}
+.tb-grafico{min-height:150px}
+.tb-grafico svg{display:block;max-width:100%;height:auto}
+.tb-grafico .grade{stroke:rgba(255,255,255,.07);stroke-width:1;shape-rendering:crispEdges}
+.tb-grafico .eixo{fill:var(--apagado);font:400 11px var(--f-numero)}
+.tb-grafico .tb-rotulo{fill:var(--suave);font:600 11px var(--f-texto)}
+.tb-faixa-ponta{fill:rgba(238,61,201,.09)}
+.tb-faixa-intermediario{fill:rgba(199,134,2,.09)}
+.tb-tabela{overflow-x:auto}
+.tb-tabela table{border-collapse:collapse;font:400 .88rem var(--f-numero);font-variant-numeric:tabular-nums;min-width:min(100%,460px)}
+.tb-tabela caption{text-align:left;color:var(--suave);font:600 .88rem var(--f-texto);padding-bottom:8px}
+.tb-tabela th,.tb-tabela td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--linha);white-space:nowrap}
+.tb-tabela th[scope=row],.tb-tabela thead th:first-child{text-align:left;font-family:var(--f-texto)}
+.tb-tabela thead th{color:var(--suave);font:600 .8rem var(--f-texto)}
+.tb-tabela tbody th{color:var(--suave);font-weight:500}
+.tb-tabela .tb-total th,.tb-tabela .tb-total td{color:var(--tinta);font-weight:600}
+.tb-tabela tr:not(.tb-total)+.tb-total th,.tb-tabela tr:not(.tb-total)+.tb-total td{border-top:1px solid rgba(255,255,255,.22)}
+.tb-tabela .dica{margin-top:8px;max-width:62ch}
+@media (max-width:520px){.tb-tabela .tb-preco{display:none}.tb-tabela th,.tb-tabela td{padding:7px 6px}}
+.tb-empate{color:var(--tinta);max-width:66ch}
+.tb-aparelhos{display:grid;gap:8px}
+.tb-aparelhos h3{font:700 .95rem var(--f-titulo)}
+.tb-aparelhos ul{margin:0;padding-left:1.1em;display:grid;gap:4px;color:var(--suave)}
+.tb-aparelhos strong{color:var(--tinta);font-weight:600}
+.tb-form{display:grid;gap:14px;max-width:560px}
+.tb-campo-ponta{max-width:300px}
+.tb-precos{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.tb-precos legend{grid-column:1/-1}
+.tb-form button{justify-self:start}
+.tb-ajustar .dica{max-width:62ch;margin-top:10px}
+.tb-regras ul{margin:0;padding-left:1.1em;display:grid;gap:6px;color:var(--suave);font-size:.9rem;max-width:66ch}
+.tb-regras p{margin-top:10px}
+.tb-regras a{color:var(--ciano)}
 .eco-grade{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:22px;align-items:start}
 .eco-lado{grid-column:2;grid-row:1;position:sticky;top:84px;display:grid;gap:14px}
 .eco-principal{grid-column:1;grid-row:1;display:grid;gap:18px;min-width:0}

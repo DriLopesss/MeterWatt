@@ -94,6 +94,9 @@
         parametros: { watts_cortados: 30, horas_dia: 20 } },
     ],
     ecoId: 2,
+    ligacao: "bifasica",
+    // Tarifa Branca: ponta das 18h às 21h e preços de EXEMPLO (na casa inventada, tudo é simulado).
+    tb: { inicio: 18 * 60, precos: { convencional: 0.90, fora: 0.75, intermediario: 1.10, ponta: 1.73 } },
   };
   const FINALIDADES = {
     termos: ["Termos de uso", "Aceite das regras de uso do serviço.", true, false],
@@ -174,12 +177,141 @@
     const gasto = lista.filter((x) => x.dia.startsWith(mes)).reduce((s, x) => s + x.kwh, 0) * E.tarifa;
     const media = lista.slice(-8, -1).reduce((s, x) => s + x.kwh, 0) / 7 * E.tarifa;
     const fimDoMes = new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() / 1000;
-    const restam = (fimDoMes - t) / DIA, projecao = gasto + media * restam;
+    const restam = (fimDoMes - t) / DIA;
+    const conta = contaDoMes((gasto + media * restam) / E.tarifa);
+    const projecao = conta.cobrado * E.tarifa + conta.adicional;
     const status = !E.meta ? null : projecao > E.meta ? "acima" : projecao > 0.9 * E.meta ? "atencao" : "ok";
     return { meta: E.meta, gasto_ate_agora: Math.round(gasto * 100) / 100, media_diaria: Math.round(media * 100) / 100, projecao: Math.round(projecao * 100) / 100,
       dias_restantes: Math.round(restam * 10) / 10, percentual: E.meta ? projecao / E.meta : null, status,
-      folga_diaria: E.meta && restam >= 1 ? Math.round((E.meta - gasto) / restam * 100) / 100 : null, base_de_dias: 7, tarifa_kwh: E.tarifa, sem_tarifa: false };
+      folga_diaria: E.meta && restam >= 1 ? Math.round((E.meta - gasto) / restam * 100) / 100 : null, base_de_dias: 7, tarifa_kwh: E.tarifa, sem_tarifa: false,
+      ...conta.detalhes };
   }
+  /* ---------------- a conta de verdade: bandeira, mínimo e Tarifa Branca ---------------- */
+  // Bandeiras de 2026 anunciadas pela ANEEL (amarela de maio a setembro, verde em outubro e novembro).
+  // Os outros meses aparecem como "não informada", como no servidor antes de alguém registrar.
+  const BANDEIRAS_2026 = { "2026-05": "amarela", "2026-06": "amarela", "2026-07": "amarela", "2026-08": "amarela", "2026-09": "amarela",
+    "2026-10": "verde", "2026-11": "verde" };
+  const VALOR_BANDEIRA = { verde: 0, amarela: 1.885, vermelha1: 4.463, vermelha2: 7.877 };
+  const NOME_BANDEIRA = { verde: "verde", amarela: "amarela", vermelha1: "vermelha patamar 1", vermelha2: "vermelha patamar 2" };
+  const MINIMO = { monofasica: 30, bifasica: 50, trifasica: 100 };
+  function contaDoMes(kwhMes) {
+    const mes = diaLocal(agora()).slice(0, 7), cor = BANDEIRAS_2026[mes] || null;
+    const minimo = MINIMO[E.ligacao] || null;
+    const cobrado = minimo ? Math.max(kwhMes, minimo) : kwhMes;
+    const adicional = cobrado * (VALOR_BANDEIRA[cor] || 0) / 100;
+    return { cobrado, adicional, detalhes: { kwh_previsto: r1(kwhMes),
+      bandeira: { mes, cor, nome: NOME_BANDEIRA[cor] || null, informada: !!cor, reais_por_100_kwh: VALOR_BANDEIRA[cor] || 0, adicional: Math.round(adicional * 100) / 100 },
+      minimo: minimo ? { kwh: minimo, aplicado: kwhMes < minimo } : null } };
+  }
+
+  // Feriados sem ponta (REN ANEEL 1.000/2021): os mesmos de tarifas.py.
+  function pascoa(ano) {
+    const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const mes = Math.floor((h + l - 7 * m + 114) / 31), dia = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(ano, mes - 1, dia);
+  }
+  function temPonta(d0) {
+    const d = new Date(d0 * 1000), ano = d.getFullYear();
+    if (d.getDay() === 0 || d.getDay() === 6) return false;
+    const md = `${d.getMonth() + 1}-${d.getDate()}`;
+    if (["1-1", "4-21", "5-1", "9-7", "10-12", "11-2", "11-15", "12-25"].includes(md)) return false;
+    const p = pascoa(ano).getTime();
+    return ![-47, -2, 60].some((n) => Math.abs(new Date(p + n * DIA * 1000).setHours(0, 0, 0, 0) - d.getTime()) < 3 * 3600 * 1000);
+  }
+  function posto(minuto, inicio) {
+    if (minuto >= inicio && minuto < inicio + 180) return "ponta";
+    if ((minuto >= inicio - 60 && minuto < inicio) || (minuto >= inicio + 180 && minuto < inicio + 240)) return "intermediario";
+    return "fora";
+  }
+  const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  const cacheMeia = new Map();
+  function kwhDaMeiaHora(d0, i) {                       // com o mesmo ajuste do dia de kwhDaHora
+    const chave = `${d0}:${i}`;
+    if (!cacheMeia.has(chave)) {
+      const inicio = d0 + i * 1800;
+      let kwh = whEntre(inicio, inicio + 1800) / 1000 * (0.9 + ruido(d0 / DIA) * 0.25);
+      if (d0 + DIA <= inicioDoDia(PLANO_DESDE)) kwh += 0.011 + (i === 14 || i === 39 ? 5400 * 2 / 60 / 1000 : 0);
+      cacheMeia.set(chave, kwh);
+    }
+    return cacheMeia.get(chave);
+  }
+  function tarifaBranca() {
+    const inicio = E.tb.inicio ?? 18 * 60, exemplo = E.tb.inicio == null;
+    const postos = Array.from({ length: 48 }, (_, i) => posto(i * 30, inicio));
+    const cab = { ponta: { inicio: hhmm(inicio), fim: hhmm(inicio + 180), exemplo },
+      intermediario: [{ inicio: hhmm(inicio - 60), fim: hhmm(inicio) }, { inicio: hhmm(inicio + 180), fim: hhmm(inicio + 240) }],
+      postos, precos: E.tb.precos, tarifa_kwh: E.tarifa };
+    if (!E.aceites.consumo) return { ...cab, disponivel: false, motivo: "Nenhum medidor pareado.", dias_medidos: 0 };
+    const hoje0 = inicioDoDia(agora()), uteis = [], outros = [];
+    for (let n = 1; n <= 28; n++) {
+      const d0 = inicioDoDia(hoje0 - n * DIA + 3600);
+      if (d0 <= inicioDoDia(MEDIDOR_DESDE)) continue;          // o dia do pareamento (pela metade) não conta
+      (temPonta(d0) ? uteis : outros).push(d0);
+    }
+    const media = (lista, i) => lista.reduce((s, d0) => s + kwhDaMeiaHora(d0, i), 0) / lista.length;
+    const perfilUtil = Array.from({ length: 48 }, (_, i) => media(uteis, i));
+    const perfilOutros = outros.length ? Array.from({ length: 48 }, (_, i) => media(outros, i)) : perfilUtil;
+    // Dias com e sem ponta num mês médio dos próximos 12 meses.
+    let n = 0;
+    for (let k = 0; k < 365; k++) if (temPonta(inicioDoDia(hoje0 + k * DIA + 3600))) n++;
+    const diasUteis = n / 12, outrosDias = (365 - n) / 12;
+    const kwh = { fora: 0, intermediario: 0, ponta: 0 };
+    perfilUtil.forEach((v, i) => { kwh[postos[i]] += v * diasUteis; });
+    kwh.fora += perfilOutros.reduce((s, v) => s + v, 0) * outrosDias;
+    const total = kwh.fora + kwh.intermediario + kwh.ponta;
+    const r = { ...cab, disponivel: true, dias_medidos: uteis.length + outros.length, dias: { uteis: uteis.length, outros: outros.length },
+      perfil: { dia_util: perfilUtil.map((v) => r2(v, 4)), fim_de_semana: outros.length ? perfilOutros.map((v) => r2(v, 4)) : null },
+      mes: { dias_uteis: r1(diasUteis), outros_dias: r1(outrosDias), kwh: { fora: r1(kwh.fora), intermediario: r1(kwh.intermediario), ponta: r1(kwh.ponta), total: r1(total) },
+        percentual: Object.fromEntries(Object.entries(kwh).map(([k, v]) => [k, Math.round(v / total * 1000) / 1000])) },
+      custo: null, empate: null, fator: null, minimo: MINIMO[E.ligacao] ? { kwh: MINIMO[E.ligacao], abaixo: total < MINIMO[E.ligacao] } : null,
+      aparelhos_na_ponta: [] };
+    if (E.aceites.aparelhos) {
+      r.aparelhos_na_ponta = APARELHOS.filter((a) => a.janelas && !E.ocultos.has(a.id)).map((a) => {
+        const minutos = a.janelas.reduce((s, [x, y]) => s + Math.max(0, Math.min(y, inicio + 180) - Math.max(x, inicio)), 0);
+        return { id: a.id, nome: nomeAparelho(a), palpite: a.nome ? null : PALPITES[a.id], kwh_mes: r1(a.potencia * minutos / 60 / 1000 * diasUteis) };
+      }).filter((a) => a.kwh_mes >= 1).sort((a, b) => b.kwh_mes - a.kwh_mes).slice(0, 3);
+    }
+    const p = E.tb.precos;
+    if (p) {
+      const fator = E.tarifa ? E.tarifa / p.convencional : 1;
+      const postosReais = Object.fromEntries(Object.entries(kwh).map(([k, v]) => [k, v * p[k] * fator]));
+      const convencional = total * p.convencional * fator, branca = postosReais.fora + postosReais.intermediario + postosReais.ponta;
+      r.fator = Math.round(fator * 1000) / 1000;
+      r.custo = { convencional: r2(convencional), branca: r2(branca), diferenca: r2(branca - convencional),
+        postos: Object.fromEntries(Object.entries(postosReais).map(([k, v]) => [k, r2(v)])) };
+      if (branca > convencional) {
+        const passar = (branca - convencional) / (fator * (p.ponta - p.fora));
+        r.empate = { kwh_mes: r1(passar), kwh_por_dia_util: r2(passar / diasUteis), cabe_na_ponta: passar <= kwh.ponta };
+      }
+    }
+    return r;
+  }
+  function salvarTarifaBranca(corpo) {
+    const erro = (texto) => [400, { erro: texto, codigo: null }];
+    let inicio = corpo.ponta_inicio ?? null;
+    if (inicio != null) {
+      const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(inicio);
+      inicio = m ? Number(m[1]) * 60 + Number(m[2]) : null;
+      if (inicio == null || inicio % 30 || inicio < 15 * 60 || inicio > 20 * 60) return erro("O começo da ponta vai de 15:00 a 20:00, de meia em meia hora.");
+    }
+    const nomes = { convencional: "convencional", fora: "fora de ponta", intermediario: "intermediário", ponta: "ponta" };
+    const precos = {};
+    for (const [k, nome] of Object.entries(nomes)) {
+      const v = corpo[k];
+      if (v == null) continue;
+      if (typeof v !== "number" || !(v > 0 && v <= 10)) return erro(`O preço ${nome} precisa ser um número maior que 0 e até 10 (R$ por kWh).`);
+      precos[k] = v;
+    }
+    const n = Object.keys(precos).length;
+    if (n && n < 4) return erro("Preencha os quatro preços da mesma tabela, ou deixe os quatro em branco.");
+    if (n && precos.ponta <= precos.fora) return erro("Na Tarifa Branca, a ponta é mais cara que fora de ponta. Confira se os preços não trocaram de lugar.");
+    E.tb = { inicio, precos: n ? precos : null };
+    E.atividade.unshift(["Horário e preços da Tarifa Branca alterados", 0]);
+    return [200, tarifaBranca()];
+  }
+
   /* ---------------- perfil do dia e para onde vai agora ---------------- */
   const r3 = (v) => (v == null ? null : Math.round(v * 1000) / 1000);
   const r1 = (v) => Math.round(v * 10) / 10;
@@ -415,7 +547,7 @@
   function eu() {
     return { nome: "Visitante", email: "visitante@demonstracao.exemplo", etapa: "completa", csrf: "demonstracao", dois_fatores: false, codigos_backup_restantes: 0,
       exigir_2fa: false, tarifa_kwh: E.tarifa, tarifa_padrao: null, meta_mensal_reais: E.meta, consentimento_consumo: E.aceites.consumo,
-      avisos_nao_lidos: E.avisosLidos ? 0 : 3, plano: E.plano };
+      avisos_nao_lidos: E.avisosLidos ? 0 : 3, plano: E.plano, ligacao: E.ligacao };
   }
 
   function alterarMedidor(m, corpo) {
@@ -457,7 +589,15 @@
     if (!E.dentro) return [401, { erro: "Entre na sua conta para continuar.", codigo: "sem_sessao" }];
 
     if (chave === "GET /conta/eu") return [200, eu()];
-    if (chave === "PUT /conta/preferencias") { E.tarifa = corpo.tarifa_kwh ?? null; E.meta = corpo.meta_mensal_reais ?? null; return [200, { ok: true }]; }
+    if (chave === "PUT /conta/preferencias") {
+      if (corpo.ligacao !== undefined && ![null, "monofasica", "bifasica", "trifasica"].includes(corpo.ligacao)) {
+        return [400, { erro: "O tipo de ligação é monofásica, bifásica ou trifásica.", codigo: null }];
+      }
+      E.tarifa = corpo.tarifa_kwh ?? null; E.meta = corpo.meta_mensal_reais ?? null;
+      if (corpo.ligacao !== undefined) E.ligacao = corpo.ligacao;
+      return [200, { ok: true }];
+    }
+    if (chave === "PUT /conta/tarifa-branca") return salvarTarifaBranca(corpo || {});
     if (chave === "GET /conta/sessoes") return [200, { sessoes: [{ id: 1, criada_em: iso(agora() - 1200), ultimo_uso: iso(agora()), rede: "demonstração", navegador: "Este navegador", atual: true }] }];
     if (partes[0] === "conta") return NAO_NA_DEMO;
 
@@ -506,6 +646,7 @@
     }
 
     if (chave === "GET /economia") return [200, estadoEconomia()];
+    if (chave === "GET /economia/tarifa-branca") return [200, tarifaBranca()];
     if (chave === "GET /economia/resumo") {
       return [200, { acoes: E.economia.length, ...totaisEconomia(), verificacao: E.economia.length ? verificacaoEconomia() : null }];
     }

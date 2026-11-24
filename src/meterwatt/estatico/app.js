@@ -403,6 +403,12 @@ const visor = criarVisor($("#visor-agora"));
 
 async function telaPainel() {
   prepararCasa3d();
+  // O formulário da meta já sai preenchido, antes de os números chegarem.
+  const f = $("#form-preferencias");
+  f.elements.meta_mensal_reais.value = estado.eu.meta_mensal_reais != null ? fmt.num(estado.eu.meta_mensal_reais, 2) : "";
+  f.elements.tarifa_kwh.value = estado.eu.tarifa_kwh != null ? fmt.num(estado.eu.tarifa_kwh, 4) : "";
+  f.elements.tarifa_kwh.placeholder = estado.eu.tarifa_padrao != null ? `padrão: ${fmt.num(estado.eu.tarifa_padrao, 2)}` : "ex.: 0,92";
+  f.elements.ligacao.value = estado.eu.ligacao || "";
   await Promise.all([atualizarAgora(), atualizarMeta(), atualizarFantasma(), atualizarDias(),
     atualizarPerfil().catch(() => {}), atualizarFluxo().catch(() => {})]);
   await atualizarEconomiaPainel().catch(() => {});
@@ -415,10 +421,6 @@ async function telaPainel() {
     atualizarPerfil().catch(() => {});
     atualizarFantasma().then(atualizarEconomiaPainel).catch(() => {});
   }, 60000));
-  const f = $("#form-preferencias");
-  f.elements.meta_mensal_reais.value = estado.eu.meta_mensal_reais != null ? fmt.num(estado.eu.meta_mensal_reais, 2) : "";
-  f.elements.tarifa_kwh.value = estado.eu.tarifa_kwh != null ? fmt.num(estado.eu.tarifa_kwh, 4) : "";
-  f.elements.tarifa_kwh.placeholder = estado.eu.tarifa_padrao != null ? `padrão: ${fmt.num(estado.eu.tarifa_padrao, 2)}` : "ex.: 0,92";
 }
 
 async function atualizarAgora() {
@@ -449,12 +451,34 @@ async function atualizarAgora() {
   $("#hoje-custo").textContent = custo != null ? `${fmt.reais(custo)} até agora` : "Informe a tarifa para ver em reais";
 }
 
+const nomeDoMes = (mes) => new Date(`${mes}-15T12:00:00`).toLocaleDateString("pt-BR", { month: "long" });
+
+/* O que a previsão da conta já inclui além da energia: a bandeira do mês (quando a ANEEL anunciou) e o
+ * mínimo da ligação (quando a casa gasta menos que ele). */
+function linhaDaConta(m) {
+  const saida = [];
+  if (m.minimo && m.minimo.aplicado) {
+    saida.push(`O consumo previsto fica abaixo do mínimo da ligação (${m.minimo.kwh} kWh), então a conta cobra o mínimo.`);
+  }
+  const b = m.bandeira;
+  if (b && b.informada) {
+    saida.push(b.adicional > 0
+      ? `Inclui a bandeira ${b.nome} de ${nomeDoMes(b.mes)}: ${fmt.reais(b.adicional)} a mais, fora os impostos sobre ela.`
+      : `Bandeira de ${nomeDoMes(b.mes)}: ${b.nome}, sem acréscimo.`);
+  }
+  return saida;
+}
+
 async function atualizarMeta() {
   const m = await api("GET", "/api/meta");
   const bloco = $("#bloco-meta");
   const C = 2 * Math.PI * 50;
   const arco = (fracao) => `${Math.max(0, Math.min(1, fracao)) * C} ${C}`;
   bloco.dataset.status = m.status || "";
+  const conta = $("#meta-conta");
+  const extras = m.sem_tarifa ? [] : linhaDaConta(m);
+  conta.textContent = extras.join(" ");
+  conta.hidden = !extras.length;
   if (m.sem_tarifa) {
     $("#meta-projecao").textContent = "—";
     $("#meta-linha").textContent = "";
@@ -628,10 +652,12 @@ function ligarPreferencias() {
     const meta = numeroDigitado(d.meta_mensal_reais);
     const tarifa = numeroDigitado(d.tarifa_kwh);
     if (Number.isNaN(meta) || Number.isNaN(tarifa)) throw new Error("Use só números, como 180 ou 0,92.");
-    await api("PUT", "/api/conta/preferencias", { meta_mensal_reais: meta, tarifa_kwh: tarifa });
+    const ligacao = d.ligacao || null;
+    await api("PUT", "/api/conta/preferencias", { meta_mensal_reais: meta, tarifa_kwh: tarifa, ligacao });
     estado.eu.meta_mensal_reais = meta;
     estado.eu.tarifa_kwh = tarifa;
-    avisar("Meta e tarifa salvas.");
+    estado.eu.ligacao = ligacao;
+    avisar("Meta, tarifa e ligação salvas.");
     await Promise.all([atualizarAgora(), atualizarMeta(), atualizarFantasma(), atualizarDias(),
       atualizarPerfil().catch(() => {}), atualizarFluxo().catch(() => {})]);
   });
@@ -1300,11 +1326,141 @@ function valorDe(chave, inicial) {
 async function telaEconomia(foco) {
   eco.visor = eco.visor || criarVisor($("#visor-economia"));
   aplicarEconomia(await api("GET", "/api/economia"));
+  atualizarTarifaBranca().catch(() => { $("#tb-resultado").textContent = "Não deu para carregar a comparação agora."; });
   const alvo = foco && $(`.eco-grupo[data-grupo="${CSS.escape(foco)}"]`);
   if (alvo) {
     alvo.scrollIntoView({ block: "start" });
     const primeiro = $("input, button", alvo);
     if (primeiro) primeiro.focus({ preventScroll: true });
+  }
+}
+
+/* ---------- Tarifa Branca: vale a pena? */
+
+const POSTOS = [["fora", "Fora de ponta"], ["intermediario", "Intermediário"], ["ponta", "Ponta"]];
+
+/* Preço digitado: "0,75", "0.75" ou "R$ 0,75". Preço por kWh não tem milhar, então o ponto é a vírgula. */
+function precoDigitado(texto) {
+  if (texto == null || String(texto).trim() === "") return null;
+  let s = String(texto).trim().replace(/^R\$\s*/i, "");
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+async function atualizarTarifaBranca() {
+  desenharTarifaBranca(await api("GET", "/api/economia/tarifa-branca"));
+}
+
+function ligarTarifaBranca() {
+  formulario($("#form-tarifa-branca"), async (d) => {
+    const precos = Object.fromEntries(POSTOS.map(([k]) => [k, precoDigitado(d[k])]).concat([["convencional", precoDigitado(d.convencional)]]));
+    if (Object.values(precos).some(Number.isNaN)) throw new Error("Use só números nos preços, como 0,75.");
+    const r = await api("PUT", "/api/conta/tarifa-branca", { ponta_inicio: d.ponta_inicio || null, ...precos });
+    desenharTarifaBranca(r);
+    avisar(r.precos ? "Horário e preços salvos." : "Horário salvo.");
+  });
+}
+
+function desenharTarifaBranca(r) {
+  const G = window.MWGraficos;
+  const form = $("#form-tarifa-branca");
+  const hora = (texto) => (G ? G.horaCurta(texto) : texto);
+  const faixa = (x) => `${hora(x.inicio)} às ${hora(x.fim)}`;
+  // O formulário mostra o que está guardado.
+  form.elements.ponta_inicio.value = r.ponta.exemplo ? "" : r.ponta.inicio;
+  ["convencional", "fora", "intermediario", "ponta"].forEach((k) => {
+    // Tabela de distribuidora tem preço com até 6 casas: mostra todas, para salvar de novo sem arredondar.
+    form.elements[k].value = r.precos ? r.precos[k].toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : "";
+  });
+  // Na primeira vez, o formulário já vem aberto se faltam os preços; depois, fica como a pessoa deixou.
+  if (!estado.tbMostrada) { $("#tb-ajustar").open = !r.precos; estado.tbMostrada = true; }
+  const resultado = $("#tb-resultado"), figura = $("#tb-figura"), tabela = $("#tb-tabela");
+  const empate = $("#tb-empate"), aparelhos = $("#tb-aparelhos");
+  empate.hidden = aparelhos.hidden = true;
+  if (!r.disponivel) {
+    resultado.textContent = r.motivo === "Nenhum medidor pareado."
+      ? "Com o medidor pareado e alguns dias de medição, aqui aparece quanto a sua casa pagaria na Tarifa Branca."
+      : `Para comparar, o MeterWatt precisa de alguns dias inteiros medidos. ${r.motivo}`;
+    figura.hidden = true;
+    tabela.replaceChildren();
+    return;
+  }
+  const pct = (k) => `${Math.round(r.mes.percentual[k] * 100)}%`;
+  const exemplo = r.ponta.exemplo ? " (usando 18h às 21h como exemplo: troque pelo horário da sua distribuidora)" : "";
+  const partes = [];
+  if (r.custo) {
+    const d = r.custo.diferenca;
+    partes.push(Math.abs(d) < 1
+      ? `Na Tarifa Branca, a sua conta ficaria praticamente igual: ${fmt.reais(Math.abs(d))} de diferença por mês.`
+      : `Na Tarifa Branca, a sua conta ficaria cerca de ${fmt.reais(Math.abs(d))} mais ${d > 0 ? "cara" : "barata"} por mês.`);
+    partes.push(`${pct("ponta")} do que a casa gasta no mês cai na ponta (${faixa(r.ponta)})${exemplo}.`);
+  } else {
+    partes.push(`${pct("ponta")} do que a casa gasta no mês cai na ponta (${faixa(r.ponta)}) e ${pct("intermediario")} no intermediário${exemplo}.`);
+    partes.push("Para saber se a Tarifa Branca compensa, informe os preços da sua distribuidora abaixo.");
+  }
+  partes.push(`A conta usa ${r.dias_medidos} dias medidos das últimas 4 semanas.`);
+  resultado.textContent = partes.join(" ");
+
+  figura.hidden = false;
+  if (G) G.desenharTarifaBranca($("#tb-grafico"), r);
+  const legenda = POSTOS.map(([k, nome]) => {
+    const marca = el("span", { class: "legenda-barra", "aria-hidden": "true" });
+    marca.style.setProperty("--cor", G ? G.COR_POSTO[k] : "currentColor");
+    const quando = k === "ponta" ? faixa(r.ponta) : k === "intermediario" ? r.intermediario.map(faixa).join(" e ") : "as outras horas";
+    return el("span", { class: "legenda-item" }, marca, `${nome}: ${quando}`);
+  });
+  $("#tb-legenda").replaceChildren(...legenda);
+
+  // A tabela: kWh por mês de cada posto e, com os preços, quanto custa em cada modalidade.
+  const comPreco = !!r.custo;
+  const preco = (k) => fmt.reais(r.precos[k] * r.fator);
+  const linhas = POSTOS.map(([k, nome]) => el("tr", {},
+    el("th", { scope: "row" }, nome),
+    el("td", {}, fmt.num(r.mes.kwh[k], 1)),
+    comPreco ? el("td", { class: "tb-preco" }, preco(k)) : null,
+    comPreco ? el("td", {}, fmt.reais(r.custo.postos[k])) : null));
+  const total = (nome, kwh, precoTexto, custo, classe) => el("tr", { class: classe },
+    el("th", { scope: "row" }, nome), el("td", {}, fmt.num(kwh, 1)),
+    comPreco ? el("td", { class: "tb-preco" }, precoTexto) : null, comPreco ? el("td", {}, custo) : null);
+  const corpo = el("tbody", {}, ...linhas,
+    total("Tarifa Branca", r.mes.kwh.total, "", comPreco ? fmt.reais(r.custo.branca) : "", "tb-total"));
+  if (comPreco) corpo.append(total("Convencional", r.mes.kwh.total, preco("convencional"), fmt.reais(r.custo.convencional), "tb-total"));
+  tabela.replaceChildren(el("table", {},
+    el("caption", {}, comPreco ? "Num mês, com o jeito de usar da sua casa" : "Num mês, com o jeito de usar da sua casa (kWh)"),
+    el("thead", {}, el("tr", {}, el("th", { scope: "col" }, "Horário"), el("th", { scope: "col" }, "kWh por mês"),
+      comPreco ? el("th", { scope: "col", class: "tb-preco" }, "R$ por kWh") : null, comPreco ? el("th", { scope: "col" }, "Por mês") : null)),
+    corpo));
+  if (comPreco && r.fator === 1 && !r.tarifa_kwh) {
+    tabela.append(el("p", { class: "dica" }, "Sem a tarifa da sua conta (na meta do mês), os valores usam os preços da tabela como estão: se ela é sem impostos, a conta de verdade fica maior nas duas."));
+  }
+  if (r.minimo && r.minimo.abaixo) {
+    tabela.append(el("p", { class: "dica" }, `A casa gasta menos que o mínimo da ligação (${r.minimo.kwh} kWh por mês): nas duas modalidades a conta cobra o mínimo, e a comparação perde o sentido.`));
+  }
+
+  // Para empatar (ou o quanto já compensa) e quem mais pesa na ponta.
+  const topo = r.aparelhos_na_ponta[0];
+  if (r.empate) {
+    empate.hidden = false;
+    const e = r.empate;
+    empate.textContent = !e.cabe_na_ponta
+      ? "Nem tirando todo o consumo da ponta a Tarifa Branca ficaria mais barata para a sua casa."
+      : `Para empatar, seria preciso tirar da ponta cerca de ${fmt.num(e.kwh_mes, 1)} kWh por mês, uns ${fmt.num(e.kwh_por_dia_util, 1)} kWh por dia útil, ` +
+        "e usar essa energia em outro horário." +
+        (topo && topo.kwh_mes >= e.kwh_mes
+          ? ` ${topo.nome}${topo.palpite ? ` (parece ${topo.palpite})` : ""} gasta sozinho ${fmt.num(topo.kwh_mes, 1)} kWh por mês na ponta: ` +
+            "usado fora da ponta e do intermediário, já bastaria."
+          : "");
+  } else if (r.custo && r.custo.diferenca < 0 && r.precos.ponta > r.precos.fora) {
+    empate.hidden = false;
+    empate.textContent = `E cada kWh que sair da ponta para fora dela economiza mais ${fmt.reais((r.precos.ponta - r.precos.fora) * r.fator)} na Tarifa Branca.`;
+  }
+  if (r.aparelhos_na_ponta.length) {
+    aparelhos.hidden = false;
+    aparelhos.replaceChildren(el("h3", {}, "Quem mais gasta na ponta"), el("ul", {}, ...r.aparelhos_na_ponta.map((a) => el("li", {},
+      el("strong", {}, a.nome), a.palpite ? ` (parece ${a.palpite})` : "", `: ${fmt.num(a.kwh_mes, 1)} kWh por mês`,
+      r.custo ? `, ${fmt.reais(a.kwh_mes * r.precos.ponta * r.fator)} na Tarifa Branca` : "")),
+    ), el("p", { class: "dica" }, "Palpite do Detetive: os ciclos de cada aparelho que caíram no horário de ponta dos dias úteis."));
   }
 }
 
@@ -2718,6 +2874,7 @@ async function iniciar() {
   $("#sair-demonstracao").addEventListener("click", sairDaDemonstracao);
   ligarFormulariosPublicos();
   ligarPreferencias();
+  ligarTarifaBranca();
   ligarSeguranca();
   ligarPrivacidade();
   ligarInicio();

@@ -75,6 +75,12 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - **O que cada medidor mede** (a entrada de um imóvel ou um circuito dentro de uma entrada): fica no cadastro do medidor, entra na cópia dos dados (`mede` e `dentro_de`, em cada medidor) e cada mudança vai para a atividade da conta ("O que o medidor mede mudou").
 - **Casa em 3D**: a escolha de mostrar ou esconder fica só no navegador daquele aparelho (`mw-casa-3d`), como o "Agora não" do convite. Não vai para o servidor.
 
+## O que entrou no bloco 9 (a conta de verdade)
+- **Tarifa Branca**: o horário de ponta e os quatro preços da distribuidora ficam no cadastro da pessoa (são escolhas dela, não medição), entram na cópia dos dados (`conta.tarifa_branca`) e cada mudança vai para a atividade da conta ("Horário e preços da Tarifa Branca alterados"). A comparação sai na hora do consumo de 5 em 5 minutos que já está guardado; nada novo é gravado.
+- **Quem mais gasta na ponta**: usa os ciclos do Detetive e só aparece com a autorização dele.
+- **Tipo de ligação** (monofásica, bifásica ou trifásica): no cadastro, na cópia dos dados (`conta.ligacao`) e na atividade ("Tarifa, meta ou tipo de ligação alterados").
+- **Bandeira do mês**: é um dado público da ANEEL, igual para todas as contas, registrado por quem opera o servidor.
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).
