@@ -80,8 +80,16 @@ class ErroApi extends Error {
   }
 }
 
+const LEITURAS_DA_CASA = [/^\/api\/medidores(\/[A-Za-z0-9_-]+\/historico)?(\?|$)/, /^\/api\/(meta|fantasma|agora\/partes|relatorios)(\/|\?|$)/,
+  /^\/api\/consumo\/(dias|horas)(\?|$)/];
+const casaLeitura = (caminho) => LEITURAS_DA_CASA.some((r) => r.test(caminho));
+
 async function api(metodo, caminho, dados, { cru = false } = {}) {
   const opcoes = { method: metodo, credentials: "same-origin", headers: { Accept: "application/json" } };
+  // Vendo a casa de outra pessoa: as leituras do painel e do relatório vão com a casa escolhida (o servidor confere).
+  if (metodo === "GET" && estado.casa && (estado.rota === "painel" || estado.rota === "relatorio") && casaLeitura(caminho)) {
+    opcoes.headers["X-MW-Casa"] = String(estado.casa);
+  }
   if (metodo !== "GET") {
     opcoes.headers["Content-Type"] = "application/json";
     opcoes.body = JSON.stringify(dados || {});
@@ -97,7 +105,12 @@ async function api(metodo, caminho, dados, { cru = false } = {}) {
   const corpo = await r.json().catch(() => null);
   if (!r.ok) {
     const erro = new ErroApi(r.status, corpo);
-    if (erro.codigo === "sem_sessao" && estado.eu) {
+    if (erro.codigo === "sem_acesso" && estado.casa) {          // a dona tirou o acesso: volta para a própria casa
+      estado.casa = null;
+      lembrar("mw-casa", "");
+      avisar("Você não tem mais acesso a essa casa.", true);
+      carregarEu().then(() => ir("painel")).catch(() => {});
+    } else if (erro.codigo === "sem_sessao" && estado.eu) {
       estado.eu = null;
       estado.csrf = null;
       avisar("A sessão terminou. Entre de novo.");
@@ -140,15 +153,15 @@ function formulario(form, enviar) {
 /* ------------------------------------------------------------------ rotas */
 
 const ROTAS_PUBLICAS = new Set(["entrar", "cadastro", "enviado", "confirmar", "esqueci", "redefinir", "2fa"]);
-const ROTAS_APP = new Set(["painel", "medidores", "aparelhos", "economia", "conta", "avisos", "plano", "pagamento-teste", "seguranca", "privacidade", "relatorio"]);
+const ROTAS_APP = new Set(["painel", "medidores", "aparelhos", "economia", "conta", "avisos", "plano", "pagamento-teste", "seguranca", "privacidade", "relatorio", "compartilhar"]);
 // No celular, estas telas ficam dentro da aba "Conta".
-const DENTRO_DE_CONTA = new Set(["conta", "seguranca", "privacidade", "plano", "avisos", "pagamento-teste"]);
+const DENTRO_DE_CONTA = new Set(["conta", "seguranca", "privacidade", "plano", "avisos", "pagamento-teste", "compartilhar"]);
 const ROTAS_INICIO = new Set(["inicio", "fila", "convite", "sair-da-fila"]);
 const DOCUMENTOS = new Set(["politica", "termos", "excluir-conta"]);
 const TITULOS = { entrar: "Entrar", cadastro: "Criar conta", painel: "Painel", medidores: "Medidores", seguranca: "Segurança",
   privacidade: "Privacidade", politica: "Política de privacidade", termos: "Termos de uso", "2fa": "Verificação",
   inicio: "Energia que você enxerga", fila: "Lista de espera", "sair-da-fila": "Sair da lista", aparelhos: "Aparelhos",
-  avisos: "Avisos", plano: "Plano", relatorio: "Relatório do mês", "pagamento-teste": "Pagamento de teste", economia: "E se eu…?", conta: "Conta",
+  avisos: "Avisos", plano: "Plano", relatorio: "Relatório do mês", compartilhar: "Compartilhar a casa", "pagamento-teste": "Pagamento de teste", economia: "E se eu…?", conta: "Conta",
   "excluir-conta": "Excluir a conta" };
 
 function ir(rota) {
@@ -189,7 +202,10 @@ async function mostrar() {
   else if (ROTAS_INICIO.has(alvo)) area = "inicio";
   else area = "erro";
 
-  if (area === "app" && !estado.eu) return ir("entrar");
+  if (area === "app" && !estado.eu) {
+    if (alvo === "compartilhar" && token) conviteGuardado(token);   // volta ao convite depois de entrar
+    return ir("entrar");
+  }
   if (area === "publica" && estado.eu && alvo !== "confirmar" && alvo !== "redefinir") return ir("painel");
 
   document.body.dataset.tela = alvo;
@@ -220,7 +236,7 @@ async function mostrar() {
 
   const telas = { painel: telaPainel, medidores: telaMedidores, seguranca: telaSeguranca, privacidade: telaPrivacidade,
     aparelhos: telaAparelhos, avisos: telaAvisos, plano: telaPlano, "pagamento-teste": () => telaPagamentoTeste(token),
-    economia: () => telaEconomia(token), conta: telaConta, relatorio: () => telaRelatorio(token),
+    economia: () => telaEconomia(token), conta: telaConta, relatorio: () => telaRelatorio(token), compartilhar: () => telaCompartilhar(token),
     inicio: telaInicio, fila: () => telaFila(token), "sair-da-fila": () => { estado.tokenFila = token; },
     confirmar: () => confirmarEmail(token), redefinir: () => { estado.tokenRedefinir = token; }, "2fa": tela2fa };
   if (DOCUMENTOS.has(alvo)) return mostrarDocumento(alvo, raiz);
@@ -261,7 +277,10 @@ async function depoisDeEntrar(resposta) {
   limparEconomia();
   push.servidor = null;
   if (resposta.etapa === "aguardando_2fa") return ir("2fa");
+  estado.casa = null;
   await carregarEu();
+  const convite = conviteGuardado();
+  if (convite) { conviteGuardado(null); return ir(`compartilhar/${convite}`); }
   ir("painel");
   conferirNotificacoes().then(redesenharNotificacoes).catch(() => {});
 }
@@ -402,7 +421,32 @@ function criarVisor(caixa) {
 
 const visor = criarVisor($("#visor-agora"));
 
+function prepararEscolhaDeCasa() {
+  const casas = (estado.eu && estado.eu.casas) || [];
+  if (estado.casa == null) {
+    const guardada = Number(lembrar("mw-casa"));
+    if (guardada && casas.some((c) => c.dono_id === guardada)) estado.casa = guardada;
+  }
+  if (estado.casa && !casas.some((c) => c.dono_id === estado.casa)) estado.casa = null;
+  $("#casa-escolha").hidden = !casas.length;
+  const select = $("#casa-select");
+  select.replaceChildren(el("option", { value: "" }, "Minha casa"), ...casas.map((c) => el("option", { value: c.dono_id }, `Casa de ${c.nome}`)));
+  select.value = estado.casa ? String(estado.casa) : "";
+  select.onchange = () => {
+    estado.casa = select.value ? Number(select.value) : null;
+    lembrar("mw-casa", select.value);
+    estado.perfil = null;
+    mostrar();
+  };
+  const leitura = !!estado.casa;
+  document.body.classList.toggle("vendo-outra-casa", leitura);
+  $("#casa-leitura").hidden = !leitura;
+  const nome = leitura ? casas.find((c) => c.dono_id === estado.casa).nome : null;
+  $('[data-rota="painel"] .relogio-rotulo').textContent = leitura ? `Casa de ${nome} agora` : "Sua casa agora";
+}
+
 async function telaPainel() {
+  prepararEscolhaDeCasa();
   prepararCasa3d();
   // O formulário da meta já sai preenchido, antes de os números chegarem.
   const f = $("#form-preferencias");
@@ -412,7 +456,8 @@ async function telaPainel() {
   f.elements.ligacao.value = estado.eu.ligacao || "";
   await Promise.all([atualizarAgora(), atualizarMeta(), atualizarFantasma(), atualizarDias(),
     atualizarPerfil().catch(() => {}), atualizarFluxo().catch(() => {})]);
-  await atualizarEconomiaPainel().catch(() => {});
+  if (!estado.casa) await atualizarEconomiaPainel().catch(() => {});
+  else $("#bloco-economia").hidden = true;
   desenharConviteApp();
   estado.timers.push(setInterval(() => { if (!document.hidden) atualizarAgora().catch(() => {}); }, 2000));
   estado.timers.push(setInterval(() => { if (!document.hidden) atualizarFluxo().catch(() => {}); }, 5000));
@@ -420,7 +465,7 @@ async function telaPainel() {
     if (document.hidden) return;
     atualizarMeta().catch(() => {});
     atualizarPerfil().catch(() => {});
-    atualizarFantasma().then(atualizarEconomiaPainel).catch(() => {});
+    atualizarFantasma().then(() => (estado.casa ? null : atualizarEconomiaPainel())).catch(() => {});
   }, 60000));
 }
 
@@ -687,7 +732,8 @@ async function telaRelatorio(mes) {
 
 function desenharRelatorio(r) {
   const nome = r.nome.charAt(0).toUpperCase() + r.nome.slice(1);
-  $("#rel-titulo").textContent = `Relatório de ${r.nome}`;
+  const casa = nomeDaCasa();
+  $("#rel-titulo").textContent = casa ? `Casa de ${casa}: relatório de ${r.nome}` : `Relatório de ${r.nome}`;
   document.title = `Relatório de ${r.nome} | MeterWatt`;
   const aviso = $("#rel-aviso");
   const avisos = [];
@@ -2667,6 +2713,80 @@ function telaConta() {
     ? `${naoLidos}, notificações ${push.inscricao ? "ligadas" : "desligadas"}` : naoLidos;
   const cobranca = estado.info && estado.info.plano;
   $("#conta-plano-atual").textContent = cobranca && !cobranca.disponivel ? "sem cobrança por enquanto" : eu.plano === "casa" ? "plano Casa" : "plano grátis";
+  const casas = (eu.casas || []).length;
+  $("#conta-compartilhar").textContent = casas ? `você vê ${casas === 1 ? "1 outra casa" : `${casas} outras casas`}` : "alguém da família vê o painel";
+}
+
+/* ------------------------------------------------------------------ compartilhar a casa */
+
+/* O link do convite, guardado só nesta aba enquanto a pessoa entra ou cria a conta. */
+function conviteGuardado(token) {
+  try {
+    if (token === undefined) return sessionStorage.getItem("mw-convite-casa");
+    if (token === null) sessionStorage.removeItem("mw-convite-casa");
+    else sessionStorage.setItem("mw-convite-casa", token);
+  } catch { /* sem armazenamento: a pessoa abre o link de novo */ }
+  return null;
+}
+
+const nomeDaCasa = () => {
+  const c = estado.casa && ((estado.eu && estado.eu.casas) || []).find((x) => x.dono_id === estado.casa);
+  return c ? c.nome : null;
+};
+
+async function telaCompartilhar(token) {
+  const cartao = $("#cp-convite");
+  cartao.hidden = !token;
+  if (token) {
+    $("#cp-convite-texto").textContent = `Alguém convidou ${estado.eu.email} para ver o painel de uma casa no MeterWatt. Você só vê: não muda nada na casa de quem convidou, e ninguém vê a sua.`;
+    $("#cp-convite-erro").textContent = "";
+    $("#cp-aceitar").onclick = async () => {
+      try {
+        const r = await api("POST", "/api/casa/aceitar", { token });
+        await carregarEu();
+        estado.casa = r.dono_id;
+        lembrar("mw-casa", String(r.dono_id));
+        avisar(`Pronto: você vê a casa de ${r.nome}. Troque de casa no alto do Painel.`);
+        ir("painel");
+      } catch (e) { $("#cp-convite-erro").textContent = e.message; }
+    };
+  }
+  desenharCompartilhar(await api("GET", "/api/casa"));
+}
+
+function desenharCompartilhar(r) {
+  const quando = (iso) => new Date(iso).toLocaleDateString("pt-BR");
+  const pessoas = r.pessoas.map((p) => el("li", {}, el("span", {}, el("strong", {}, p.nome), ` (${p.email}), desde ${quando(p.desde)}`),
+    el("button", { type: "button", class: "discreto perigo", onclick: async () => {
+      try { desenharCompartilhar(await api("DELETE", `/api/casa/pessoas/${p.id}`)); avisar(`${p.nome} não vê mais a sua casa.`); }
+      catch (e) { avisar(e.message, true); }
+    } }, "Tirar o acesso")));
+  const convites = r.convites.map((c) => el("li", {}, el("span", {}, `${c.email}: convite enviado, vale até ${quando(c.expira_em)}`),
+    el("button", { type: "button", class: "discreto", onclick: async () => {
+      try { desenharCompartilhar(await api("DELETE", `/api/casa/convites/${c.id}`)); avisar("Convite cancelado."); }
+      catch (e) { avisar(e.message, true); }
+    } }, "Cancelar")));
+  $("#cp-pessoas").replaceChildren(...pessoas, ...convites);
+  if (!pessoas.length && !convites.length) $("#cp-pessoas").replaceChildren(el("li", { class: "dica" }, "Ninguém além de você vê a sua casa."));
+  $("#cp-casas-bloco").hidden = !r.casas.length;
+  $("#cp-casas").replaceChildren(...r.casas.map((c) => el("li", {}, el("span", {}, el("strong", {}, `Casa de ${c.nome}`), `, desde ${quando(c.desde)}`),
+    el("button", { type: "button", class: "discreto perigo", onclick: async () => {
+      try {
+        desenharCompartilhar(await api("DELETE", `/api/casa/casas/${c.dono_id}`));
+        if (estado.casa === c.dono_id) { estado.casa = null; lembrar("mw-casa", ""); }
+        await carregarEu();
+        avisar(`Você não vê mais a casa de ${c.nome}.`);
+      } catch (e) { avisar(e.message, true); }
+    } }, "Deixar de ver"))));
+}
+
+function ligarCompartilhar() {
+  formulario($("#form-convidar"), async (d, form) => {
+    const r = await api("POST", "/api/casa/convites", { email: d.email });
+    desenharCompartilhar(r);
+    form.reset();
+    avisar(r.aviso || "Convite enviado por e-mail.");
+  });
 }
 
 /* ------------------------------------------------------------------ plano e cobrança */
@@ -3035,6 +3155,7 @@ async function iniciar() {
   ligarPreferencias();
   ligarTarifaBranca();
   ligarContasLuz();
+  ligarCompartilhar();
   ligarSeguranca();
   ligarPrivacidade();
   ligarInicio();

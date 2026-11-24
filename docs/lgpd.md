@@ -88,6 +88,13 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - O relatório sai na hora do consumo já guardado; nada novo é gravado. A planilha é montada no navegador da pessoa, sem passar por outro serviço.
 - **Resumo do mês**: um aviso novo (dia 1º), com a mesma base dos outros avisos (parte do serviço autorizado em "dados de consumo"); cada canal (e-mail e notificação) tem a sua chave em Avisos. O texto do e-mail tem kWh e reais do mês.
 
+## O que entrou no bloco 13 (compartilhar a casa)
+- **Quem decide**: só a pessoa dona da conta convida, por e-mail, e pode tirar o acesso a qualquer momento; quem foi convidado pode deixar de ver. Até 5 pessoas por casa, contando os convites pendentes, e até 10 convites por dia.
+- **Convite**: guarda o e-mail digitado e o hash do link (o link em si não fica no banco). Vale 7 dias e só a conta com aquele e-mail aceita; aceito, cancelado ou vencido, a linha é apagada. Na tela, quem recebe o convite não vê o nome de quem convidou antes de aceitar (o e-mail diz).
+- **O que a outra pessoa vê**: painel (agora, para onde vai, hoje, perfil por hora, meta, consumo em espera, dias) e relatório do mês, só leitura. Não vê o Detetive de aparelhos (nem no "para onde vai", nem no relatório), a economia, as contas de luz, os avisos, a privacidade nem os dados de conta. Isso é conferido no servidor (lista fechada de leituras em `web.py`, `ROTAS_COMPARTILHADAS`), não só escondido na tela.
+- **Registro e cópia**: convite, aceite, acesso retirado e saída vão para a atividade das duas contas; a cópia dos dados traz `compartilhamento` (quem vê a minha casa, convites pendentes, casas que eu vejo). Excluir qualquer uma das contas apaga os acessos (chave estrangeira em cascata).
+- **Política**: ganhou uma frase em "Com quem compartilhamos". [ADVOGADO] decidir se isso pede nova versão da política (hoje 2026-11-23; trocar a versão pede novo aceite de todo mundo). Como é o próprio titular que escolhe compartilhar, a base é a execução do serviço que ele pediu; com mais moradores, vale a pendência abaixo sobre informar os outros.
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).
