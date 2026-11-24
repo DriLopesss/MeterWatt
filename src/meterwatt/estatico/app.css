@@ -403,6 +403,27 @@ input[type=range]:disabled{opacity:.4;cursor:not-allowed}
 
 .eco-cabeca{display:grid;gap:10px}
 
+/* Conferir com a conta de luz */
+.contas-luz{margin-top:26px;gap:16px}
+.cl-lista{display:grid;gap:12px}
+.cl-lista:empty{display:none}
+.cl-conta{border:1px solid var(--linha);border-radius:12px;padding:14px 16px;display:grid;gap:10px}
+.cl-topo{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;justify-content:space-between}
+.cl-periodo{font:600 .98rem var(--f-texto);color:var(--tinta)}
+.cl-numeros{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 14px;margin:0}
+.cl-numeros dt{color:var(--apagado);font-size:.8rem}
+.cl-numeros dd{margin:0;font:500 1rem var(--f-numero);font-variant-numeric:tabular-nums;color:var(--tinta)}
+.cl-frase{color:var(--suave);font-size:.92rem;max-width:66ch}
+.cl-acoes{display:flex;flex-wrap:wrap;gap:8px}
+.etiqueta.cl-bate{color:var(--verde);border-color:rgba(70,240,160,.35)}
+.etiqueta.cl-perto{color:var(--ambar);border-color:rgba(255,176,32,.35)}
+.etiqueta.cl-diferente{color:var(--vermelho);border-color:rgba(255,107,132,.4)}
+.etiqueta.cl-pouca_medicao{color:var(--suave)}
+.cl-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;max-width:560px}
+.cl-form .erro,.cl-form button{grid-column:1/-1}
+.cl-form button{justify-self:start}
+@media (max-width:520px){.cl-numeros{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 /* Tarifa Branca: vale a pena? */
 .tarifa-branca{margin-top:26px;gap:16px}
 .tb-resultado{color:var(--tinta);font-size:1.02rem;max-width:66ch}

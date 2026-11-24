@@ -97,6 +97,7 @@
     ligacao: "bifasica",
     // Tarifa Branca: ponta das 18h às 21h e preços de EXEMPLO (na casa inventada, tudo é simulado).
     tb: { inicio: 18 * 60, precos: { convencional: 0.90, fora: 0.75, intermediario: 1.10, ponta: 1.73 } },
+    contasLuz: null, contaId: 0,
   };
   const FINALIDADES = {
     termos: ["Termos de uso", "Aceite das regras de uso do serviço.", true, false],
@@ -288,6 +289,48 @@
     }
     return r;
   }
+  // Contas de luz: a demonstração começa com a conta dos últimos 20 dias (a distribuidora cobrou 1,5% a mais).
+  function medidoNoPeriodo(a, b) {           // a, b: datas AAAA-MM-DD
+    const d0 = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).getTime() / 1000; };
+    let kwh = 0, medidos = 0, total = 0;
+    for (let t = d0(a); t < d0(b); t = inicioDoDia(t + DIA + 3600)) { total++; const k = kwhMedido(t); if (k > 0) { kwh += k; medidos++; } }
+    return { kwh, cobertura: total ? medidos / total : 0 };
+  }
+  function resumoConta(c) {
+    const dias = Math.round((new Date(c.fim) - new Date(c.inicio)) / 864e5);
+    const r = { id: c.id, inicio: c.inicio, fim: c.fim, dias, kwh: c.kwh, total: c.total, tarifa_efetiva: c.total ? Math.round(c.total / c.kwh * 10000) / 10000 : null,
+      medido_kwh: r1(c.medido), cobertura: Math.round(c.cobertura * 1000) / 1000, estimado: false, criada_em: iso(agora()) };
+    if (c.cobertura < 0.5) return { ...r, situacao: "pouca_medicao", medido_ajustado: null, diferenca: null };
+    const ajustado = c.medido / c.cobertura, dif = (ajustado - c.kwh) / c.kwh;
+    return { ...r, medido_ajustado: r1(ajustado), diferenca: Math.round(dif * 10000) / 10000,
+      situacao: Math.abs(dif) <= 0.03 ? "bate" : Math.abs(dif) <= 0.1 ? "perto" : "diferente" };
+  }
+  function contasLuz() {
+    if (!E.contasLuz) {
+      const fim = diaLocal(inicioDoDia(agora()) - 2 * DIA + 3600), inicio = diaLocal(inicioDoDia(agora()) - 22 * DIA + 3600);
+      const m = medidoNoPeriodo(inicio, fim), kwh = Math.round(m.kwh / Math.max(m.cobertura, 0.5) * 1.015);
+      E.contasLuz = [{ id: ++E.contaId, inicio, fim, kwh, total: Math.round(kwh * 1.04 * 100) / 100, medido: m.kwh, cobertura: m.cobertura }];
+    }
+    return { contas: [...E.contasLuz].sort((a, b) => b.fim.localeCompare(a.fim)).map(resumoConta), tarifa_kwh: E.tarifa, limites: { bate: 0.03, perto: 0.1 } };
+  }
+  function adicionarContaLuz(corpo) {
+    const erro = (texto) => [400, { erro: texto, codigo: null }];
+    const ok = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+    if (!ok(corpo.inicio) || !ok(corpo.fim)) return erro("As datas vão no formato AAAA-MM-DD.");
+    if (corpo.fim <= corpo.inicio) return erro("A leitura atual vem depois da leitura anterior.");
+    if (corpo.fim > diaLocal(agora())) return erro("A leitura atual não pode ser depois de hoje.");
+    if ((new Date(corpo.fim) - new Date(corpo.inicio)) / 864e5 > 62) return erro("Uma conta cobre no máximo 62 dias. Confira as datas de leitura.");
+    if (!(typeof corpo.kwh === "number" && corpo.kwh > 0)) return erro("O consumo (kWh) precisa ser um número maior que 0.");
+    if (corpo.total != null && !(typeof corpo.total === "number" && corpo.total > 0)) return erro("O total da conta (R$) precisa ser um número maior que 0.");
+    contasLuz();
+    if (E.contasLuz.some((c) => c.inicio < corpo.fim && c.fim > corpo.inicio)) return erro("Já há uma conta com parte desse período. Apague a outra se ela estava errada.");
+    const m = medidoNoPeriodo(corpo.inicio, corpo.fim);
+    const c = { id: ++E.contaId, inicio: corpo.inicio, fim: corpo.fim, kwh: corpo.kwh, total: corpo.total ?? null, medido: m.kwh, cobertura: m.cobertura };
+    E.contasLuz.push(c);
+    E.atividade.unshift(["Conta de luz guardada para conferir", 0, `${c.inicio} a ${c.fim}`]);
+    return [201, resumoConta(c)];
+  }
+
   function salvarTarifaBranca(corpo) {
     const erro = (texto) => [400, { erro: texto, codigo: null }];
     let inicio = corpo.ponta_inicio ?? null;
@@ -647,6 +690,19 @@
 
     if (chave === "GET /economia") return [200, estadoEconomia()];
     if (chave === "GET /economia/tarifa-branca") return [200, tarifaBranca()];
+    if (chave === "GET /contas-de-luz") return [200, contasLuz()];
+    if (chave === "POST /contas-de-luz") return adicionarContaLuz(corpo || {});
+    if (partes[0] === "contas-de-luz" && partes[1]) {
+      contasLuz();
+      const c = E.contasLuz.find((x) => String(x.id) === partes[1]);
+      if (!c) return [404, { erro: "Conta de luz não encontrada.", codigo: null }];
+      if (metodo === "DELETE" && partes.length === 2) { E.contasLuz = E.contasLuz.filter((x) => x !== c); return [200, { ok: true }]; }
+      if (metodo === "POST" && partes[2] === "usar-tarifa") {
+        if (!c.total) return [400, { erro: "Essa conta foi guardada sem o total em reais.", codigo: null }];
+        E.tarifa = Math.round(c.total / c.kwh * 10000) / 10000;
+        return [200, { tarifa_kwh: E.tarifa }];
+      }
+    }
     if (chave === "GET /economia/resumo") {
       return [200, { acoes: E.economia.length, ...totaisEconomia(), verificacao: E.economia.length ? verificacaoEconomia() : null }];
     }

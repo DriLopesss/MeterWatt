@@ -81,6 +81,9 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - **Tipo de ligação** (monofásica, bifásica ou trifásica): no cadastro, na cópia dos dados (`conta.ligacao`) e na atividade ("Tarifa, meta ou tipo de ligação alterados").
 - **Bandeira do mês**: é um dado público da ANEEL, igual para todas as contas, registrado por quem opera o servidor.
 
+## O que entrou no bloco 11 (conferir com a conta de luz)
+- **Contas de luz digitadas**: período, kWh faturado e total em reais, junto do consumo medido no período e de quanto dele foi medido (guardados na hora, porque o consumo de 5 em 5 minutos some com a retenção). É dado de consumo, então segue o consumo: faz parte do serviço autorizado em "dados de consumo", entra na cópia dos dados (`contas_de_luz`), some ao apagar o consumo e ao excluir a conta, e cada conta guardada ou apagada vai para a atividade. No máximo 36 contas por pessoa.
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).

@@ -64,6 +64,8 @@ EVENTOS = {
     "codigos_backup_gerados": "Novos códigos de backup gerados",
     "preferencias": "Tarifa, meta ou tipo de ligação alterados",
     "tarifa_branca": "Horário e preços da Tarifa Branca alterados",
+    "conta_luz": "Conta de luz guardada para conferir",
+    "conta_luz_apagada": "Conta de luz apagada",
     "codigo_pareamento": "Código de pareamento gerado",
     "medidor_pareado": "Medidor pareado",
     "pareamento_recusado": "Pareamento recusado: o medidor já pertence a outra conta",
@@ -184,6 +186,7 @@ class Privacidade:
             "aparelhos_detectados": self.p.detetive.exportar(conn, uid),
             "assinaturas": self.p.pagamentos.exportar(conn, uid),
             "plano_de_economia": self.p.economia.exportar(conn, uid),
+            "contas_de_luz": self.p.contas_luz.exportar(conn, uid),
             # Só o aparelho e as datas: o endereço e as chaves de notificação são segredos que só servem para
             # entregar mensagens naquele aparelho e não contam nada sobre você.
             "aparelhos_com_notificacoes": self.p.notificacoes.exportar(conn, uid),
@@ -254,6 +257,7 @@ class Privacidade:
             self.p.detetive.apagar_tudo(conn, uid)
             conn.execute("DELETE FROM avisos WHERE usuario_id = ?", (uid,))     # os avisos citam valores de consumo
             self.p.economia.apagar(conn, uid)                                  # o plano guarda hábitos (banhos, horas de uso)
+            self.p.contas_luz.apagar_tudo(conn, uid)                           # as contas guardam o consumo medido de cada período
             self.p.auditar(conn, uid, "consumo_apagado", f"{len(ids)} medidor(es)", ip)
 
     def excluir_conta(self, sessao, senha, codigo=None, ip=None):
