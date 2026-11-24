@@ -799,6 +799,7 @@ function baixarPlanilha(r) {
 
 async function telaMedidores() {
   await desenharMedidores();
+  desenharQualidade().catch(() => {});
   let voltas = 0;
   estado.timers.push(setInterval(() => {
     if (document.hidden || $(".renomear:not([hidden])")) return;
@@ -2769,6 +2770,87 @@ function telaConta() {
   $("#conta-plano-atual").textContent = cobranca && !cobranca.disponivel ? "sem cobrança por enquanto" : eu.plano === "casa" ? "plano Casa" : "plano grátis";
   const casas = (eu.casas || []).length;
   $("#conta-compartilhar").textContent = casas ? `você vê ${casas === 1 ? "1 outra casa" : `${casas} outras casas`}` : "alguém da família vê o painel";
+}
+
+/* ------------------------------------------------------------------ qualidade da energia */
+
+const FAIXA_NOME = { adequada: "Adequada", precaria: "Precária", critica: "Crítica" };
+const EVENTO_NOME = {
+  falta_energia: () => "Falta de energia",
+  falta_fase: (e) => `Fase ${e.fase} sem energia ou sem sinal`,
+  tensao_critica: (e) => `Tensão crítica: ${e.min_v < e.nominal ? `${fmt.num(e.min_v, 1)} V` : `${fmt.num(e.max_v, 1)} V`}${e.fase > 1 ? ` (fase ${e.fase})` : ""}`,
+};
+
+function quandoEvento(e) {
+  const ini = new Date(e.inicio), fim = new Date(e.fim);
+  const dia = (d) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  const hora = (d) => d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return dia(ini) === dia(fim) ? `${dia(ini)}, das ${hora(ini)} às ${hora(fim)}` : `${dia(ini)} ${hora(ini)} a ${dia(fim)} ${hora(fim)}`;
+}
+
+function duracao(min) {
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), r = min % 60;
+  return r ? `${h} h ${r} min` : `${h} h`;
+}
+
+async function desenharQualidade() {
+  const r = await api("GET", "/api/qualidade?dias=30");
+  const bloco = $("#bloco-qualidade");
+  bloco.hidden = !r.disponivel && !r.eventos.length;
+  if (bloco.hidden) return;
+  const varias = new Set(r.medidores.map((q) => q.id)).size > 1;
+  $("#qe-fases").replaceChildren(...r.medidores.map((q) => {
+    const fases = r.medidores.filter((x) => x.id === q.id).length > 1;
+    const titulo = [varias ? q.apelido : null, fases ? `Fase ${q.fase}` : null].filter(Boolean).join(", ") || "Tensão";
+    const barra = el("div", { class: "qe-barra", role: "img",
+      "aria-label": Object.entries(q.fracao).map(([k, v]) => `${FAIXA_NOME[k]}: ${fmt.num(v * 100, 1)}%`).join(", ") });
+    const legenda = el("ul", { class: "qe-legenda" });
+    for (const k of ["adequada", "precaria", "critica"]) {
+      const parte = el("span", { class: `qe-${k}` });
+      parte.style.flexGrow = String(q.fracao[k]);
+      if (q.fracao[k] > 0) barra.append(parte);
+      legenda.append(el("li", { class: `qe-${k}` }, el("strong", {}, `${FAIXA_NOME[k]} `),
+        `${fmt.num(q.fracao[k] * 100, q.fracao[k] && q.fracao[k] < 0.01 ? 1 : 0)}% do tempo`));
+    }
+    const quando = (x) => new Date(x.quando).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const grafico = el("div", { class: "qe-grafico", role: "img" });
+    const caixa = el("section", { class: "qe-fase" },
+      el("h3", {}, `${titulo} (${q.nominal} V)`), barra, legenda,
+      el("p", { class: "dica" }, `Menor: ${fmt.num(q.menor.v, 1)} V em ${quando(q.menor)}. Maior: ${fmt.num(q.maior.v, 1)} V em ${quando(q.maior)}. `
+        + `${q.intervalos} intervalos de 10 minutos medidos.`),
+      grafico);
+    requestAnimationFrame(() => MWGraficos.desenharTensao(grafico, q));
+    return caixa;
+  }));
+  const eventos = r.eventos.slice(0, 20);
+  $("#qe-eventos").replaceChildren(eventos.length
+    ? el("table", {}, el("thead", {}, el("tr", {}, el("th", { scope: "col" }, "Quando"), el("th", { scope: "col" }, "O quê"),
+      el("th", { scope: "col" }, "Duração"))),
+    el("tbody", {}, ...eventos.map((e) => el("tr", {}, el("td", {}, quandoEvento(e)),
+      el("td", {}, EVENTO_NOME[e.tipo](e), varias ? ` em ${e.medidor}` : "", e.simulado ? el("span", { class: "etiqueta simulado" }, "simulado") : null),
+      el("td", {}, duracao(e.duracao_min))))))
+    : el("p", { class: "dica" }, `Nenhuma falta de energia (de ${r.falta_minima_min} minutos ou mais) nem tensão crítica nos últimos ${r.dias} dias.`));
+  $("#qe-planilha").onclick = () => baixarQualidade(r);
+}
+
+function baixarQualidade(r) {
+  const linhas = [["tipo", "medidor", "fase", "inicio", "fim", "duracao_min", "tensao_min_v", "tensao_media_v", "tensao_max_v"]];
+  for (const e of r.eventos) linhas.push([e.tipo, e.medidor, e.fase ?? "", e.inicio, e.fim, e.duracao_min, e.min_v ?? "", "", e.max_v ?? ""]);
+  for (const q of r.medidores) {
+    for (const d of q.dias) linhas.push(["tensao_do_dia", q.apelido, q.fase, d.dia, d.dia, "", d.min, d.media, d.max]);
+  }
+  const celula = (c) => {
+    const t = typeof c === "number" ? String(c).replace(".", ",") : String(c);
+    return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const csv = linhas.map((l) => l.map(celula).join(";")).join("\r\n");
+  const arquivo = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const a = el("a", { href: URL.createObjectURL(arquivo), download: `meterwatt-qualidade-${new Date().toISOString().slice(0, 10)}.csv` });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
 /* ------------------------------------------------------------------ compartilhar a casa */

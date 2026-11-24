@@ -843,3 +843,32 @@ body.vendo-outra-casa .so-da-casa{display:none}
 .fases .fase-muda td{text-align:left;white-space:normal;color:var(--vermelho);font-family:var(--f-texto)}
 .fases .dica{margin:8px 0 0}
 .aviso-fases{margin-top:12px}
+
+/* qualidade da energia */
+.qualidade{margin-top:18px}
+.qualidade h3{margin:18px 0 8px}
+.qe-fase{border-top:1px solid var(--linha);padding-top:4px;margin-top:8px}
+.qe-fase:first-child{border-top:0}
+.qe-barra{display:flex;gap:2px;height:14px;border-radius:7px;overflow:hidden;background:var(--painel2)}
+.qe-barra span{display:block;min-width:3px}
+.qe-barra .qe-adequada{background:var(--verde)}
+.qe-barra .qe-precaria{background:var(--ambar)}
+.qe-barra .qe-critica{background:var(--vermelho)}
+.qe-legenda{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px 18px;font-size:.9rem;color:var(--suave)}
+.qe-legenda li{display:flex;align-items:center;gap:6px}
+.qe-legenda li::before{content:"";width:10px;height:10px;border-radius:3px;flex:none}
+.qe-legenda .qe-adequada::before{background:var(--verde)}
+.qe-legenda .qe-precaria::before{background:var(--ambar)}
+.qe-legenda .qe-critica::before{background:var(--vermelho)}
+.qe-legenda strong{color:var(--tinta);font-weight:600}
+.qe-grafico{margin-top:6px}
+.qe-grafico svg{display:block;max-width:100%}
+.qe-grafico .qe-adequada{fill:rgba(70,240,160,.08)}
+.qe-grafico .qe-limite{stroke:rgba(255,107,132,.55);stroke-dasharray:4 4;stroke-width:1}
+.qe-eventos{overflow-x:auto}
+.qe-eventos table{border-collapse:collapse;width:100%;font-size:.9rem}
+.qe-eventos th,.qe-eventos td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--linha);vertical-align:top}
+.qe-eventos thead th{color:var(--suave);font-weight:600;font-size:.82rem}
+.qe-eventos td:last-child{white-space:nowrap;font-family:var(--f-numero)}
+.qe-eventos .etiqueta{margin-left:8px}
+.qe-grafico .eixo{fill:var(--apagado);font:400 11px var(--f-numero)}

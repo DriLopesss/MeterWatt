@@ -80,8 +80,8 @@
     dentro: true, tarifa: 0.92, meta: 180, plano: "gratis", assinatura: null, avisosLidos: false,
     medidores: [{ id: "mw-DEMO0001", apelido: "Casa", pareado: MEDIDOR_DESDE }],
     aceites: { termos: true, privacidade: true, consumo: true, historico_longo: false, aparelhos: true, novidades: false },
-    porEmail: { medidor_offline: true, fase: true, meta: true, consumo_incomum: true, resumo_semanal: true, resumo_mensal: true },
-    porPush: { medidor_offline: true, fase: true, meta: true, consumo_incomum: true, resumo_semanal: true, resumo_mensal: true },
+    porEmail: { medidor_offline: true, fase: true, energia: true, tensao: true, meta: true, consumo_incomum: true, resumo_semanal: true, resumo_mensal: true },
+    porPush: { medidor_offline: true, fase: true, energia: true, tensao: true, meta: true, consumo_incomum: true, resumo_semanal: true, resumo_mensal: true },
     pareando: null, ocultos: new Set(),
     atividade: [["Entrada na conta", 0.02], ["Tarifa ou meta alteradas", 2.1],
       ["Plano de economia alterado", 7, "Cortar o consumo em espera: no plano"], ["Plano de economia alterado", 7.001, "Banho mais curto: no plano"],
@@ -110,6 +110,8 @@
   };
   const TIPOS_DE_AVISO = {
     medidor_offline: ["Medidor sem sinal", "Quando um medidor fica mais de 30 minutos sem enviar leituras."],
+    energia: ["Falta de energia", "Quando o medidor volta depois de uma falta de energia de 3 minutos ou mais, com o horário de início e de fim."],
+    tensao: ["Tensão fora da faixa", "Quando a tensão média de 10 minutos fica na faixa crítica da ANEEL. No máximo um aviso por dia."],
     fase: ["Fase sem resposta", "Em casa com duas ou três fases: quando o sensor de uma fase para de responder e as outras continuam."],
     meta: ["Meta do mês", "Quando a previsão da conta passa de 90% da meta e quando passa da meta."],
     consumo_incomum: ["Consumo fora do normal", "Quando uma hora gasta mais que o dobro do normal da casa para aquele horário."],
@@ -347,6 +349,35 @@
     E.contasLuz.push(c);
     E.atividade.unshift(["Conta de luz guardada para conferir", 0, `${c.inicio} a ${c.fim}`]);
     return [201, resumoConta(c)];
+  }
+
+  // Qualidade da energia: a tensão das duas fases nos 21 dias de medição, uma noite de tensão baixa e uma falta de energia.
+  function qualidade() {
+    const t = agora(), hoje = inicioDoDia(t);
+    const ruido = (k) => (Math.sin(k * 12.9898) * 43758.5453) % 1;
+    const fase = (n, base) => {
+      const dias = [];
+      for (let i = 20; i >= 0; i--) {
+        const ini = inicioDoDia(hoje - i * DIA + 3600);
+        const baixa = i === 6 && n === 1;            // uma noite com tensão crítica na fase 1
+        dias.push({ dia: diaLocal(ini), min: Math.round((base - 5.5 - Math.abs(ruido(i + n)) * 3 - (baixa ? 14 : 0)) * 10) / 10,
+          media: Math.round((base + ruido(i * 3 + n) * 1.2) * 10) / 10, max: Math.round((base + 4 + Math.abs(ruido(i * 7 + n)) * 2.5) * 10) / 10 });
+      }
+      const menor = dias.reduce((a, d) => (d.min < a.min ? d : a)), maior = dias.reduce((a, d) => (d.max > a.max ? d : a));
+      return { id: "mw-DEMO0001", apelido: "Casa", fase: n, nominal: 127, intervalos: 21 * 144 - (n === 1 ? 3 : 0),
+        faixas: { adequada: [117, 133], precaria: [110, 135] },
+        fracao: n === 1 ? { adequada: 0.9786, precaria: 0.019, critica: 0.0024 } : { adequada: 0.9931, precaria: 0.0069, critica: 0 },
+        menor: { v: menor.min, quando: iso(inicioDoDia(hoje - (20 - dias.indexOf(menor)) * DIA + 3600) + 19 * 3600 + 20 * 60) },
+        maior: { v: maior.max, quando: iso(inicioDoDia(hoje - (20 - dias.indexOf(maior)) * DIA + 3600) + 4 * 3600 + 10 * 60) }, dias };
+    };
+    const seis = inicioDoDia(hoje - 6 * DIA + 3600), doze = inicioDoDia(hoje - 12 * DIA + 3600);
+    return { dias: 30, disponivel: true, leituras_minimas: 300, falta_minima_min: 3, medidores: [fase(1, 126.4), fase(2, 127.1)],
+      eventos: [
+        { tipo: "tensao_critica", medidor: "Casa", medidor_id: "mw-DEMO0001", fase: 1, inicio: iso(seis + 19 * 3600 + 10 * 60),
+          fim: iso(seis + 19 * 3600 + 40 * 60), min_v: 108.3, max_v: 109.6, nominal: 127, duracao_min: 30 },
+        { tipo: "falta_energia", medidor: "Casa", medidor_id: "mw-DEMO0001", fase: null, inicio: iso(doze + 15 * 3600 + 2 * 60),
+          fim: iso(doze + 15 * 3600 + 44 * 60), duracao_min: 42 },
+      ] };
   }
 
   // Relatório do mês: os dias da casa inventada (o medidor chegou há 21 dias).
@@ -778,6 +809,8 @@
     if (chave === "GET /economia/tarifa-branca") return [200, tarifaBranca()];
     if (chave === "GET /contas-de-luz") return [200, contasLuz()];
     if (chave === "GET /relatorios") return [200, relatoriosDisponiveis()];
+    if (chave === "GET /qualidade") return [200, E.medidores.some((m) => !m.parado && !m.cozinha) ? qualidade()
+      : { dias: 30, disponivel: false, medidores: [], eventos: [], leituras_minimas: 300, falta_minima_min: 3 }];
     if (chave === "GET /casa") return [200, casa()];
     if (chave === "POST /casa/convites") return convidarParaCasa(corpo || {});
     if (metodo === "DELETE" && partes[0] === "casa" && partes[1] === "convites") {

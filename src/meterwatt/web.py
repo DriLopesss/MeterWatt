@@ -537,6 +537,12 @@ def criar_app(plataforma):
     def casa_sair(dono):
         return ok(plataforma.compartilhar.sair(g.sessao, dono, ip()))
 
+    @app.get("/api/qualidade")
+    @exige_sessao()
+    def qualidade():
+        dias = request.args.get("dias", "30")
+        return ok(plataforma.qualidade.resumo(g.sessao, int(dias) if dias.isdigit() else 30))
+
     @app.get("/api/relatorios")
     @exige_sessao()
     def relatorios():

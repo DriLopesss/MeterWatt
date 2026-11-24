@@ -346,6 +346,31 @@ MIGRACOES = [
     ALTER TABLE medidores ADD COLUMN atrasadas_ate REAL;
     ALTER TABLE medidores ADD COLUMN ultima_recuperacao TEXT;
     """,
+    # 16: qualidade da energia. Tensão de 10 em 10 minutos por fase (como os registros da ANEEL), faltas
+    # de energia e de fase com início e fim, e o tempo ligado do medidor (para saber quando ele reiniciou).
+    """
+    CREATE TABLE tensao_10min (
+        medidor_id TEXT NOT NULL REFERENCES medidores(id) ON DELETE CASCADE,
+        fase INTEGER NOT NULL,
+        inicio INTEGER NOT NULL,
+        n INTEGER NOT NULL,
+        soma_v REAL NOT NULL,
+        min_v REAL NOT NULL,
+        max_v REAL NOT NULL,
+        PRIMARY KEY (medidor_id, fase, inicio)
+    ) WITHOUT ROWID;
+    CREATE TABLE eventos_energia (
+        id INTEGER PRIMARY KEY,
+        medidor_id TEXT NOT NULL REFERENCES medidores(id) ON DELETE CASCADE,
+        tipo TEXT NOT NULL,
+        fase INTEGER,
+        inicio REAL NOT NULL,
+        fim REAL NOT NULL,
+        simulado INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX eventos_energia_medidor ON eventos_energia(medidor_id, inicio);
+    ALTER TABLE medidores ADD COLUMN uptime_s REAL;
+    """,
 ]
 
 

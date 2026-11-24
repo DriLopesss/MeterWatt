@@ -381,6 +381,24 @@
         <button type="button" class="primario" id="botao-parear">Adicionar medidor</button>
       </div>
       <div id="lista-medidores" class="lista-medidores"></div>
+      <article class="bloco qualidade" id="bloco-qualidade" hidden>
+        <div class="cabecalho-bloco">
+          <h2>Qualidade da energia</h2>
+          <p class="valor-sub">últimos 30 dias</p>
+        </div>
+        <p class="texto">A tensão que chega na casa, em médias de 10 em 10 minutos, comparada com as faixas da ANEEL, e as faltas de energia com data e hora. O MeterWatt não é o medidor oficial: o registro serve para dar datas, horários e números à distribuidora.</p>
+        <div id="qe-fases"></div>
+        <h3>O que aconteceu</h3>
+        <div class="qe-eventos" id="qe-eventos"></div>
+        <div class="botoes"><button type="button" class="discreto" id="qe-planilha">Baixar o registro (planilha)</button></div>
+        <details class="como">
+          <summary>Como usar isso com a distribuidora</summary>
+          <p><strong>Tensão fora da faixa.</strong> Para 127 V, a faixa adequada vai de 117 a 133 V; para 220 V, de 202 a 231 V. Abaixo de 110 V ou acima de 135 V (ou abaixo de 191 V e acima de 233 V) é crítica e pode danificar aparelhos. Se acontece com frequência, peça à distribuidora a verificação do nível de tensão e conte as datas e horários. Quem mede para valer é ela, com aparelho próprio. Se a tensão fica fora dos limites, ela compensa na fatura.</p>
+          <p><strong>Faltas de energia.</strong> Os indicadores da distribuidora contam as faltas de 3 minutos ou mais (aparecem na conta como DIC, FIC e DMIC). Quando passam dos limites, a compensação vem como desconto nas faturas seguintes.</p>
+          <p><strong>Aparelho queimado.</strong> O pedido de ressarcimento pode ser feito em até 5 anos, e a distribuidora pede a data e o horário prováveis do dano: o registro ajuda nisso. Pedindo em até 90 dias, ela não pode exigir a nota fiscal do aparelho.</p>
+          <p>Uma falta de energia aqui é o medidor ter voltado reiniciado depois de 3 minutos ou mais sem leituras: pode ser também alguém ter tirado ele da tomada. Quedas muito rápidas (menos de um segundo) o sensor não vê. Os números de tempo em cada faixa são do MeterWatt, não os indicadores oficiais.</p>
+        </details>
+      </article>
       <p class="dica" id="medidores-dica">Leituras marcadas como <strong>simuladas</strong> vêm do simulador, não de um aparelho real.</p>
     </section>
 
