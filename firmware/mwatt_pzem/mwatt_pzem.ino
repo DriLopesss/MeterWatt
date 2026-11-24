@@ -43,6 +43,9 @@
  *  - Para dar endereço a um módulo novo: ligue SÓ ele na serial, abra o Monitor Serial (115200)
  *    e digite "endereco 2" (ou 1, 3...). "procurar" lista quem responde nos endereços 1 a 10.
  *
+ * SEM WI-FI NÃO SE PERDE MEDIÇÃO (v3.5): sem conexão com o servidor, o medidor guarda um resumo por
+ * minuto (até 12 horas, fila_offline.h) e manda tudo quando a conexão volta, antes das leituras ao vivo.
+ *
  * Este firmware ainda NÃO foi testado com o módulo real. O protocolo foi testado no
  * computador (tests/firmware). O primeiro teste na bancada está descrito no README.
  */
@@ -54,11 +57,12 @@
 #include "config.h"
 #include "pzem_modbus.h"
 #include "fases.h"
+#include "fila_offline.h"
 #include "ajustes.h"
 #include "pareamento.h"
 #include "ca_raiz.h"
 
-#define VERSAO_FW "3.4.0"
+#define VERSAO_FW "3.5.0"
 
 #ifndef USAR_PORTAL_WIFI
 #define USAR_PORTAL_WIFI 1
@@ -137,6 +141,7 @@ char topicoTelemetria[64];
 char topicoStatus[64];
 char topicoComando[64];
 char topicoPareamento[64];
+fila::Fila filaOffline;            // minutos medidos sem conexão (~26 KB de RAM)
 pareamento::Estado pedidoPareamento;
 credencial::Estado cred;
 char segredo[33];                  // senha própria deste medidor (sorteada na primeira vez)
@@ -155,6 +160,28 @@ static_assert(sizeof(enderecosPzem) / sizeof(enderecosPzem[0]) >= 1 && sizeof(en
 bool enderecosOk = false;          // conferido no setup(): com mais de um módulo, nada de 0xF8 nem repetidos
 char linhaSerial[24];
 size_t tamLinhaSerial = 0;
+
+// Segundos desde que a placa ligou, sem a volta do millis() aos 49 dias.
+uint32_t segundosLigado() {
+  static unsigned long anterior = 0;
+  static uint64_t total = 0;
+  unsigned long agora = millis();
+  total += (unsigned long)(agora - anterior);
+  anterior = agora;
+  return (uint32_t)(total / 1000);
+}
+
+// Manda os minutos guardados sem conexão, alguns por vez. Devolve true se a fila ficou vazia.
+bool enviarAtrasadas() {
+  char json[1000];
+  for (int vez = 0; vez < 4 && !fila::vazia(&filaOffline); vez++) {
+    size_t n = fila::montar(&filaOffline, json, sizeof(json), segundosLigado());
+    if (!n || !mqtt.publish(topicoTelemetria, json)) return false;   // tenta de novo na próxima volta
+    fila::tirar(&filaOffline, n);
+  }
+  if (fila::vazia(&filaOffline)) return true;
+  return false;
+}
 
 // Envia um pedido e espera `esperados` bytes. Devolve quantos chegaram.
 size_t trocarComPzem(const uint8_t* pedido, size_t tamPedido, uint8_t* resposta, size_t esperados) {
@@ -450,6 +477,7 @@ void setup() {
   snprintf(topicoStatus, sizeof(topicoStatus), "meterwatt/%s/status", idDispositivo);
   snprintf(topicoComando, sizeof(topicoComando), "meterwatt/%s/comando", idDispositivo);
   snprintf(topicoPareamento, sizeof(topicoPareamento), "meterwatt/%s/pareamento", idDispositivo);
+  fila::limpar(&filaOffline);
   pareamento::limpar(&pedidoPareamento);
   Serial.printf("\nMeterWatt v%s (PZEM-004T v3) - id %s\n", VERSAO_FW, idDispositivo);
 
@@ -529,6 +557,13 @@ void loop() {
     }
   }
 
+  // Voltou a conexão com minutos guardados: eles vão primeiro, na ordem, e só depois as leituras ao vivo.
+  bool comFila = !fila::vazia(&filaOffline);
+  if (comFila && mqtt.connected()) {
+    comFila = !enviarAtrasadas();
+    if (!comFila) Serial.println("Minutos medidos sem conexao: enviados.");
+  }
+
   if (millis() - ultimoEnvio < INTERVALO_ENVIO_MS) return;
   ultimoEnvio = millis();
 
@@ -538,7 +573,7 @@ void loop() {
     snprintf(json, sizeof(json),
              "{\"fw\":\"%s\",\"sensor\":\"pzem004t-v3\",\"sensor_ok\":false,\"erro_sensor\":\"enderecos_invalidos\","
              "\"falhas_leitura\":%lu,\"rssi\":%d,\"uptime_s\":%lu}",
-             VERSAO_FW, falhasLeitura, WiFi.RSSI(), millis() / 1000);
+             VERSAO_FW, falhasLeitura, WiFi.RSSI(), (unsigned long)segundosLigado());
   } else {
     pzem::Medidas m[fases::MAXIMO];
     pzem::Erro erros[fases::MAXIMO];
@@ -550,8 +585,24 @@ void loop() {
     }
     // Leitura perdida (de qualquer fase) conta uma falha. Sem leitura válida, a mensagem NUNCA repete números antigos.
     if (falhou) falhasLeitura++;
-    if (!fases::montarTelemetria(json, sizeof(json), VERSAO_FW, m, erros, nFases, falhasLeitura, WiFi.RSSI(), millis() / 1000)) {
+    if (!fases::montarTelemetria(json, sizeof(json), VERSAO_FW, m, erros, nFases, falhasLeitura, WiFi.RSSI(), segundosLigado())) {
       Serial.println("Mensagem maior que o espaco reservado: nao enviada.");
+      return;
+    }
+    // Sem conexão (ou ainda mandando o que ficou guardado): a leitura vai para a fila, não se perde.
+    if (!mqtt.connected() || comFila) {
+      fases::Total total;
+      if (fases::somar(m, erros, nFases, &total)) {
+        uint32_t energia[fases::MAXIMO] = {0, 0, 0};
+        uint8_t validas = 0;
+        for (size_t i = 0; i < nFases; i++) {
+          if (erros[i] != pzem::SEM_ERRO) continue;
+          energia[i] = m[i].energia_wh;
+          validas |= (uint8_t)(1u << i);
+        }
+        fila::guardar(&filaOffline, segundosLigado(), total.potencia_w, energia, validas, (uint8_t)nFases);
+      }
+      Serial.println(json);
       return;
     }
   }

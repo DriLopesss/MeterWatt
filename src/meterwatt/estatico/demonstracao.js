@@ -143,7 +143,12 @@
         { fase: 1, ok: true, tensao_v: Math.round(v * 10) / 10, corrente_a: Math.round(p1 / v / 0.93 * 1000) / 1000, potencia_w: p1, fp: 0.93 },
         { fase: 2, ok: true, tensao_v: Math.round(v2 * 10) / 10, corrente_a: Math.round((w - p1) / v2 / 0.95 * 1000) / 1000,
           potencia_w: Math.round((w - p1) * 10) / 10, fp: 0.95 }] : null;
-      return { id: m.id, apelido: m.apelido, tipo: m.parado ? null : "pzem", fw: m.cozinha ? "3.3.0" : "3.4.0", pareado_em: iso(m.pareado), online: vivo,
+      return { id: m.id, apelido: m.apelido, tipo: m.parado ? null : "pzem", fw: m.cozinha ? "3.3.0" : "3.5.0", pareado_em: iso(m.pareado), online: vivo,
+        // A Wi-Fi da casa caiu de madrugada; o medidor guardou os minutos e mandou depois (firmware 3.5).
+        recuperacao: m.cozinha || m.parado ? null : (() => {
+          const de = inicioDoDia(t) + 3 * 3600 + 12 * 60;
+          return { de: iso(de), ate: iso(de + 37 * 60), em: iso(de + 37 * 60 + 5), minutos: 37, perdidos: 0 };
+        })(),
         fases, fases_esperadas: (m.papel || "casa") === "casa" ? { monofasica: 1, bifasica: 2, trifasica: 3 }[E.ligacao] || null : null,
         papel: m.papel || "casa", dentro_de: m.dentro || null,
         segundos_desde_mensagem: vivo ? 0.6 : (m.parado ? null : 120), sensor_ok: vivo ? true : null, erro_sensor: null, simulado: true,

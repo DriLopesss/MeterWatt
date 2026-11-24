@@ -90,7 +90,17 @@ Um PZEM mede a corrente de **um fio só**. Numa casa bifásica, um PZEM só na f
 
 Com uma fase sem resposta (falta de energia nela, ou um fio solto), o medidor continua mandando as outras, o app mostra qual faltou e manda o aviso **Fase sem resposta** depois de 5 minutos. O consumo de cada fase é contado pelo contador dela: quando a fase volta, o que ela mediu no intervalo entra.
 
-**Limite:** o PZEM não mostra o sinal da potência. Um aparelho entre duas fases com fator de potência abaixo de 0,5 faria um dos módulos medir "ao contrário" e a soma sairia maior. Em casa isso é raro.
+**Limite das fases:** o PZEM não mostra o sinal da potência. Um aparelho entre duas fases com fator de potência abaixo de 0,5 faria um dos módulos medir "ao contrário" e a soma sairia maior. Em casa isso é raro.
+
+### Sem Wi-Fi, a medição não se perde (firmware 3.5)
+
+Quando o Wi-Fi da casa ou o servidor cai, o medidor continua medindo e guarda um resumo por minuto (quantas leituras, potência média, mínima e máxima, e o contador de energia de cada fase). Cabem 12 horas, uns 26 KB da memória do ESP32. Quando a conexão volta, ele manda esses minutos antes das leituras ao vivo, e o servidor os coloca nos horários certos: o perfil do dia, o relatório e a conferência com a conta de luz ficam como se a conexão não tivesse caído. A tela do medidor mostra a última queda e quantos minutos voltaram.
+
+- O horário de cada minuto vai como o tempo ligado da placa, e o servidor converte. Não precisa de relógio na placa.
+- Os minutos vão no mesmo tópico da telemetria (`"tipo":"atrasadas"`): as permissões dos medidores no broker não mudam.
+- Numa queda maior que 12 horas, ficam as 12 mais recentes. A energia do que não coube não se perde (o contador do PZEM continua contando), mas entra de uma vez no primeiro minuto guardado.
+- Se a placa reiniciar sem conexão, os minutos guardados se perdem (ficam só na RAM). A energia entra de uma vez quando a conexão voltar.
+- O Detetive de aparelhos não vê os minutos atrasados: ele precisa das leituras de segundo em segundo.
 
 ## 🧪 Como testar
 
@@ -135,7 +145,7 @@ Com o broker e o backend rodando, em outro terminal:
 MQTT_USUARIO=meterwatt MQTT_SENHA=sua-senha python tools/simulador_pzem.py
 ```
 
-Ele publica as mesmas mensagens do firmware, com uma casa de mentira (geladeira, chuveiro, micro-ondas). Toda mensagem leva `"simulado": true`, e o painel mostra o aviso "Dados do simulador". Opções úteis: `--tensao 220`, `--acelerar 20` (o tempo da casa corre mais rápido), `--falhas` (simula o PZEM sem responder), `--fases 2` (casa bifásica, um PZEM por fase, com o chuveiro de 220 V entre as fases) e `--sem-fase 2` (a fase 2 sem energia).
+Ele publica as mesmas mensagens do firmware, com uma casa de mentira (geladeira, chuveiro, micro-ondas). Toda mensagem leva `"simulado": true`, e o painel mostra o aviso "Dados do simulador". Opções úteis: `--tensao 220`, `--acelerar 20` (o tempo da casa corre mais rápido), `--falhas` (simula o PZEM sem responder), `--fases 2` (casa bifásica, um PZEM por fase, com o chuveiro de 220 V entre as fases), `--sem-fase 2` (a fase 2 sem energia) e `--queda 300` (5 minutos sem conexão, guardando um resumo por minuto).
 
 ### 4. Firmware do PZEM
 1. Copie `firmware/mwatt_pzem/config.example.h` para `firmware/mwatt_pzem/config.h`. O `config.h` está no `.gitignore` e **nunca deve ir para o GitHub**.
@@ -201,10 +211,11 @@ python -m pytest tests -q
 node tests/web/teste_economia.js        # contas do "E se eu…?" no navegador
 g++ -std=c++11 -o teste_pzem tests/firmware/teste_pzem_modbus.cpp && ./teste_pzem
 g++ -std=c++11 -o teste_fases tests/firmware/teste_fases.cpp && ./teste_fases
+g++ -std=c++11 -o teste_fila tests/firmware/teste_fila_offline.cpp && ./teste_fila
 g++ -std=c++11 -o teste_ajustes tests/firmware/teste_ajustes.cpp && ./teste_ajustes
 ```
 
-Para rodar o firmware do PZEM num ESP32 simulado no computador (página de configuração, memória, falhas do sensor, dois PZEM no mesmo par de fios): `bash tests/firmware/simulado/rodar.sh`.
+Para rodar o firmware do PZEM num ESP32 simulado no computador (página de configuração, memória, falhas do sensor, dois PZEM no mesmo par de fios, queda do Wi-Fi): `bash tests/firmware/simulado/rodar.sh`.
 
 O GitHub roda esses testes e **compila os dois firmwares para o ESP32** a cada pull request (aba *Actions*, arquivo `.github/workflows/ci.yml`). Se a compilação falhar ali, ela também falharia na Arduino IDE. A compilação usa o `config.example.h`: o `config.h` de verdade nunca vai para o GitHub.
 

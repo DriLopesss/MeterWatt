@@ -854,6 +854,17 @@ function preencherMedidas(cartao, m) {
   };
   Object.entries(valores).forEach(([k, v]) => { const dd = $(`[data-medida="${k}"]`, cartao); if (dd) dd.textContent = v; });
   desenharFases(cartao, m);
+  const rec = $(".recuperacao", cartao);
+  const r = m.recuperacao;
+  if (r) {
+    const hora = (iso) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const dia = new Date(r.de).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    rec.textContent = `Sem conexão em ${dia}, das ${hora(r.de)} às ${hora(r.ate)}: o medidor guardou ${r.minutos} ${r.minutos === 1 ? "minuto" : "minutos"} `
+      + "e mandou quando a conexão voltou."
+      + (r.perdidos ? ` Antes disso, ${r.perdidos} ${r.perdidos === 1 ? "minuto não coube" : "minutos não couberam"} na memória (cabem 12 horas): a energia deles entrou junto, no primeiro minuto guardado.`
+        : " Nada se perdeu.");
+  }
+  rec.hidden = !r;
 }
 
 const NOME_LIGACAO = { 1: "monofásica", 2: "bifásica", 3: "trifásica" };
@@ -930,6 +941,7 @@ function cartaoMedidor(m) {
         el("tbody")),
       el("p", { class: "dica" }, "A potência da casa é a soma das fases. Um aparelho de 220 V ligado entre duas fases aparece dividido entre elas.")),
     el("p", { class: "aviso-balanco aviso-fases", role: "status", hidden: true }),
+    el("p", { class: "dica recuperacao", hidden: true }),
     el("div", { class: "grafico" }, el("div", { class: "periodos", role: "group", "aria-label": "Período do gráfico" }, botoesPeriodo), canvas),
     estado.medidores.length > 1 ? papelDoMedidor(m) : null,
     formNome,

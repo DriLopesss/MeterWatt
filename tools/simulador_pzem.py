@@ -11,6 +11,7 @@ Uso (com o broker e o backend já rodando):
     python tools/simulador_pzem.py --tensao 220 --acelerar 20 --falhas
     python tools/simulador_pzem.py --fases 2              # casa bifásica: um PZEM por fase (firmware 3.4)
     python tools/simulador_pzem.py --fases 2 --sem-fase 2 # a fase 2 sem energia
+    python tools/simulador_pzem.py --queda 300            # 5 minutos sem conexão, depois manda o que guardou
 
 Usa as mesmas variáveis do backend: MQTT_HOST, MQTT_PORTA, MQTT_USUARIO, MQTT_SENHA.
 Com MQTT_TLS=1, conecta criptografado como o firmware 3.3; MQTT_CA aponta outra autoridade (só no ensaio local).
@@ -125,6 +126,34 @@ def mensagem(medidas, erros):
     return msg
 
 
+class FilaOffline:
+    """O que o firmware 3.5 faz sem conexão (fila_offline.h): um resumo por minuto, mandado depois."""
+    POR_MENSAGEM = 8
+
+    def __init__(self):
+        self.minutos = []
+
+    def guardar(self, uptime_s, medidas, erros):
+        lidas = [(k, m) for k, (m, e) in enumerate(zip(medidas, erros)) if not e]
+        if not lidas:
+            return
+        w = sum(m["potencia_w"] for _, m in lidas)
+        chave = uptime_s // 60
+        if not self.minutos or self.minutos[-1]["chave"] != chave:
+            self.minutos.append({"chave": chave, "n": 0, "soma": 0.0, "min": w, "max": w, "e": [None] * len(medidas)})
+        m = self.minutos[-1]
+        m.update(u=uptime_s, n=m["n"] + 1, soma=m["soma"] + w, min=min(m["min"], w), max=max(m["max"], w))
+        for k, medida in lidas:
+            m["e"][k] = medida["energia_wh"]
+
+    def mensagens(self, uptime_agora):
+        while self.minutos:
+            lote, self.minutos = self.minutos[:self.POR_MENSAGEM], self.minutos[self.POR_MENSAGEM:]
+            yield {"tipo": "atrasadas", "uptime_agora": uptime_agora, "perdidos": 0, "minutos": [
+                {"u": m["u"], "n": m["n"], "w": round(m["soma"] / m["n"], 1), "min": m["min"], "max": m["max"], "e": m["e"]}
+                for m in lote]}
+
+
 def main():
     ap = argparse.ArgumentParser(description="Simulador de MeterWatt com PZEM-004T v3 (dados inventados).")
     ap.add_argument("--id", default="mw-SIMULADO", help="identificador do medidor simulado")
@@ -134,6 +163,8 @@ def main():
     ap.add_argument("--falhas", action="store_true", help="de vez em quando simula o PZEM sem responder")
     ap.add_argument("--fases", type=int, default=1, choices=[1, 2, 3], help="quantas fases (um PZEM por fase, firmware 3.4)")
     ap.add_argument("--sem-fase", type=int, default=None, metavar="N", help="a fase N sem energia (o PZEM dela não responde)")
+    ap.add_argument("--queda", type=int, default=0, metavar="SEG",
+                    help="depois de 20 s, fica SEG segundos sem conexão guardando um resumo por minuto (firmware 3.5)")
     ap.add_argument("--semente", type=int, default=None, help="para repetir a mesma sequência")
     ap.add_argument("--parear", metavar="CODIGO", default=None,
                     help="código do aplicativo (ex.: K7QM-2XPA): pede o pareamento como o firmware faz")
@@ -212,6 +243,8 @@ def main():
     casa = Casa(args.tensao, args.semente, args.fases)
     inicio = time.time()
     falhas = 0
+    fila = FilaOffline()
+    queda = (inicio + 20, inicio + 20 + args.queda) if args.queda else None
     print(f"Simulando {args.id} em {host}:{porta} a cada {args.intervalo} s. Ctrl+C para parar.")
     try:
         while True:
@@ -225,6 +258,15 @@ def main():
             if any(erros):
                 falhas += 1
             msg = {**comum, **mensagem(medidas, erros), "falhas_leitura": falhas}
+            agora = time.time()
+            if queda and queda[0] <= agora < queda[1]:
+                fila.guardar(comum["uptime_s"], medidas, erros)
+                print(f"Sem conexão (simulada): {len(fila.minutos)} minuto(s) guardado(s).")
+                time.sleep(args.intervalo)
+                continue
+            for atrasada in fila.mensagens(comum["uptime_s"]):
+                cliente.publish(f"{base}/telemetria", json.dumps({**atrasada, "simulado": True}))
+                print(f"Minutos guardados enviados: {len(atrasada['minutos'])}")
             cliente.publish(f"{base}/telemetria", json.dumps(msg))
             print(json.dumps(msg, ensure_ascii=False))
             time.sleep(args.intervalo)
