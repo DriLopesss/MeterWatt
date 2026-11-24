@@ -24,10 +24,12 @@ jobs:
         with:
           python-version: "3.12"
       # Para testar a senha própria por medidor contra um broker de verdade
-      - run: sudo apt-get update -q && sudo apt-get install -y -q mosquitto && sudo systemctl stop mosquitto
+      - run: sudo apt-get update -q && sudo apt-get install -y -q mosquitto mosquitto-clients && sudo systemctl stop mosquitto
       # Pillow só nos testes: confere o tamanho dos ícones e das telas do app instalável
       - run: pip install -r src/requirements.txt pytest pillow
       - run: python -m pytest tests -q
+      - name: Ensaio geral (Mosquitto + servidor + dois medidores simulados)
+        run: python tools/ensaio_completo.py
         timeout-minutes: 10
 
   web:
