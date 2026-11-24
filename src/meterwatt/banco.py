@@ -297,6 +297,23 @@ MIGRACOES = [
         registrada_em REAL NOT NULL
     );
     """,
+    # 12: contas de luz que a pessoa digita para conferir com o medido. O medido e a cobertura ficam guardados
+    # junto: o consumo de 5 em 5 minutos some com a retenção e a conferência não pode sumir junto.
+    """
+    CREATE TABLE contas_luz (
+        id INTEGER PRIMARY KEY,
+        usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        inicio TEXT NOT NULL,
+        fim TEXT NOT NULL,
+        kwh REAL NOT NULL,
+        total_reais REAL,
+        medido_kwh REAL NOT NULL,
+        cobertura REAL NOT NULL,
+        estimado INTEGER NOT NULL DEFAULT 0,
+        criada_em REAL NOT NULL
+    );
+    CREATE INDEX contas_luz_usuario ON contas_luz(usuario_id, fim);
+    """,
 ]
 
 

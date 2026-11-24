@@ -48,6 +48,7 @@ class Plataforma:
         from .espera import ListaDeEspera
         from .graficos import Graficos
         from .tarifas import Tarifas
+        from .contas_luz import ContasDeLuz
         from .medidores import Medidores
         from .notificacoes import Notificacoes
         from .pagamentos import Pagamentos
@@ -62,6 +63,7 @@ class Plataforma:
         self.economia = Economia(self)
         self.graficos = Graficos(self)
         self.tarifas = Tarifas(self)
+        self.contas_luz = ContasDeLuz(self)
         self.notificacoes = Notificacoes(self)
 
     # ------------------------------------------------------------ tempo

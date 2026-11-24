@@ -1327,12 +1327,85 @@ async function telaEconomia(foco) {
   eco.visor = eco.visor || criarVisor($("#visor-economia"));
   aplicarEconomia(await api("GET", "/api/economia"));
   atualizarTarifaBranca().catch(() => { $("#tb-resultado").textContent = "Não deu para carregar a comparação agora."; });
+  atualizarContasLuz().catch(() => {});
   const alvo = foco && $(`.eco-grupo[data-grupo="${CSS.escape(foco)}"]`);
   if (alvo) {
     alvo.scrollIntoView({ block: "start" });
     const primeiro = $("input, button", alvo);
     if (primeiro) primeiro.focus({ preventScroll: true });
   }
+}
+
+/* ---------- Conferir com a conta de luz */
+
+/* Valor em reais ou kWh: "189,28", "1.234,56", "189.28" (um ponto com 1 ou 2 casas é vírgula) ou "182". */
+function valorDigitado(texto) {
+  const s = String(texto ?? "").trim().replace(/^R\$\s*/i, "");
+  if (/^\d+\.\d{1,2}$/.test(s)) return Number(s);
+  return numeroDigitado(s);
+}
+
+const SITUACAO_CONTA = {
+  bate: ["confere", "O MeterWatt mediu quase o mesmo que a distribuidora cobrou."],
+  perto: ["diferença pequena", "Diferença pequena: parte dela vem do horário da leitura no último dia."],
+  diferente: ["diferença grande", "Diferença grande. Confira se todos os circuitos da casa passam pelo medidor, a calibração e os dias sem sinal."],
+  pouca_medicao: ["pouca medição", ""],
+};
+
+async function atualizarContasLuz() {
+  desenharContasLuz(await api("GET", "/api/contas-de-luz"));
+}
+
+function desenharContasLuz(r) {
+  const data = (d) => d.split("-").reverse().slice(0, 2).join("/");
+  const cartoes = r.contas.map((c) => {
+    const [rotulo, frase] = SITUACAO_CONTA[c.situacao];
+    const pct = c.diferenca != null ? `${c.diferenca > 0 ? "+" : "−"}${fmt.num(Math.abs(c.diferenca) * 100, 1)}%` : "—";
+    const partes = [frase];
+    if (c.situacao === "pouca_medicao") partes.push(`O MeterWatt mediu só ${Math.round(c.cobertura * 100)}% desse período: não dá para comparar.`);
+    else if (c.cobertura < 0.995) partes.push(`Faltou medir ${Math.round((1 - c.cobertura) * 100)}% do período; completamos com a média dos dias medidos.`);
+    if (c.estimado) partes.push("O medidor só de corrente estima o consumo, então a comparação é aproximada.");
+    const usarTarifa = c.tarifa_efetiva != null && Math.abs((r.tarifa_kwh ?? 0) - c.tarifa_efetiva) > 0.00005;
+    return el("article", { class: "cl-conta" },
+      el("div", { class: "cl-topo" },
+        el("span", { class: "cl-periodo" }, `${data(c.inicio)} a ${data(c.fim)} (${c.dias} dias)`),
+        el("span", { class: `etiqueta cl-${c.situacao}` }, rotulo)),
+      el("dl", { class: "cl-numeros" },
+        el("div", {}, el("dt", {}, "Distribuidora"), el("dd", {}, fmt.kwh(c.kwh))),
+        el("div", {}, el("dt", {}, "MeterWatt"), el("dd", {}, fmt.kwh(c.medido_ajustado ?? c.medido_kwh))),
+        el("div", {}, el("dt", {}, "Diferença"), el("dd", {}, pct))),
+      el("p", { class: "cl-frase" }, partes.filter(Boolean).join(" ")),
+      c.tarifa_efetiva != null ? el("p", { class: "cl-frase" },
+        `Você pagou ${fmt.reais(c.tarifa_efetiva)} por kWh nessa conta, contando impostos, bandeira e o resto (como a iluminação pública).`) : null,
+      el("div", { class: "cl-acoes" },
+        usarTarifa ? el("button", { type: "button", class: "secundario", onclick: async () => {
+          try {
+            const t = await api("POST", `/api/contas-de-luz/${c.id}/usar-tarifa`);
+            estado.eu.tarifa_kwh = t.tarifa_kwh;
+            avisar(`Pronto: as contas do app usam ${fmt.reais(t.tarifa_kwh)} por kWh.`);
+            aplicarEconomia(await api("GET", "/api/economia"));
+            await Promise.all([atualizarContasLuz(), atualizarTarifaBranca()]);
+          } catch (e) { avisar(e.message, true); }
+        } }, `Usar ${fmt.reais(c.tarifa_efetiva)} por kWh nas contas do app`) : null,
+        el("button", { type: "button", class: "discreto perigo", onclick: async () => {
+          try { await api("DELETE", `/api/contas-de-luz/${c.id}`); avisar("Conta apagada."); await atualizarContasLuz(); }
+          catch (e) { avisar(e.message, true); }
+        } }, "Apagar")));
+  });
+  $("#cl-lista").replaceChildren(...cartoes);
+  if (!estado.clMostrada) { $("#cl-ajustar").open = !r.contas.length; estado.clMostrada = true; }
+}
+
+function ligarContasLuz() {
+  formulario($("#form-conta-luz"), async (d, form) => {
+    const kwh = valorDigitado(d.kwh), total = valorDigitado(d.total);
+    if (Number.isNaN(kwh) || Number.isNaN(total)) throw new Error("Use só números, como 182 ou 189,28.");
+    const c = await api("POST", "/api/contas-de-luz", { inicio: d.inicio, fim: d.fim, kwh, total });
+    form.reset();
+    $("#cl-ajustar").open = false;
+    await atualizarContasLuz();
+    avisar(SITUACAO_CONTA[c.situacao][0] === "confere" ? "Conta conferida: o medidor confere." : "Conta guardada. Veja a comparação.");
+  });
 }
 
 /* ---------- Tarifa Branca: vale a pena? */
@@ -2875,6 +2948,7 @@ async function iniciar() {
   ligarFormulariosPublicos();
   ligarPreferencias();
   ligarTarifaBranca();
+  ligarContasLuz();
   ligarSeguranca();
   ligarPrivacidade();
   ligarInicio();

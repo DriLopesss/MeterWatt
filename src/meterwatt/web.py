@@ -496,6 +496,27 @@ def criar_app(plataforma):
     def economia():
         return ok(plataforma.economia.estado(g.sessao))
 
+    @app.get("/api/contas-de-luz")
+    @exige_sessao()
+    def contas_de_luz():
+        return ok(plataforma.contas_luz.listar(g.sessao))
+
+    @app.post("/api/contas-de-luz")
+    @exige_sessao()
+    def contas_de_luz_adicionar():
+        return ok(plataforma.contas_luz.adicionar(g.sessao, corpo(), ip()), 201)
+
+    @app.delete("/api/contas-de-luz/<int:cid>")
+    @exige_sessao()
+    def contas_de_luz_apagar(cid):
+        plataforma.contas_luz.apagar(g.sessao, cid, ip())
+        return ok()
+
+    @app.post("/api/contas-de-luz/<int:cid>/usar-tarifa")
+    @exige_sessao()
+    def contas_de_luz_tarifa(cid):
+        return ok(plataforma.contas_luz.usar_tarifa(g.sessao, cid, ip()))
+
     @app.get("/api/economia/tarifa-branca")
     @exige_sessao()
     def tarifa_branca():

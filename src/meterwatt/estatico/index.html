@@ -454,6 +454,24 @@
           <div class="eco-cartoes" id="eco-cartoes"></div>
         </div>
       </div>
+      <section class="bloco contas-luz" id="contas-luz" aria-labelledby="cl-titulo">
+        <h2 id="cl-titulo">Conferir com a conta de luz</h2>
+        <p class="texto">Digite os números de uma conta: o app compara com o que o MeterWatt mediu no mesmo período e mostra quanto você pagou de verdade por kWh.</p>
+        <div class="cl-lista" id="cl-lista"></div>
+        <details class="ajustar" id="cl-ajustar">
+          <summary>Adicionar uma conta</summary>
+          <form id="form-conta-luz" class="cl-form" novalidate>
+            <label>Leitura anterior<input type="date" name="inicio" required></label>
+            <label>Leitura atual<input type="date" name="fim" required></label>
+            <label>Consumo faturado (kWh)<input name="kwh" inputmode="decimal" placeholder="ex.: 182" required autocomplete="off"></label>
+            <label>Total da conta (R$)<input name="total" inputmode="decimal" placeholder="opcional, ex.: 189,28" autocomplete="off"></label>
+            <button class="secundario" type="submit">Conferir</button>
+            <p class="erro" role="alert"></p>
+          </form>
+          <p class="dica">Está tudo na conta: as datas da leitura anterior e da atual ficam perto do quadro de consumo, e o consumo é o "consumo faturado" do mês, em kWh. O total é o valor a pagar.</p>
+        </details>
+      </section>
+
       <section class="bloco tarifa-branca" id="tarifa-branca" aria-labelledby="tb-titulo">
         <h2 id="tb-titulo">Tarifa Branca: vale a pena?</h2>
         <p class="tb-resultado" id="tb-resultado">Carregando…</p>
