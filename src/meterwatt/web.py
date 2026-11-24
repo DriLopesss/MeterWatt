@@ -15,6 +15,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 
 from flask import Flask, Response, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
@@ -27,6 +28,10 @@ from .privacidade import FINALIDADES, VERSAO_PRIVACIDADE, VERSAO_TERMOS
 
 PASTA_ESTATICA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "estatico")
 METODOS_QUE_ALTERAM = {"POST", "PUT", "PATCH", "DELETE"}
+# O que quem recebeu acesso a uma casa pode ler dela (cabeçalho X-MW-Casa). Fora daqui, nada.
+ROTAS_COMPARTILHADAS = (r"/api/medidores", r"/api/medidores/[A-Za-z0-9_-]+/historico", r"/api/meta", r"/api/fantasma",
+                        r"/api/consumo/dias", r"/api/consumo/horas", r"/api/agora/partes", r"/api/relatorios",
+                        r"/api/relatorios/\d{4}-\d{2}")
 log = logging.getLogger("meterwatt.web")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 mimetypes.add_type("image/webp", ".webp")
@@ -101,6 +106,12 @@ def criar_app(plataforma):
                         raise ErroDeNegocio("A página ficou desatualizada. Recarregue e tente de novo.", 403, "csrf")
                 if cfg.exigir_2fa and etapa == "completa" and not liberado_sem_2fa and not sessao["totp_ativado_em"]:
                     raise ErroDeNegocio("Ative a verificação em duas etapas para usar o painel.", 403, "2fa_obrigatorio")
+                casa = request.headers.get("X-MW-Casa")
+                if casa:
+                    # Vendo a casa que alguém compartilhou: só leitura e só o painel e o relatório.
+                    if request.method != "GET" or not any(re.fullmatch(r, request.path) for r in ROTAS_COMPARTILHADAS):
+                        raise ErroDeNegocio("Na casa compartilhada, dá só para ver o painel e o relatório.", 403, "so_leitura")
+                    sessao = plataforma.compartilhar.sessao_da_casa(sessao, int(casa) if casa.isdigit() else None)
                 g.sessao = sessao
                 return funcao(*args, **kwargs)
             return envolvida
@@ -495,6 +506,36 @@ def criar_app(plataforma):
     @exige_sessao()
     def economia():
         return ok(plataforma.economia.estado(g.sessao))
+
+    @app.get("/api/casa")
+    @exige_sessao()
+    def casa_estado():
+        return ok(plataforma.compartilhar.estado(g.sessao))
+
+    @app.post("/api/casa/convites")
+    @exige_sessao()
+    def casa_convidar():
+        return ok(plataforma.compartilhar.convidar(g.sessao, corpo(), ip()), 201)
+
+    @app.delete("/api/casa/convites/<int:cid>")
+    @exige_sessao()
+    def casa_cancelar_convite(cid):
+        return ok(plataforma.compartilhar.cancelar_convite(g.sessao, cid, ip()))
+
+    @app.delete("/api/casa/pessoas/<int:pid>")
+    @exige_sessao()
+    def casa_tirar_acesso(pid):
+        return ok(plataforma.compartilhar.tirar_acesso(g.sessao, pid, ip()))
+
+    @app.post("/api/casa/aceitar")
+    @exige_sessao()
+    def casa_aceitar():
+        return ok(plataforma.compartilhar.aceitar(g.sessao, corpo(), ip()))
+
+    @app.delete("/api/casa/casas/<int:dono>")
+    @exige_sessao()
+    def casa_sair(dono):
+        return ok(plataforma.compartilhar.sair(g.sessao, dono, ip()))
 
     @app.get("/api/relatorios")
     @exige_sessao()

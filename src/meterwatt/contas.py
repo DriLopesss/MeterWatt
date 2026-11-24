@@ -463,6 +463,7 @@ class Contas:
             "consentimento_consumo": self.p.consentimento(conn, sessao["usuario_id"], "consumo"),
             "avisos_nao_lidos": self.p.alertas.nao_lidos(conn, sessao["usuario_id"]),
             "plano": self.p.pagamentos.plano_de(conn, sessao["usuario_id"]),
+            "casas": self.p.compartilhar.casas(conn, sessao["usuario_id"]),
         }
 
     def preferencias(self, sessao, dados, ip=None):

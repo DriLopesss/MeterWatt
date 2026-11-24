@@ -817,3 +817,18 @@ body[data-tela="carregando"]::after{content:"";position:fixed;left:50%;top:50%;w
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* compartilhar a casa */
+.casa-escolha{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:0 0 14px}
+.casa-escolha label{display:flex;align-items:center;gap:10px;color:var(--suave);font-weight:600}
+.casa-escolha select{min-width:12rem;max-width:100%}
+.casa-leitura{margin:0;flex:1 1 18rem;padding:8px 12px;border:1px solid var(--linha);border-radius:10px;color:var(--suave);font-size:.92rem}
+body.vendo-outra-casa .so-da-casa{display:none}
+.compartilhar{display:grid;gap:18px;max-width:46rem}
+.compartilhar h1{margin:0}
+.cp-convite{border-color:var(--ambar)}
+.cp-lista{list-style:none;margin:12px 0;padding:0;display:grid;gap:0}
+.cp-lista>li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 14px;padding:10px 0;border-top:1px solid var(--linha)}
+.cp-lista>li:first-child{border-top:0}
+.cp-lista>li>span{min-width:0;overflow-wrap:anywhere}
+.cp-lista>li.dica{display:block}

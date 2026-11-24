@@ -272,6 +272,10 @@
 
     <!-- ----------------------------------------------- painel -->
     <section data-rota="painel" hidden>
+      <div class="casa-escolha" id="casa-escolha" hidden>
+        <label>Casa<select id="casa-select"></select></label>
+        <p class="casa-leitura" id="casa-leitura" hidden>Você está vendo a casa de outra pessoa: só para ler, sem o Detetive de aparelhos.</p>
+      </div>
       <div class="relogio com-3d">
         <canvas class="casa-3d" id="casa-3d" aria-hidden="true"></canvas>
         <button type="button" class="botao-3d" id="botao-3d" aria-pressed="true" aria-label="Casa em 3D" title="Mostrar ou esconder a casa em 3D">3D</button>
@@ -324,7 +328,7 @@
           </div>
           <p class="meta-mensagem" id="meta-mensagem"></p>
           <p class="meta-conta" id="meta-conta" hidden></p>
-          <details class="ajustar">
+          <details class="ajustar so-da-casa">
             <summary>Ajustar meta, tarifa e ligação</summary>
             <form id="form-preferencias" class="linha-form" novalidate>
               <label>Meta do mês (R$)<input name="meta_mensal_reais" inputmode="decimal" placeholder="ex.: 180"></label>
@@ -350,7 +354,7 @@
             <p>Olhamos as madrugadas (0h às 5h) dos últimos 7 dias. Em cada uma, pegamos os 5 minutos de menor consumo: é o que fica ligado mesmo com a casa parada. Usamos a mediana das noites, para uma noite fora do normal não distorcer. Precisa de pelo menos 2 noites quase completas.</p>
             <p>Entram aqui aparelhos em espera, carregadores na tomada, roteador, decodificador e o ciclo mínimo da geladeira. Parte disso é inevitável; o resto costuma sumir com um filtro de linha com interruptor.</p>
           </details>
-          <a class="link-acao" href="#economia/fantasma">Simular quanto dá para cortar</a>
+          <a class="link-acao so-da-casa" href="#economia/fantasma">Simular quanto dá para cortar</a>
         </article>
 
         <article class="bloco bloco-dias">
@@ -366,7 +370,7 @@
       <div class="vazio" id="painel-vazio" hidden>
         <h2>Nenhum medidor pareado ainda</h2>
         <p>Pareie o seu MeterWatt para ver o consumo da casa aqui, segundo a segundo.</p>
-        <a class="botao primario" href="#medidores">Parear medidor</a>
+        <a class="botao primario so-da-casa" href="#medidores">Parear medidor</a>
       </div>
     </section>
 
@@ -427,6 +431,32 @@
         <p class="dica">Palpites do Detetive de aparelhos: só os ciclos que ele reconheceu.</p>
       </article>
       <p class="dica rel-rodape">O custo é a energia vezes a tarifa informada, mais a bandeira do mês (sem os impostos sobre ela). A conta de luz tem outro período de leitura, iluminação pública e impostos, então o valor dela é diferente. Os números de dias com medição incompleta entram no total, mas não nas médias.</p>
+    </section>
+
+    <section data-rota="compartilhar" class="compartilhar" hidden>
+      <h1>Compartilhar a casa</h1>
+      <article class="bloco cp-convite" id="cp-convite" hidden>
+        <h2>Convite para ver uma casa</h2>
+        <p class="texto" id="cp-convite-texto"></p>
+        <div class="botoes"><button type="button" class="primario" id="cp-aceitar">Aceitar e ver a casa</button>
+          <a class="discreto" href="#painel">Agora não</a></div>
+        <p class="erro" role="alert" id="cp-convite-erro"></p>
+      </article>
+      <article class="bloco">
+        <h2>Quem vê a sua casa</h2>
+        <p class="texto">Quem você convidar vê o painel e o relatório do mês: consumo, meta, consumo em espera e gráficos. Não vê o Detetive de aparelhos, a economia, os avisos nem os seus dados de conta, e não muda nada. Dá para tirar o acesso quando quiser.</p>
+        <ul class="cp-lista" id="cp-pessoas"></ul>
+        <form id="form-convidar" class="linha-form" novalidate>
+          <label>E-mail da pessoa<input type="email" name="email" autocomplete="off" required placeholder="nome@exemplo.com"></label>
+          <button class="secundario" type="submit">Mandar convite</button>
+          <p class="erro" role="alert"></p>
+        </form>
+        <p class="dica">O convite vale 7 dias e só funciona na conta do MeterWatt com esse e-mail. A pessoa cria a conta, se ainda não tiver.</p>
+      </article>
+      <article class="bloco" id="cp-casas-bloco" hidden>
+        <h2>Casas que você vê</h2>
+        <ul class="cp-lista" id="cp-casas"></ul>
+      </article>
     </section>
 
     <section data-rota="avisos" hidden>
@@ -564,6 +594,7 @@
       <p class="texto" id="conta-quem"></p>
       <nav class="lista-conta" aria-label="Conta">
         <button type="button" id="conta-instalar" hidden><span>Instalar o app</span><span class="lista-conta-extra">ícone e tela cheia</span></button>
+        <a href="#compartilhar"><span>Compartilhar a casa</span><span class="lista-conta-extra" id="conta-compartilhar">alguém da família vê o painel</span></a>
         <a href="#avisos"><span>Avisos e notificações</span><span class="lista-conta-extra" id="conta-avisos"></span></a>
         <a href="#plano" id="conta-plano"><span>Plano</span><span class="lista-conta-extra" id="conta-plano-atual"></span></a>
         <a href="#seguranca"><span>Segurança</span><span class="lista-conta-extra">senha e verificação em duas etapas</span></a>
@@ -764,7 +795,7 @@
     <p>Confirmar o tratamento, acessar e baixar os dados, corrigir, anonimizar ou apagar, revogar autorizações e saber com quem compartilhamos. Quase tudo funciona sozinho na tela <a href="#privacidade">Privacidade</a>. O resto, pelo e-mail acima, com resposta em até 15 dias. Como excluir a conta, passo a passo: <a href="#excluir-conta">Excluir a conta</a>.</p>
 
     <h2>Com quem compartilhamos</h2>
-    <p>Só com quem opera o serviço para nós: provedor de servidores, de envio de e-mail e, para quem assina um plano, o Mercado Pago (que recebe o seu e-mail e o valor da assinatura). Se você ligar as notificações, cada aviso passa pelo serviço de notificações do seu navegador (Google no Chrome e no Android, Apple no iPhone e no Safari, Mozilla no Firefox, Microsoft no Edge), que fica fora do Brasil. A mensagem vai cifrada de ponta a ponta: esse serviço sabe que uma notificação foi entregue no aparelho, mas não consegue ler o que ela diz. [ADVOGADO e equipe: listar os fornecedores e os países onde ficam os servidores (art. 33).]</p>
+    <p>Só com quem opera o serviço para nós: provedor de servidores, de envio de e-mail e, para quem assina um plano, o Mercado Pago (que recebe o seu e-mail e o valor da assinatura). Se você ligar as notificações, cada aviso passa pelo serviço de notificações do seu navegador (Google no Chrome e no Android, Apple no iPhone e no Safari, Mozilla no Firefox, Microsoft no Edge), que fica fora do Brasil. A mensagem vai cifrada de ponta a ponta: esse serviço sabe que uma notificação foi entregue no aparelho, mas não consegue ler o que ela diz. Se você compartilhar a casa com alguém da família (Conta, "Compartilhar a casa"), essa pessoa vê o painel e o relatório do mês da sua casa, só para ler, sem o Detetive de aparelhos, até você tirar o acesso; o e-mail que você digitar no convite fica guardado só enquanto o convite está pendente (no máximo 7 dias). [ADVOGADO e equipe: listar os fornecedores e os países onde ficam os servidores (art. 33).]</p>
 
     <h2>Segurança</h2>
     <p>Conexão criptografada (HTTPS), senha guardada com Argon2id, verificação em duas etapas opcional, segredos cifrados no banco, cada medidor com usuário próprio no servidor de mensagens. Em caso de incidente que possa causar risco, avisamos você e a ANPD.</p>

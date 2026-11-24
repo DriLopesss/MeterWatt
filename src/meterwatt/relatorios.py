@@ -143,7 +143,7 @@ class Relatorios:
                                  "media_dia": round(media_ant, 2),
                                  "variacao": round(saida["media_dia"] / media_ant - 1, 4) if media_ant else None}
         # Aparelhos que mais gastaram (Detetive), só com a autorização dele.
-        if ids and self.p.consentimento(conn, uid, "aparelhos"):
+        if ids and self.p.consentimento(conn, uid, "aparelhos") and not sessao.get("compartilhada"):
             from .detetive import palpite
             marcadores = ",".join("?" * len(ids))
             for a in conn.execute(f"SELECT a.id, a.nome, a.potencia_w, SUM(c.wh) AS wh, COUNT(*) AS vezes, AVG(c.fim - c.inicio) AS duracao "

@@ -314,6 +314,26 @@ MIGRACOES = [
     );
     CREATE INDEX contas_luz_usuario ON contas_luz(usuario_id, fim);
     """,
+    # 13: compartilhar a casa, só para ver. O convite guarda o e-mail da pessoa só até ser aceito ou vencer.
+    """
+    CREATE TABLE convites_casa (
+        id INTEGER PRIMARY KEY,
+        dono_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        email TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        criado_em REAL NOT NULL,
+        expira_em REAL NOT NULL
+    );
+    CREATE INDEX convites_casa_dono ON convites_casa(dono_id);
+    CREATE TABLE acessos_casa (
+        dono_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        convidado_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        criado_em REAL NOT NULL,
+        PRIMARY KEY (dono_id, convidado_id),
+        CHECK (dono_id <> convidado_id)
+    );
+    CREATE INDEX acessos_casa_convidado ON acessos_casa(convidado_id);
+    """,
 ]
 
 

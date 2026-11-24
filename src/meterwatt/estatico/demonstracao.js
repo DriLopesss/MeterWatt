@@ -98,6 +98,7 @@
     // Tarifa Branca: ponta das 18h às 21h e preços de EXEMPLO (na casa inventada, tudo é simulado).
     tb: { inicio: 18 * 60, precos: { convencional: 0.90, fora: 0.75, intermediario: 1.10, ponta: 1.73 } },
     contasLuz: null, contaId: 0,
+    convitesCasa: [], conviteId: 0,
   };
   const FINALIDADES = {
     termos: ["Termos de uso", "Aceite das regras de uso do serviço.", true, false],
@@ -647,7 +648,19 @@
   function eu() {
     return { nome: "Visitante", email: "visitante@demonstracao.exemplo", etapa: "completa", csrf: "demonstracao", dois_fatores: false, codigos_backup_restantes: 0,
       exigir_2fa: false, tarifa_kwh: E.tarifa, tarifa_padrao: null, meta_mensal_reais: E.meta, consentimento_consumo: E.aceites.consumo,
-      avisos_nao_lidos: E.avisosLidos ? 0 : 3, plano: E.plano, ligacao: E.ligacao };
+      avisos_nao_lidos: E.avisosLidos ? 0 : 3, plano: E.plano, ligacao: E.ligacao, casas: [] };
+  }
+  function casa(aviso) {
+    return { pessoas: [], convites: E.convitesCasa, casas: [], maximo: 5, ...(aviso ? { aviso } : {}) };
+  }
+  function convidarParaCasa(corpo) {
+    const email = String(corpo.email || "").trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return [400, { erro: "Digite um e-mail válido.", codigo: null }];
+    if (email === eu().email) return [400, { erro: "Esse é o seu próprio e-mail.", codigo: null }];
+    E.convitesCasa = E.convitesCasa.filter((c) => c.email !== email);
+    if (E.convitesCasa.length >= 5) return [400, { erro: "A casa pode ser compartilhada com até 5 pessoas, contando os convites pendentes.", codigo: null }];
+    E.convitesCasa.push({ id: ++E.conviteId, email, expira_em: iso(agora() + 7 * 86400) });
+    return [201, casa("Na demonstração nenhum e-mail sai daqui. No site de verdade, a pessoa receberia o link do convite.")];
   }
 
   function alterarMedidor(m, corpo) {
@@ -749,6 +762,13 @@
     if (chave === "GET /economia/tarifa-branca") return [200, tarifaBranca()];
     if (chave === "GET /contas-de-luz") return [200, contasLuz()];
     if (chave === "GET /relatorios") return [200, relatoriosDisponiveis()];
+    if (chave === "GET /casa") return [200, casa()];
+    if (chave === "POST /casa/convites") return convidarParaCasa(corpo || {});
+    if (metodo === "DELETE" && partes[0] === "casa" && partes[1] === "convites") {
+      E.convitesCasa = E.convitesCasa.filter((c) => String(c.id) !== partes[2]);
+      return [200, casa()];
+    }
+    if (partes[0] === "casa") return NAO_NA_DEMO;
     if (metodo === "GET" && partes[0] === "relatorios" && partes.length === 2) return relatorioDoMes(partes[1]);
     if (chave === "POST /contas-de-luz") return adicionarContaLuz(corpo || {});
     if (partes[0] === "contas-de-luz" && partes[1]) {

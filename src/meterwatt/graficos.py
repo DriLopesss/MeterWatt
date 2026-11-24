@@ -178,7 +178,8 @@ class Graficos:
         else:
             e = vivas[0]
             base = self._base(conn, e["id"], agora)
-            detetive = e["tipo"] == "pzem" and self.p.consentimento(conn, uid, "aparelhos")
+            # Quem só vê uma casa compartilhada não vê o Detetive: ele revela mais da rotina do que o total.
+            detetive = e["tipo"] == "pzem" and self.p.consentimento(conn, uid, "aparelhos") and not sessao.get("compartilhada")
             partes = self.p.detetive.ligados_agora(conn, e["id"], total - (base or 0.0), agora) if detetive else []
             fonte = "detetive" if detetive else "base"
             usado = sum(p["watts"] for p in partes)
