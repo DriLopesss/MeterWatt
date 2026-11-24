@@ -51,6 +51,7 @@ class Plataforma:
         from .contas_luz import ContasDeLuz
         from .relatorios import Relatorios
         from .compartilhar import Compartilhar
+        from .qualidade import Qualidade
         from .medidores import Medidores
         from .notificacoes import Notificacoes
         from .pagamentos import Pagamentos
@@ -68,6 +69,7 @@ class Plataforma:
         self.contas_luz = ContasDeLuz(self)
         self.relatorios = Relatorios(self)
         self.compartilhar = Compartilhar(self)
+        self.qualidade = Qualidade(self)
         self.notificacoes = Notificacoes(self)
 
     # ------------------------------------------------------------ tempo

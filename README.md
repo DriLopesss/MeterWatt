@@ -102,6 +102,14 @@ Quando o Wi-Fi da casa ou o servidor cai, o medidor continua medindo e guarda um
 - Se a placa reiniciar sem conexão, os minutos guardados se perdem (ficam só na RAM). A energia entra de uma vez quando a conexão voltar.
 - O Detetive de aparelhos não vê os minutos atrasados: ele precisa das leituras de segundo em segundo.
 
+### Qualidade da energia
+
+Em Medidores, o bloco **Qualidade da energia** mostra os últimos 30 dias: quanto tempo a tensão ficou em cada faixa da ANEEL (médias de 10 em 10 minutos, em cada fase), a menor e a maior tensão de cada dia, e o que aconteceu (faltas de energia de 3 minutos ou mais, tensão crítica, fase sem energia), com data e hora. Dá para baixar tudo em planilha. Avisos novos: **Falta de energia** e **Tensão fora da faixa** (no máximo um por dia). As regras estão em `src/meterwatt/qualidade.py`.
+
+- Faixas usadas (PRODIST, Módulo 8, entre fase e neutro): 127 V adequada de 117 a 133 V, precária de 110 a 116 e de 134 a 135 V; 220 V adequada de 202 a 231 V, precária de 191 a 201 e de 232 a 233 V; fora disso, crítica. A tensão nominal (127 ou 220 V) sai da mediana medida.
+- Falta de energia = o medidor voltou reiniciado depois de 3 minutos ou mais sem leituras (ele se alimenta da rede da casa). Pode ser também alguém ter tirado o medidor da tomada; uma queda só do Wi-Fi não conta.
+- O MeterWatt não é o medidor oficial. Os números de tempo em cada faixa não são os indicadores oficiais DRP e DRC, e quedas de menos de um segundo não aparecem (o PZEM dá uma leitura por segundo). O registro serve para dar datas, horários e números à distribuidora: pedir a verificação do nível de tensão ou o ressarcimento de um aparelho queimado (prazo de 5 anos; ela pede a data e o horário prováveis).
+
 ## 🧪 Como testar
 
 ### 1. Broker MQTT com senha (Mosquitto)

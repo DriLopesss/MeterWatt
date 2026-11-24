@@ -212,6 +212,7 @@ class Privacidade:
                 "tipo_de_sensor": m["tipo"], "firmware": m["fw"],
                 "mede": "entrada" if m["papel"] == "casa" else "circuito", "dentro_de": m["dentro_de"],
                 "ultima_leitura_por_fase": json.loads(m["fases"]) if m["fases"] else None,
+                **self.p.qualidade.exportar(conn, m["id"]),
                 "consumo_5_minutos": [
                     {"inicio": self.p.iso(a["inicio"]), "leituras": a["n"],
                      "potencia_media": round(a["soma_w"] / a["n"], 1) if a["n"] else None,
@@ -264,6 +265,7 @@ class Privacidade:
             for mid in ids:
                 conn.execute("DELETE FROM leituras WHERE medidor_id = ?", (mid,))
                 conn.execute("DELETE FROM consumo_5min WHERE medidor_id = ?", (mid,))
+                self.p.qualidade.apagar(conn, mid)
                 conn.execute("UPDATE medidores SET contador_wh = NULL, potencia_anterior = NULL, fases = NULL, contadores_fases = NULL, "
                              "ultima_recuperacao = NULL WHERE id = ?", (mid,))
             self.p.detetive.apagar_tudo(conn, uid)
@@ -342,6 +344,17 @@ class Privacidade:
                     "DELETE FROM consumo_5min WHERE inicio < ?", (limite_curto,)).rowcount
             apagados["consumo_5min"] += conn.execute(
                 "DELETE FROM consumo_5min WHERE inicio < ?", (agora - c.retencao_agregada_longa_dias * 86400,)).rowcount
+            # Tensão de 10 em 10 minutos e eventos de energia: o mesmo prazo do consumo de 5 em 5 minutos.
+            for tabela, coluna in (("tensao_10min", "inicio"), ("eventos_energia", "fim")):
+                if com_historico_longo:
+                    apagados[tabela] = conn.execute(
+                        f"DELETE FROM {tabela} WHERE {coluna} < ? AND medidor_id IN "
+                        f"(SELECT id FROM medidores WHERE usuario_id NOT IN ({marcadores}))",
+                        (limite_curto, *com_historico_longo)).rowcount
+                else:
+                    apagados[tabela] = conn.execute(f"DELETE FROM {tabela} WHERE {coluna} < ?", (limite_curto,)).rowcount
+                apagados[tabela] += conn.execute(f"DELETE FROM {tabela} WHERE {coluna} < ?",
+                                                 (agora - c.retencao_agregada_longa_dias * 86400,)).rowcount
             apagados["sessoes"] = conn.execute(
                 "DELETE FROM sessoes WHERE expira_em < ? OR (etapa = 'completa' AND ultimo_uso < ?)",
                 (agora, agora - c.sessao_ociosa_horas * 3600)).rowcount

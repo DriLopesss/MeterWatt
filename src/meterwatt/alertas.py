@@ -25,6 +25,14 @@ TIPOS = {
         "nome": "Fase sem resposta",
         "descricao": "Em casa com duas ou três fases: quando o sensor de uma fase para de responder e as outras continuam.",
     },
+    "energia": {
+        "nome": "Falta de energia",
+        "descricao": "Quando o medidor volta depois de uma falta de energia de 3 minutos ou mais, com o horário de início e de fim.",
+    },
+    "tensao": {
+        "nome": "Tensão fora da faixa",
+        "descricao": "Quando a tensão média de 10 minutos fica na faixa crítica da ANEEL. No máximo um aviso por dia.",
+    },
     "meta": {
         "nome": "Meta do mês",
         "descricao": "Quando a previsão da conta passa de 90% da meta e quando passa da meta.",
@@ -113,7 +121,7 @@ class Alertas:
         for uid in usuarios:
             if not self.p.consentimento(conn, uid, "consumo"):
                 continue
-            for regra in (self._offline, self._fases, self._meta, self._incomum, self._resumo, self._resumo_mensal):
+            for regra in (self._offline, self._fases, self._energia, self._tensao, self._meta, self._incomum, self._resumo, self._resumo_mensal):
                 try:
                     criados += regra(conn, uid)
                 except Exception:   # uma regra com problema não cala as outras
@@ -156,6 +164,52 @@ class Alertas:
                                 "Se for isso, avise a distribuidora. Se a casa está normal, pode ser um fio solto no sensor: peça ao "
                                 "eletricista para conferir, com o disjuntor desligado. Enquanto isso, o consumo dessa fase não entra nas contas.",
                                 url="/#medidores")
+        return n
+
+    def _energia(self, conn, uid):
+        """Falta de energia registrada (o medidor voltou reiniciado depois de 3 minutos ou mais)."""
+        agora = self.p.agora()
+        n = 0
+        zona = self.p.cfg.zona
+        for e in conn.execute("SELECT e.*, m.apelido FROM eventos_energia e JOIN medidores m ON m.id = e.medidor_id "
+                              "WHERE m.usuario_id = ? AND e.tipo = 'falta_energia' AND e.fim >= ?", (uid, agora - 86400)).fetchall():
+            ini, fim = datetime.fromtimestamp(e["inicio"], zona), datetime.fromtimestamp(e["fim"], zona)
+            minutos = round((e["fim"] - e["inicio"]) / 60)
+            quando = (f"das {ini:%H:%M} às {fim:%H:%M} de {fim:%d/%m}" if ini.date() == fim.date()
+                      else f"de {ini:%H:%M} de {ini:%d/%m} às {fim:%H:%M} de {fim:%d/%m}")
+            n += self.criar(uid, "energia", f"energia:{e['id']}", f"Faltou energia por {minutos} minutos",
+                            f"O medidor {e['apelido']} ficou desligado {quando} e voltou reiniciado: deve ter faltado energia "
+                            "(ou ele foi tirado da tomada). Se algum aparelho queimou, anote a data e o horário: a distribuidora "
+                            "pede isso no pedido de ressarcimento, que pode ser feito em até 5 anos. O registro completo está em "
+                            "Medidores, na Qualidade da energia.", url="/#medidores")
+        return n
+
+    def _tensao(self, conn, uid):
+        """Tensão média de 10 minutos na faixa crítica hoje: um aviso por dia."""
+        from .qualidade import FAIXAS, LEITURAS_MINIMAS, faixa, nominal_de
+        agora = self.p.agora()
+        hoje = self.p.inicio_do_dia(agora)
+        n = 0
+        for m in conn.execute("SELECT id, apelido FROM medidores WHERE usuario_id = ? AND tipo = 'pzem'", (uid,)).fetchall():
+            janelas = conn.execute("SELECT fase, inicio, n, soma_v FROM tensao_10min WHERE medidor_id = ? AND inicio >= ? AND n >= ? "
+                                   "ORDER BY inicio", (m["id"], agora - 7 * 86400, LEITURAS_MINIMAS)).fetchall()
+            for fase in sorted({j["fase"] for j in janelas}):
+                medias = [(j["inicio"], j["soma_v"] / j["n"]) for j in janelas if j["fase"] == fase]
+                nominal = nominal_de([v for _, v in medias])
+                criticas = [(t, v) for t, v in medias if t >= hoje and faixa(v, nominal) == "critica"]
+                if not criticas:
+                    continue
+                t, v = max(criticas, key=lambda x: abs(x[1] - nominal))
+                hora = datetime.fromtimestamp(t, self.p.cfg.zona).strftime("%H:%M")
+                adequada = FAIXAS[nominal]["adequada"]
+                dia = datetime.fromtimestamp(hoje + 3600, self.p.cfg.zona).strftime("%Y-%m-%d")
+                n += self.criar(uid, "tensao", f"tensao:{m['id']}:{fase}:{dia}",
+                                f"Tensão {'baixa' if v < nominal else 'alta'} demais: {_n(v)} V",
+                                f"Às {hora}, a tensão média de 10 minutos em {m['apelido']}" + (f" (fase {fase})" if fase > 1 or len(medias) < len(janelas) else "")
+                                + f" ficou em {_n(v)} V, na faixa crítica da ANEEL para {nominal} V (a adequada vai de {adequada[0]} a {adequada[1]} V). "
+                                "Tensão crítica pode danificar aparelhos. Se continuar, peça à distribuidora a verificação do nível de tensão, "
+                                "com as datas e horários do registro em Medidores, na Qualidade da energia. O MeterWatt não é o medidor oficial: "
+                                "quem mede para valer é a distribuidora.", url="/#medidores")
         return n
 
     def _meta(self, conn, uid):

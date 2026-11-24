@@ -242,9 +242,13 @@ class Medidores:
         fases = ler_fases(dados, json.loads(m["fases"]) if m["fases"] else None, agora)
         lidas = [f for f in fases if f["ok"]] if fases else []
         guardar_fases = json.dumps([{k: v for k, v in f.items() if k != "energia_wh"} for f in fases]) if fases else None
+        uptime = numero(dados, "uptime_s", 0, 2 ** 32)
+        fases_antes = json.loads(m["fases"]) if m["fases"] else None
 
         if dados.get("sensor_ok") is False or (fases and not lidas):
             with conn:
+                self.p.qualidade.ao_ler(conn, m, agora, uptime, fases_antes, fases, simulado)
+                conn.execute("UPDATE medidores SET uptime_s = ? WHERE id = ?", (uptime, mid))
                 conn.execute("INSERT INTO leituras (medidor_id, instante, sensor_ok, erro_sensor, rssi, simulado) "
                              "VALUES (?, ?, 0, ?, ?, ?)", (mid, agora, texto_simples(dados.get("erro_sensor")) or "desconhecido",
                                                           rssi, simulado))
@@ -311,10 +315,14 @@ class Medidores:
                 "min_w = MIN(min_w, excluded.min_w), max_w = MAX(max_w, excluded.max_w), wh = wh + excluded.wh, "
                 "simulado = MAX(simulado, excluded.simulado)",
                 (mid, balde, valor, valor, valor, wh, simulado))
+            if tipo == "pzem":
+                tensoes = {f["fase"]: f["tensao_v"] for f in lidas} if lidas else {1: tensao}
+                self.p.qualidade.registrar_tensao(conn, mid, agora, tensoes)
+            self.p.qualidade.ao_ler(conn, m, agora, uptime, fases_antes, fases, simulado)
             conn.execute("UPDATE medidores SET ultima_mensagem = ?, ultima_gravacao = ?, status_mqtt = 'online', tipo = ?, fw = ?, "
-                         "contador_wh = ?, potencia_anterior = ?, fases = ?, contadores_fases = ? WHERE id = ?",
+                         "contador_wh = ?, potencia_anterior = ?, fases = ?, contadores_fases = ?, uptime_s = ? WHERE id = ?",
                          (agora, agora, tipo, fw, contador, valor if tipo == "corrente" else None, guardar_fases,
-                          json.dumps(contadores) if contadores else None, mid))
+                          json.dumps(contadores) if contadores else None, uptime, mid))
         if tipo == "pzem":
             self.p.detetive.observar(conn, mid, m["usuario_id"], agora, potencia)
         return "gravada"

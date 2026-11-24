@@ -102,6 +102,12 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 ## O que entrou no bloco 15 (sem Wi-Fi, a medição não se perde)
 - O medidor guarda na própria memória (RAM, até 12 horas) um resumo por minuto enquanto está sem conexão, e apaga cada minuto assim que o envia. O servidor grava esses minutos no mesmo consumo de 5 em 5 minutos de sempre (mesma retenção, mesma cópia, mesmo apagamento). Guarda também o resumo da última recuperação (de que hora a que hora, quantos minutos), para a tela; ele sai ao apagar o consumo.
 
+## O que entrou no bloco 16 (qualidade da energia)
+- **Tensão de 10 em 10 minutos** (média, mínima e máxima, por fase) e **eventos de energia** (faltas de energia, de fase; início e fim). Saem das leituras que já chegavam; fazem parte do serviço autorizado em "dados de consumo", seguem a mesma retenção do consumo de 5 em 5 minutos (90 dias, ou 730 com o histórico longo), entram na cópia dos dados (`tensao_10_minutos`, `eventos_de_energia`) e saem ao apagar o consumo ou excluir a conta.
+- O medidor passa a ter o último "tempo ligado" guardado, só para saber quando ele reiniciou.
+- Faltas de energia também revelam um pouco da rotina (ou da ausência) da casa, como o consumo. Quem vê a casa compartilhada (bloco 13) não vê este bloco: ele fica em Medidores, fora da lista de leituras compartilhadas.
+- Avisos novos: **Falta de energia** e **Tensão fora da faixa**, na mesma base dos outros avisos.
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).

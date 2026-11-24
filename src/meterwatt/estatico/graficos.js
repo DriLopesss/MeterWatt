@@ -421,6 +421,45 @@
     caixa.setAttribute("aria-label", `Consumo por dia em ${r.nome}${r.media_dia != null ? `, média de ${num(r.media_dia, 1)} kWh por dia` : ""}. A tabela abaixo tem cada dia.`);
   }
 
+  /* ------------------------------------------------------------ tensão de cada dia */
+
+  // Uma barra por dia, da menor à maior tensão do dia, e um ponto na média. Ao fundo, a faixa adequada da
+  // ANEEL; as linhas tracejadas marcam onde começa a crítica. Quem diz a faixa é o rótulo, não só a cor.
+  function desenharTensao(caixa, q) {
+    const W = largura(caixa), H = 170;
+    const m = { e: 40, d: 6, t: 12, b: 22 };
+    const pw = W - m.e - m.d, ph = H - m.t - m.b;
+    const [aMin, aMax] = q.faixas.adequada, [pMin, pMax] = q.faixas.precaria;
+    const lo = Math.floor(Math.min(pMin - 4, ...q.dias.map((d) => d.min)) / 5) * 5;
+    const hi = Math.ceil(Math.max(pMax + 4, ...q.dias.map((d) => d.max)) / 5) * 5;
+    const y = (v) => m.t + ph - ((v - lo) / (hi - lo)) * ph;
+    const n = Math.max(q.dias.length, 7), slot = pw / n, bw = Math.max(2, Math.min(8, slot - 3));
+    const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, "aria-hidden": "true" });
+    svg.append(s("rect", { x: m.e, y: y(aMax), width: pw, height: y(aMin) - y(aMax), class: "qe-adequada" }));
+    // Os limites da adequada sempre têm número; os da crítica, só se não encostarem neles (133 e 135 ficam perto).
+    const rotulos = [];
+    for (const [v, cls] of [[aMin, "eixo"], [aMax, "eixo"], [pMin, "qe-limite"], [pMax, "qe-limite"]]) {
+      if (cls === "qe-limite") svg.append(s("line", { x1: m.e, x2: W - m.d, y1: y(v), y2: y(v), class: cls }));
+      if (rotulos.some((r) => Math.abs(r - y(v)) < 12)) continue;
+      rotulos.push(y(v));
+      svg.append(s("text", { x: m.e - 6, y: y(v) + 4, class: "eixo", "text-anchor": "end" }, num(v)));
+    }
+    q.dias.forEach((d, i) => {
+      const x = m.e + (n - q.dias.length + i) * slot + slot / 2;
+      const titulo = s("title", {}, `${d.dia.slice(8, 10)}/${d.dia.slice(5, 7)}: de ${num(d.min, 1)} a ${num(d.max, 1)} V, média de ${num(d.media, 1)} V`);
+      svg.append(s("g", {}, titulo,
+        s("rect", { x: x - bw / 2, y: y(d.max), width: bw, height: Math.max(2, y(d.min) - y(d.max)), rx: Math.min(3, bw / 2), fill: COR.normal, class: "qe-dia" }),
+        s("circle", { cx: x, cy: y(d.media), r: 3.2, fill: COR.energia, stroke: "#171428", "stroke-width": 1.5 })));
+    });
+    const ultimo = q.dias[q.dias.length - 1], primeiro = q.dias[0];
+    if (primeiro) svg.append(s("text", { x: m.e + (n - q.dias.length) * slot + slot / 2, y: H - 6, class: "eixo", "text-anchor": "start" },
+      `${primeiro.dia.slice(8, 10)}/${primeiro.dia.slice(5, 7)}`));
+    if (ultimo && q.dias.length > 1) svg.append(s("text", { x: W - m.d, y: H - 6, class: "eixo", "text-anchor": "end" },
+      `${ultimo.dia.slice(8, 10)}/${ultimo.dia.slice(5, 7)}`));
+    caixa.replaceChildren(svg);
+    caixa.setAttribute("aria-label", `Tensão de cada dia, da menor à maior, com a média. A faixa adequada vai de ${aMin} a ${aMax} V.`);
+  }
+
   /* ------------------------------------------------------------ a casa em 3D */
 
   // A cor acompanha a carga: ciano perto do que a casa gasta parada, âmbar no meio, magenta perto dos picos.
@@ -573,5 +612,5 @@
     }
   }
 
-  window.MWGraficos = { desenharFluxo, criarPerfil, CasaEm3D, desenharTarifaBranca, COR_POSTO, horaCurta, desenharDiasDoMes };
+  window.MWGraficos = { desenharFluxo, criarPerfil, CasaEm3D, desenharTarifaBranca, COR_POSTO, horaCurta, desenharDiasDoMes, desenharTensao };
 })();
