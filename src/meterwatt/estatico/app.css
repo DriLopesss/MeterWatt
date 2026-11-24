@@ -872,3 +872,10 @@ body.vendo-outra-casa .so-da-casa{display:none}
 .qe-eventos td:last-child{white-space:nowrap;font-family:var(--f-numero)}
 .qe-eventos .etiqueta{margin-left:8px}
 .qe-grafico .eixo{fill:var(--apagado);font:400 11px var(--f-numero)}
+
+/* Home Assistant */
+.integracao{display:grid;gap:18px;max-width:46rem}
+.integracao h1{margin:0}
+.ha-nova{border-color:var(--ambar)}
+.ha-yaml{margin:10px 0;padding:14px;border-radius:10px;background:var(--noite2);border:1px solid var(--linha);overflow-x:auto;
+  font:400 .82rem/1.5 var(--f-numero);color:var(--tinta);white-space:pre}

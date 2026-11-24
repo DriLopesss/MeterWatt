@@ -153,15 +153,15 @@ function formulario(form, enviar) {
 /* ------------------------------------------------------------------ rotas */
 
 const ROTAS_PUBLICAS = new Set(["entrar", "cadastro", "enviado", "confirmar", "esqueci", "redefinir", "2fa"]);
-const ROTAS_APP = new Set(["painel", "medidores", "aparelhos", "economia", "conta", "avisos", "plano", "pagamento-teste", "seguranca", "privacidade", "relatorio", "compartilhar"]);
+const ROTAS_APP = new Set(["painel", "medidores", "aparelhos", "economia", "conta", "avisos", "plano", "pagamento-teste", "seguranca", "privacidade", "relatorio", "compartilhar", "integracao"]);
 // No celular, estas telas ficam dentro da aba "Conta".
-const DENTRO_DE_CONTA = new Set(["conta", "seguranca", "privacidade", "plano", "avisos", "pagamento-teste", "compartilhar"]);
+const DENTRO_DE_CONTA = new Set(["conta", "seguranca", "privacidade", "plano", "avisos", "pagamento-teste", "compartilhar", "integracao"]);
 const ROTAS_INICIO = new Set(["inicio", "fila", "convite", "sair-da-fila"]);
 const DOCUMENTOS = new Set(["politica", "termos", "excluir-conta"]);
 const TITULOS = { entrar: "Entrar", cadastro: "Criar conta", painel: "Painel", medidores: "Medidores", seguranca: "Segurança",
   privacidade: "Privacidade", politica: "Política de privacidade", termos: "Termos de uso", "2fa": "Verificação",
   inicio: "Energia que você enxerga", fila: "Lista de espera", "sair-da-fila": "Sair da lista", aparelhos: "Aparelhos",
-  avisos: "Avisos", plano: "Plano", relatorio: "Relatório do mês", compartilhar: "Compartilhar a casa", "pagamento-teste": "Pagamento de teste", economia: "E se eu…?", conta: "Conta",
+  avisos: "Avisos", plano: "Plano", relatorio: "Relatório do mês", compartilhar: "Compartilhar a casa", integracao: "Home Assistant", "pagamento-teste": "Pagamento de teste", economia: "E se eu…?", conta: "Conta",
   "excluir-conta": "Excluir a conta" };
 
 function ir(rota) {
@@ -236,7 +236,7 @@ async function mostrar() {
 
   const telas = { painel: telaPainel, medidores: telaMedidores, seguranca: telaSeguranca, privacidade: telaPrivacidade,
     aparelhos: telaAparelhos, avisos: telaAvisos, plano: telaPlano, "pagamento-teste": () => telaPagamentoTeste(token),
-    economia: () => telaEconomia(token), conta: telaConta, relatorio: () => telaRelatorio(token), compartilhar: () => telaCompartilhar(token),
+    economia: () => telaEconomia(token), conta: telaConta, relatorio: () => telaRelatorio(token), compartilhar: () => telaCompartilhar(token), integracao: telaIntegracao,
     inicio: telaInicio, fila: () => telaFila(token), "sair-da-fila": () => { estado.tokenFila = token; },
     confirmar: () => confirmarEmail(token), redefinir: () => { estado.tokenRedefinir = token; }, "2fa": tela2fa };
   if (DOCUMENTOS.has(alvo)) return mostrarDocumento(alvo, raiz);
@@ -2853,6 +2853,60 @@ function baixarQualidade(r) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
+/* ------------------------------------------------------------------ Home Assistant */
+
+async function telaIntegracao() {
+  $("#ha-nova").hidden = true;
+  desenharChaves(await api("GET", "/api/integracao"));
+}
+
+function desenharChaves(r) {
+  const quando = (iso) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  $("#ha-chaves").replaceChildren(...(r.chaves.length ? r.chaves.map((c) => el("li", {},
+    el("span", {}, el("strong", {}, c.nome), `, criada em ${quando(c.criada_em)}`, c.ultimo_uso ? `, usada por último em ${quando(c.ultimo_uso)}` : ", ainda não usada"),
+    el("button", { type: "button", class: "discreto perigo", onclick: async () => {
+      try { desenharChaves(await api("DELETE", `/api/integracao/${c.id}`)); $("#ha-nova").hidden = true; avisar(`Chave "${c.nome}" cancelada.`); }
+      catch (e) { avisar(e.message, true); }
+    } }, "Cancelar")))
+    : [el("li", { class: "dica" }, "Nenhuma chave ainda.")]));
+  $("#form-ha button").disabled = r.chaves.length >= r.maximo;
+}
+
+function yamlHomeAssistant(chave) {
+  const sensor = (nome, id, campo, unidade, classe, estado) => [
+    `      - name: "${nome}"`, `        unique_id: ${id}`, `        value_template: "{{ value_json.${campo} }}"`,
+    `        unit_of_measurement: "${unidade}"`, `        device_class: ${classe}`, `        state_class: ${estado}`];
+  return ["rest:", `  - resource: ${location.origin}/api/integracao/estado`, "    headers:", `      Authorization: "Bearer ${chave}"`,
+    "    scan_interval: 30", "    sensor:",
+    ...sensor("MeterWatt potência", "meterwatt_potencia", "potencia_w", "W", "power", "measurement"),
+    ...sensor("MeterWatt energia", "meterwatt_energia", "energia_total_kwh", "kWh", "energy", "total_increasing"),
+    ...sensor("MeterWatt consumo de hoje", "meterwatt_kwh_hoje", "kwh_hoje", "kWh", "energy", "total_increasing"),
+    ...sensor("MeterWatt tensão", "meterwatt_tensao", "tensao_v", "V", "voltage", "measurement")].join("\n");
+}
+
+function ligarIntegracao() {
+  formulario($("#form-ha"), async (d, form) => {
+    const r = await api("POST", "/api/integracao", { nome: d.nome });
+    form.reset();
+    desenharChaves(r);
+    $("#ha-yaml").textContent = yamlHomeAssistant(r.chave);
+    $("#ha-nova").hidden = false;
+    $("#ha-nova").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  $("#ha-copiar").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($("#ha-yaml").textContent);
+      avisar("Copiado.");
+    } catch {
+      const faixa = document.createRange();
+      faixa.selectNodeContents($("#ha-yaml"));
+      getSelection().removeAllRanges();
+      getSelection().addRange(faixa);
+      avisar("Selecionei o texto: copie com Ctrl+C (ou segure o dedo no celular).");
+    }
+  });
+}
+
 /* ------------------------------------------------------------------ compartilhar a casa */
 
 /* O link do convite, guardado só nesta aba enquanto a pessoa entra ou cria a conta. */
@@ -3292,6 +3346,7 @@ async function iniciar() {
   ligarTarifaBranca();
   ligarContasLuz();
   ligarCompartilhar();
+  ligarIntegracao();
   ligarSeguranca();
   ligarPrivacidade();
   ligarInicio();

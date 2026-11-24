@@ -319,6 +319,8 @@ class Medidores:
                 tensoes = {f["fase"]: f["tensao_v"] for f in lidas} if lidas else {1: tensao}
                 self.p.qualidade.registrar_tensao(conn, mid, agora, tensoes)
             self.p.qualidade.ao_ler(conn, m, agora, uptime, fases_antes, fases, simulado)
+            if wh > 0 and m["papel"] == "casa":      # o total que só cresce (integração com o Home Assistant)
+                conn.execute("UPDATE usuarios SET energia_total_wh = energia_total_wh + ? WHERE id = ?", (wh, m["usuario_id"]))
             conn.execute("UPDATE medidores SET ultima_mensagem = ?, ultima_gravacao = ?, status_mqtt = 'online', tipo = ?, fw = ?, "
                          "contador_wh = ?, potencia_anterior = ?, fases = ?, contadores_fases = ?, uptime_s = ? WHERE id = ?",
                          (agora, agora, tipo, fw, contador, valor if tipo == "corrente" else None, guardar_fases,
@@ -363,7 +365,7 @@ class Medidores:
         contador = m["contador_wh"]
         contadores = json.loads(m["contadores_fases"]) if m["contadores_fases"] else {}
         ate = m["atrasadas_ate"] or 0
-        entraram, primeiro = 0, None
+        entraram, primeiro, total_wh = 0, None, 0.0
         with conn:
             for u, n, w, minimo, maximo, e in itens:
                 instante = agora - (uptime - u)
@@ -391,7 +393,10 @@ class Medidores:
                     (mid, int(instante // BALDE_S * BALDE_S), n, w * n, minimo, maximo, wh, simulado))
                 ate = instante
                 entraram += 1
+                total_wh += wh
                 primeiro = instante if primeiro is None else primeiro
+            if total_wh > 0 and m["papel"] == "casa":
+                conn.execute("UPDATE usuarios SET energia_total_wh = energia_total_wh + ? WHERE id = ?", (total_wh, m["usuario_id"]))
             if entraram:
                 # As mensagens de uma recuperação chegam em segundos: somam no mesmo resumo.
                 r = json.loads(m["ultima_recuperacao"]) if m["ultima_recuperacao"] else None

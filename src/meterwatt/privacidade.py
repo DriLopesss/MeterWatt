@@ -75,6 +75,8 @@ EVENTOS = {
     "casa_saiu": "Você deixou de ver a casa de outra pessoa",
     "casa_acesso_perdido": "A dona de uma casa tirou o seu acesso",
     "casa_convidado_saiu": "Uma pessoa deixou de ver a sua casa",
+    "integracao_criada": "Chave de integração criada (Home Assistant)",
+    "integracao_cancelada": "Chave de integração cancelada",
     "codigo_pareamento": "Código de pareamento gerado",
     "medidor_pareado": "Medidor pareado",
     "pareamento_recusado": "Pareamento recusado: o medidor já pertence a outra conta",
@@ -197,6 +199,8 @@ class Privacidade:
             "plano_de_economia": self.p.economia.exportar(conn, uid),
             "contas_de_luz": self.p.contas_luz.exportar(conn, uid),
             "compartilhamento": self.p.compartilhar.exportar(conn, uid),
+            "chaves_de_integracao": self.p.integracao.exportar(conn, uid),
+            "energia_total_kwh": round((conn.execute("SELECT energia_total_wh FROM usuarios WHERE id = ?", (uid,)).fetchone()[0] or 0) / 1000, 3),
             # Só o aparelho e as datas: o endereço e as chaves de notificação são segredos que só servem para
             # entregar mensagens naquele aparelho e não contam nada sobre você.
             "aparelhos_com_notificacoes": self.p.notificacoes.exportar(conn, uid),
@@ -269,6 +273,7 @@ class Privacidade:
                 conn.execute("UPDATE medidores SET contador_wh = NULL, potencia_anterior = NULL, fases = NULL, contadores_fases = NULL, "
                              "ultima_recuperacao = NULL WHERE id = ?", (mid,))
             self.p.detetive.apagar_tudo(conn, uid)
+            conn.execute("UPDATE usuarios SET energia_total_wh = 0 WHERE id = ?", (uid,))
             conn.execute("DELETE FROM avisos WHERE usuario_id = ?", (uid,))     # os avisos citam valores de consumo
             self.p.economia.apagar(conn, uid)                                  # o plano guarda hábitos (banhos, horas de uso)
             self.p.contas_luz.apagar_tudo(conn, uid)                           # as contas guardam o consumo medido de cada período

@@ -507,6 +507,28 @@ def criar_app(plataforma):
     def economia():
         return ok(plataforma.economia.estado(g.sessao))
 
+    @app.get("/api/integracao")
+    @exige_sessao()
+    def integracao_lista():
+        return ok(plataforma.integracao.listar(g.sessao))
+
+    @app.post("/api/integracao")
+    @exige_sessao()
+    def integracao_criar():
+        return ok(plataforma.integracao.criar(g.sessao, corpo(), ip()), 201)
+
+    @app.delete("/api/integracao/<int:cid>")
+    @exige_sessao()
+    def integracao_cancelar(cid):
+        return ok(plataforma.integracao.cancelar(g.sessao, cid, ip()))
+
+    @app.get("/api/integracao/estado")
+    def integracao_estado():
+        # Sem cookie nem CSRF: quem chama é o Home Assistant, com a chave no cabeçalho. Só leitura.
+        resposta, status = ok(plataforma.integracao.estado(request.headers.get("Authorization")))
+        resposta.headers["Cache-Control"] = "no-store"
+        return resposta, status
+
     @app.get("/api/casa")
     @exige_sessao()
     def casa_estado():

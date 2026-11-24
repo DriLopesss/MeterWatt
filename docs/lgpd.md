@@ -108,6 +108,11 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - Faltas de energia também revelam um pouco da rotina (ou da ausência) da casa, como o consumo. Quem vê a casa compartilhada (bloco 13) não vê este bloco: ele fica em Medidores, fora da lista de leituras compartilhadas.
 - Avisos novos: **Falta de energia** e **Tensão fora da faixa**, na mesma base dos outros avisos.
 
+## O que entrou no bloco 17 (Home Assistant)
+- **Chaves de integração**: nome, quando foi criada e o último uso (anotado no máximo a cada 5 minutos). A chave em si não é guardada, só o hash. Criar e cancelar vão para a atividade; a cópia dos dados lista as chaves (sem o hash). Saem ao excluir a conta.
+- **Total de energia** da conta (um número que só cresce): sai ao apagar o consumo e vai na cópia dos dados.
+- Quem cria a chave decide entregar esses números (potência, consumo, custo do dia, tensão) ao Home Assistant dele. Daí em diante, o tratamento é dele, no sistema dele.
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).

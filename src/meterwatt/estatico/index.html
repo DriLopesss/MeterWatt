@@ -477,6 +477,27 @@
       </article>
     </section>
 
+    <section data-rota="integracao" class="integracao" hidden>
+      <h1>Home Assistant</h1>
+      <article class="bloco">
+        <h2>Chaves de integração</h2>
+        <p class="texto">Com uma chave, o Home Assistant lê a potência de agora, o consumo e o custo de hoje, a tensão e o total de energia da casa, para usar em automações e no painel de Energia dele. A chave só lê: não muda nada na conta e não vê o Detetive, a economia, os avisos nem os seus dados. Cancele quando quiser.</p>
+        <ul class="cp-lista" id="ha-chaves"></ul>
+        <form id="form-ha" class="linha-form" novalidate>
+          <label>Nome da chave<input name="nome" maxlength="40" required placeholder="Home Assistant da sala" autocomplete="off"></label>
+          <button class="secundario" type="submit">Criar chave</button>
+          <p class="erro" role="alert"></p>
+        </form>
+      </article>
+      <article class="bloco ha-nova" id="ha-nova" hidden>
+        <h2>Copie agora: a chave não aparece de novo</h2>
+        <p class="texto">No Home Assistant, cole isto no <code>configuration.yaml</code> (ou guarde a linha da chave no <code>secrets.yaml</code>) e reinicie. Aparecem quatro sensores; o de energia entra no painel de Energia, em "Consumo da rede".</p>
+        <pre class="ha-yaml" id="ha-yaml"></pre>
+        <div class="botoes"><button type="button" class="primario" id="ha-copiar">Copiar</button></div>
+        <p class="dica">O Home Assistant busca os números a cada 30 segundos. O total de energia só cresce: ele volta a zero só se você apagar o consumo em Privacidade (aí o Home Assistant entende como um medidor novo).</p>
+      </article>
+    </section>
+
     <section data-rota="avisos" hidden>
       <h1>Avisos</h1>
       <article class="bloco">
@@ -613,6 +634,7 @@
       <nav class="lista-conta" aria-label="Conta">
         <button type="button" id="conta-instalar" hidden><span>Instalar o app</span><span class="lista-conta-extra">ícone e tela cheia</span></button>
         <a href="#compartilhar"><span>Compartilhar a casa</span><span class="lista-conta-extra" id="conta-compartilhar">alguém da família vê o painel</span></a>
+        <a href="#integracao"><span>Home Assistant</span><span class="lista-conta-extra">o consumo na sua automação</span></a>
         <a href="#avisos"><span>Avisos e notificações</span><span class="lista-conta-extra" id="conta-avisos"></span></a>
         <a href="#plano" id="conta-plano"><span>Plano</span><span class="lista-conta-extra" id="conta-plano-atual"></span></a>
         <a href="#seguranca"><span>Segurança</span><span class="lista-conta-extra">senha e verificação em duas etapas</span></a>

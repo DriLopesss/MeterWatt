@@ -52,6 +52,7 @@ class Plataforma:
         from .relatorios import Relatorios
         from .compartilhar import Compartilhar
         from .qualidade import Qualidade
+        from .integracao import Integracao
         from .medidores import Medidores
         from .notificacoes import Notificacoes
         from .pagamentos import Pagamentos
@@ -70,6 +71,7 @@ class Plataforma:
         self.relatorios = Relatorios(self)
         self.compartilhar = Compartilhar(self)
         self.qualidade = Qualidade(self)
+        self.integracao = Integracao(self)
         self.notificacoes = Notificacoes(self)
 
     # ------------------------------------------------------------ tempo
