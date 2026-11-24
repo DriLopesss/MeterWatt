@@ -11,6 +11,7 @@ Uso (com o broker e o backend já rodando):
     python tools/simulador_pzem.py --tensao 220 --acelerar 20 --falhas
 
 Usa as mesmas variáveis do backend: MQTT_HOST, MQTT_PORTA, MQTT_USUARIO, MQTT_SENHA.
+Com MQTT_TLS=1, conecta criptografado como o firmware 3.3; MQTT_CA aponta outra autoridade (só no ensaio local).
 """
 import argparse
 import json
@@ -133,7 +134,7 @@ def main():
         elif os.getenv("MQTT_USUARIO"):
             c.username_pw_set(os.getenv("MQTT_USUARIO"), os.getenv("MQTT_SENHA"))
         if os.getenv("MQTT_TLS", "").lower() in ("1", "sim", "true"):
-            c.tls_set()
+            c.tls_set(ca_certs=os.getenv("MQTT_CA") or None)   # MQTT_CA: autoridade própria (ensaio local)
         c.will_set(f"{base}/status", "offline", retain=True)
         c.on_message = ao_receber
         c.on_connect = lambda cl, _u, _f, codigo, _p=None: (

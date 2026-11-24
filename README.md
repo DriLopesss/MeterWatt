@@ -219,6 +219,7 @@ Em desenvolvimento os e-mails (confirmação, senha) ficam em `src/instancia/cai
 - **Backup cifrado**: `python -m meterwatt --backup` e `--restaurar ARQUIVO`.
 - Produção: veja [`docs/implantacao.md`](docs/implantacao.md) (Docker) e `infra/`.
 - Testes: `python -m pytest tests -q` (com `pip install pytest pillow`) e `node tests/web/teste_economia.js`.
+- Ensaio geral sem placa: `python tools/ensaio_completo.py` sobe um Mosquitto com dynamic-security e a porta 8883 criptografada, o aplicativo com `python -m meterwatt` e dois medidores simulados, e confere o caminho inteiro (pareamento, senha própria, painel, circuito, permissões no broker, medidor que cai, remoção, cópia dos dados e backup). Roda também no GitHub a cada PR. Precisa do Mosquitto 2 (Linux, macOS ou WSL).
 - Demonstração em um arquivo só, com uma casa inventada: `python tools/gerar_demo.py` (abre com dois cliques, nada sai do navegador).
 
 ## 🏆 Reconhecimento
