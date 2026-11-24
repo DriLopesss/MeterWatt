@@ -80,8 +80,8 @@
     dentro: true, tarifa: 0.92, meta: 180, plano: "gratis", assinatura: null, avisosLidos: false,
     medidores: [{ id: "mw-DEMO0001", apelido: "Casa", pareado: MEDIDOR_DESDE }],
     aceites: { termos: true, privacidade: true, consumo: true, historico_longo: false, aparelhos: true, novidades: false },
-    porEmail: { medidor_offline: true, meta: true, consumo_incomum: true, resumo_semanal: true },
-    porPush: { medidor_offline: true, meta: true, consumo_incomum: true, resumo_semanal: true },
+    porEmail: { medidor_offline: true, meta: true, consumo_incomum: true, resumo_semanal: true, resumo_mensal: true },
+    porPush: { medidor_offline: true, meta: true, consumo_incomum: true, resumo_semanal: true, resumo_mensal: true },
     pareando: null, ocultos: new Set(),
     atividade: [["Entrada na conta", 0.02], ["Tarifa ou meta alteradas", 2.1],
       ["Plano de economia alterado", 7, "Cortar o consumo em espera: no plano"], ["Plano de economia alterado", 7.001, "Banho mais curto: no plano"],
@@ -112,6 +112,7 @@
     meta: ["Meta do mês", "Quando a previsão da conta passa de 90% da meta e quando passa da meta."],
     consumo_incomum: ["Consumo fora do normal", "Quando uma hora gasta mais que o dobro do normal da casa para aquele horário."],
     resumo_semanal: ["Resumo da semana", "Toda segunda-feira: quanto a casa gastou, a comparação com a semana anterior e o consumo fantasma."],
+    resumo_mensal: ["Resumo do mês", "No dia 1º: quanto a casa gastou no mês que passou, a comparação com o anterior e o relatório completo."],
   };
   const RETENCAO = { leituras_detalhadas_horas: 48, consumo_5_minutos_dias: 90, consumo_5_minutos_dias_com_historico_longo: 730,
     atividade_da_conta_dias: 180, conta_nao_confirmada_dias: 7, backup_copias: 14 };
@@ -329,6 +330,62 @@
     E.contasLuz.push(c);
     E.atividade.unshift(["Conta de luz guardada para conferir", 0, `${c.inicio} a ${c.fim}`]);
     return [201, resumoConta(c)];
+  }
+
+  // Relatório do mês: os dias da casa inventada (o medidor chegou há 21 dias).
+  const MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  function relatoriosDisponiveis() {
+    const meses = [], hoje = new Date(agora() * 1000);
+    for (let d = new Date(MEDIDOR_DESDE * 1000); ; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      meses.push({ mes: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, nome: `${MESES_PT[d.getMonth()]} de ${d.getFullYear()}` });
+      if (d.getFullYear() === hoje.getFullYear() && d.getMonth() === hoje.getMonth()) break;
+    }
+    return { meses: meses.reverse(), atual: diaLocal(agora()).slice(0, 7) };
+  }
+  function relatorioDoMes(mes) {
+    if (!/^\d{4}-\d{2}$/.test(mes)) return [400, { erro: "O mês vai no formato AAAA-MM, como 2026-11.", codigo: null }];
+    const [ano, m] = mes.split("-").map(Number);
+    const hoje0 = inicioDoDia(agora()), primeiro = new Date(ano, m - 1, 1).getTime() / 1000;
+    if (primeiro > hoje0) return [400, { erro: "Esse mês ainda não começou.", codigo: null }];
+    const diasNoMes = new Date(ano, m, 0).getDate(), tarifa = E.tarifa;
+    const cor = BANDEIRAS_2026[mes] || null, extra = VALOR_BANDEIRA[cor] || 0;
+    const dias = [];
+    for (let i = 0; i < diasNoMes; i++) {
+      const d0 = inicioDoDia(primeiro + i * DIA + 3600);
+      if (d0 > hoje0) break;
+      const inteiro = d0 > inicioDoDia(MEDIDOR_DESDE) && d0 < hoje0;
+      const kwh = d0 === hoje0 ? kwhHoje() : d0 === inicioDoDia(MEDIDOR_DESDE) ? whEntre(MEDIDOR_DESDE, d0 + DIA) / 1000 : kwhMedido(d0);
+      dias.push({ dia: diaLocal(d0), dia_da_semana: diaDaSemana(d0), kwh: r2(kwh, 3), custo: tarifa == null ? null : r2(kwh * tarifa), inteiro, d0 });
+    }
+    const bons = dias.filter((d) => d.inteiro);
+    const total = dias.reduce((s, d) => s + d.kwh, 0);
+    const media = (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null);
+    const r = { mes, nome: `${MESES_PT[m - 1]} de ${ano}`, parcial: dias.length < diasNoMes || dias[dias.length - 1].d0 === hoje0, tarifa_kwh: tarifa,
+      dias_no_mes: diasNoMes, dias_medidos: bons.length, kwh: r2(total), custo: tarifa == null ? null : r2(total * tarifa + total * extra / 100),
+      bandeira: cor ? { mes, cor, nome: NOME_BANDEIRA[cor], informada: true, reais_por_100_kwh: extra } : null,
+      dias: dias.map(({ d0, ...d }) => d), media_dia: null, mais_caro: null, mais_barato: null, semana: null, horas: null, pico: null,
+      anterior: null, fantasma: null, aparelhos: [] };
+    if (bons.length) {
+      const ord = [...bons].sort((a, b) => b.kwh - a.kwh);
+      r.media_dia = r2(media(bons.map((d) => d.kwh)));
+      r.mais_caro = { dia: ord[0].dia, kwh: r2(ord[0].kwh) };
+      r.mais_barato = { dia: ord[ord.length - 1].dia, kwh: r2(ord[ord.length - 1].kwh) };
+      const u = bons.filter((d) => d.dia_da_semana < 5).map((d) => d.kwh), f = bons.filter((d) => d.dia_da_semana >= 5).map((d) => d.kwh);
+      r.semana = { dia_util: u.length ? r2(media(u)) : null, fim_de_semana: f.length ? r2(media(f)) : null };
+      r.horas = Array.from({ length: 24 }, (_, h) => r2(media(bons.map((d) => kwhDaHora(d.d0, h))), 3));
+      const pico = r.horas.indexOf(Math.max(...r.horas));
+      r.pico = { hora: pico, kwh: r.horas[pico] };
+      const kwhBase = FANTASMA_W * 24 * bons.length / 1000;
+      r.fantasma = { watts: FANTASMA_W, kwh: r1(kwhBase), fatia: Math.round(kwhBase / bons.reduce((s, d) => s + d.kwh, 0) * 1000) / 1000 };
+      if (E.aceites.aparelhos) {
+        r.aparelhos = APARELHOS.filter((a) => !E.ocultos.has(a.id)).map((a) => {
+          const vezes = (a.ciclo ? Math.round(1440 / (a.ciclo[0] + a.ciclo[1])) : a.janelas.length) * bons.length;
+          const kwh = a.potencia * minutosPorDia(a) / 60 / 1000 * bons.length;
+          return { nome: nomeAparelho(a), palpite: a.nome ? null : PALPITES[a.id], kwh: r1(kwh), vezes, custo: tarifa == null ? null : r2(kwh * tarifa) };
+        }).sort((a, b) => b.kwh - a.kwh).slice(0, 5);
+      }
+    }
+    return [200, r];
   }
 
   function salvarTarifaBranca(corpo) {
@@ -691,6 +748,8 @@
     if (chave === "GET /economia") return [200, estadoEconomia()];
     if (chave === "GET /economia/tarifa-branca") return [200, tarifaBranca()];
     if (chave === "GET /contas-de-luz") return [200, contasLuz()];
+    if (chave === "GET /relatorios") return [200, relatoriosDisponiveis()];
+    if (metodo === "GET" && partes[0] === "relatorios" && partes.length === 2) return relatorioDoMes(partes[1]);
     if (chave === "POST /contas-de-luz") return adicionarContaLuz(corpo || {});
     if (partes[0] === "contas-de-luz" && partes[1]) {
       contasLuz();

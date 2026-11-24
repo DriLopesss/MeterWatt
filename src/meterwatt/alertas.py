@@ -11,7 +11,7 @@ Para enviar por outro canal (WhatsApp, por exemplo), o ponto de entrada é `_ent
 """
 import logging
 import statistics
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .erros import ErroDeNegocio
 
@@ -31,6 +31,10 @@ TIPOS = {
     "resumo_semanal": {
         "nome": "Resumo da semana",
         "descricao": "Toda segunda-feira: quanto a casa gastou, a comparação com a semana anterior e o consumo fantasma.",
+    },
+    "resumo_mensal": {
+        "nome": "Resumo do mês",
+        "descricao": "No dia 1º: quanto a casa gastou no mês que passou, a comparação com o anterior e o relatório completo.",
     },
 }
 log = logging.getLogger("meterwatt.alertas")
@@ -66,8 +70,8 @@ class Alertas:
     def _por_email(self, conn, uid, tipo):
         return self._canais(conn, uid, tipo)["por_email"]
 
-    def criar(self, uid, tipo, chave, titulo, texto):
-        """Grava o aviso (uma vez por chave) e entrega. Devolve True se era novo."""
+    def criar(self, uid, tipo, chave, titulo, texto, url=None):
+        """Grava o aviso (uma vez por chave) e entrega. Devolve True se era novo. `url`: a tela que o aviso abre."""
         conn = self.p.db()
         with conn:
             novo = conn.execute(
@@ -76,21 +80,21 @@ class Alertas:
         if novo:
             # Na bandeja do celular, o aviso novo substitui o anterior do mesmo assunto (o mesmo medidor, a meta…).
             tag = f"offline-{chave.split(':')[1]}" if tipo == "medidor_offline" else tipo
-            self._entregar(conn, uid, tipo, titulo, texto, tag)
+            self._entregar(conn, uid, tipo, titulo, texto, tag, url)
         return novo
 
-    def _entregar(self, conn, uid, tipo, titulo, texto, tag=None):
+    def _entregar(self, conn, uid, tipo, titulo, texto, tag=None, url=None):
         canais = self._canais(conn, uid, tipo)
         if canais["por_push"]:
             try:
-                self.p.notificacoes.entregar(uid, tipo, titulo, texto, tag)
+                self.p.notificacoes.entregar(uid, tipo, titulo, texto, tag, url)
             except Exception:   # notificação que falha não impede o e-mail
                 log.exception("Falha ao mandar a notificação do aviso %s", tipo)
         if not canais["por_email"]:
             return
         u = conn.execute("SELECT nome, email FROM usuarios WHERE id = ?", (uid,)).fetchone()
         self.p.enviar_email(u["email"], f"MeterWatt: {titulo}", (
-            f"Olá, {u['nome']}.\n\n{texto}\n\nPara ver os detalhes: {self.p.cfg.url_publica}/#painel\n"
+            f"Olá, {u['nome']}.\n\n{texto}\n\nPara ver os detalhes: {self.p.cfg.url_publica}{url or '/#painel'}\n"
             f"Para parar de receber este aviso por e-mail: {self.p.cfg.url_publica}/#avisos\n\nEquipe MeterWatt\n"))
 
     # ------------------------------------------------------------ verificação periódica
@@ -103,7 +107,7 @@ class Alertas:
         for uid in usuarios:
             if not self.p.consentimento(conn, uid, "consumo"):
                 continue
-            for regra in (self._offline, self._meta, self._incomum, self._resumo):
+            for regra in (self._offline, self._meta, self._incomum, self._resumo, self._resumo_mensal):
                 try:
                     criados += regra(conn, uid)
                 except Exception:   # uma regra com problema não cala as outras
@@ -177,6 +181,31 @@ class Alertas:
         maior = conn.execute(f"SELECT MAX(n) FROM (SELECT COUNT(*) AS n FROM consumo_5min WHERE medidor_id IN ({marcadores}) "
                              "AND inicio >= ? AND inicio < ? GROUP BY medidor_id)", (*ids, inicio, fim)).fetchone()[0] or 0
         return maior / max(1, (fim - inicio) / 300)
+
+    def _resumo_mensal(self, conn, uid):
+        """No dia 1º, a partir das 8h: o mês que passou, com o link do relatório."""
+        local = datetime.fromtimestamp(self.p.agora(), self.p.cfg.zona)
+        if local.day != 1 or local.hour < HORA_DO_RESUMO:
+            return 0
+        anterior = (local.date() - timedelta(days=1)).strftime("%Y-%m")
+        r = self.p.relatorios.mes({"usuario_id": uid}, anterior)
+        if r["kwh"] <= 0:
+            return 0
+        nome = r["nome"].split(" de ")[0]
+        frases = [f"Em {nome}, a casa gastou {_n(r['kwh'])} kWh" + (f", cerca de {_reais(r['custo'])}." if r["custo"] is not None else ".")]
+        if r["media_dia"] is not None:
+            frases.append(f"Média de {_n(r['media_dia'], 1)} kWh por dia medido.")
+        if r["anterior"] and r["anterior"]["variacao"] is not None:
+            v = r["anterior"]["variacao"] * 100
+            frases.append("Praticamente igual ao mês anterior." if abs(v) < 3 else
+                          f"Isso é {_n(abs(v), 0)}% {'a mais' if v > 0 else 'a menos'} por dia que em {r['anterior']['nome'].split(' de ')[0]}.")
+        if r["mais_caro"]:
+            dia = r["mais_caro"]["dia"]
+            frases.append(f"O dia que mais gastou foi {dia[8:]}/{dia[5:7]}, com {_n(r['mais_caro']['kwh'], 1)} kWh.")
+        if r["dias_medidos"] < r["dias_no_mes"] - 1:
+            frases.append(f"O medidor mediu {r['dias_medidos']} dos {r['dias_no_mes']} dias por inteiro.")
+        frases.append("O relatório completo, para imprimir ou baixar, está no app.")
+        return self.criar(uid, "resumo_mensal", f"mensal:{anterior}", f"Resumo de {nome}", " ".join(frases), url=f"/#relatorio/{anterior}")
 
     def _resumo(self, conn, uid):
         zona = self.p.cfg.zona

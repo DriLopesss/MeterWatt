@@ -385,6 +385,42 @@
       `${pct("fora")} fora de ponta. A tabela abaixo tem os totais.`);
   }
 
+  /* ------------------------------------------------------------ relatório: dia a dia */
+
+  function desenharDiasDoMes(caixa, r) {
+    const W = largura(caixa), H = 190;
+    const m = { e: 40, d: 4, t: 22, b: 22 };
+    const pw = W - m.e - m.d, ph = H - m.t - m.b;
+    const n = r.dias_no_mes;
+    const max = teto(Math.max(0.5, ...r.dias.map((d) => d.kwh)));
+    const y = (v) => m.t + ph - (v / max) * ph;
+    const slot = pw / n, bw = Math.max(3, Math.min(18, slot - 3));
+    const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, "aria-hidden": "true" });
+    for (let i = 0; i <= 2; i++) {
+      const v = (max / 2) * i;
+      const casas = [0, 1, 2].find((c) => Math.abs(v * 10 ** c - Math.round(v * 10 ** c)) < 1e-9) ?? 2;
+      svg.append(s("line", { x1: m.e, x2: W - m.d, y1: y(v), y2: y(v), class: "grade" }),
+        s("text", { x: m.e - 6, y: y(v) + 4, class: "eixo", "text-anchor": "end" }, num(v, casas)));
+    }
+    svg.append(s("text", { x: m.e - 6, y: 10, class: "eixo", "text-anchor": "end" }, "kWh"));
+    if (r.media_dia != null) {
+      svg.append(s("line", { x1: m.e, x2: W - m.d, y1: y(r.media_dia), y2: y(r.media_dia), class: "rel-media", stroke: COR.normal }));
+    }
+    r.dias.forEach((d, i) => {
+      if (d.kwh <= 0) return;
+      const x = m.e + i * slot + (slot - bw) / 2;
+      const titulo = s("title", {}, `${d.dia.slice(8, 10)}/${d.dia.slice(5, 7)}: ${kwh(d.kwh)}${d.custo != null ? ` (${reais(d.custo)})` : ""}${d.inteiro ? "" : ", medição incompleta"}`);
+      svg.append(s("path", { d: colunaPath(x, y(d.kwh), bw, m.t + ph - y(d.kwh), Math.min(4, bw / 2)),
+        fill: d.inteiro ? COR.energia : "none", stroke: d.inteiro ? null : COR.energia, "stroke-width": d.inteiro ? null : 1.5,
+        class: d.inteiro ? null : "rel-incompleto" }, titulo));
+    });
+    // Dias no eixo: 1, 8, 15, 22, 29 (cabem no celular).
+    [1, 8, 15, 22, 29].filter((dia) => dia <= n).forEach((dia) => svg.append(s("text", { x: m.e + (dia - 0.5) * slot, y: H - 6,
+      class: "eixo", "text-anchor": "middle" }, String(dia))));
+    caixa.replaceChildren(svg);
+    caixa.setAttribute("aria-label", `Consumo por dia em ${r.nome}${r.media_dia != null ? `, média de ${num(r.media_dia, 1)} kWh por dia` : ""}. A tabela abaixo tem cada dia.`);
+  }
+
   /* ------------------------------------------------------------ a casa em 3D */
 
   // A cor acompanha a carga: ciano perto do que a casa gasta parada, âmbar no meio, magenta perto dos picos.
@@ -537,5 +573,5 @@
     }
   }
 
-  window.MWGraficos = { desenharFluxo, criarPerfil, CasaEm3D, desenharTarifaBranca, COR_POSTO, horaCurta };
+  window.MWGraficos = { desenharFluxo, criarPerfil, CasaEm3D, desenharTarifaBranca, COR_POSTO, horaCurta, desenharDiasDoMes };
 })();
