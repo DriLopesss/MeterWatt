@@ -80,8 +80,8 @@
     dentro: true, tarifa: 0.92, meta: 180, plano: "gratis", assinatura: null, avisosLidos: false,
     medidores: [{ id: "mw-DEMO0001", apelido: "Casa", pareado: MEDIDOR_DESDE }],
     aceites: { termos: true, privacidade: true, consumo: true, historico_longo: false, aparelhos: true, novidades: false },
-    porEmail: { medidor_offline: true, meta: true, consumo_incomum: true, resumo_semanal: true, resumo_mensal: true },
-    porPush: { medidor_offline: true, meta: true, consumo_incomum: true, resumo_semanal: true, resumo_mensal: true },
+    porEmail: { medidor_offline: true, fase: true, meta: true, consumo_incomum: true, resumo_semanal: true, resumo_mensal: true },
+    porPush: { medidor_offline: true, fase: true, meta: true, consumo_incomum: true, resumo_semanal: true, resumo_mensal: true },
     pareando: null, ocultos: new Set(),
     atividade: [["Entrada na conta", 0.02], ["Tarifa ou meta alteradas", 2.1],
       ["Plano de economia alterado", 7, "Cortar o consumo em espera: no plano"], ["Plano de economia alterado", 7.001, "Banho mais curto: no plano"],
@@ -110,6 +110,7 @@
   };
   const TIPOS_DE_AVISO = {
     medidor_offline: ["Medidor sem sinal", "Quando um medidor fica mais de 30 minutos sem enviar leituras."],
+    fase: ["Fase sem resposta", "Em casa com duas ou três fases: quando o sensor de uma fase para de responder e as outras continuam."],
     meta: ["Meta do mês", "Quando a previsão da conta passa de 90% da meta e quando passa da meta."],
     consumo_incomum: ["Consumo fora do normal", "Quando uma hora gasta mais que o dobro do normal da casa para aquele horário."],
     resumo_semanal: ["Resumo da semana", "Toda segunda-feira: quanto a casa gastou, a comparação com a semana anterior e o consumo fantasma."],
@@ -134,11 +135,21 @@
       const w = vivo ? Math.round((m.cozinha ? wattsCozinha(t) : watts(t)) * 10) / 10 : null;
       const v = 127 + Math.sin(t / 900) * 1.5;
       const kwh = m.parado ? 0 : m.cozinha ? whEntre(Math.max(m.pareado, inicioDoDia(t)), t, wattsCozinha) / 1000 : kwhHoje();
-      return { id: m.id, apelido: m.apelido, tipo: m.parado ? null : "pzem", fw: "3.3.0", pareado_em: iso(m.pareado), online: vivo,
+      // A casa da demonstração é bifásica: o medidor da entrada tem um PZEM por fase (firmware 3.4).
+      const bifasico = vivo && !m.cozinha;
+      const v2 = 127.6 + Math.cos(t / 1100) * 1.2;
+      const p1 = bifasico ? Math.round(w * 0.58 * 10) / 10 : null;
+      const fases = bifasico ? [
+        { fase: 1, ok: true, tensao_v: Math.round(v * 10) / 10, corrente_a: Math.round(p1 / v / 0.93 * 1000) / 1000, potencia_w: p1, fp: 0.93 },
+        { fase: 2, ok: true, tensao_v: Math.round(v2 * 10) / 10, corrente_a: Math.round((w - p1) / v2 / 0.95 * 1000) / 1000,
+          potencia_w: Math.round((w - p1) * 10) / 10, fp: 0.95 }] : null;
+      return { id: m.id, apelido: m.apelido, tipo: m.parado ? null : "pzem", fw: m.cozinha ? "3.3.0" : "3.4.0", pareado_em: iso(m.pareado), online: vivo,
+        fases, fases_esperadas: (m.papel || "casa") === "casa" ? { monofasica: 1, bifasica: 2, trifasica: 3 }[E.ligacao] || null : null,
         papel: m.papel || "casa", dentro_de: m.dentro || null,
         segundos_desde_mensagem: vivo ? 0.6 : (m.parado ? null : 120), sensor_ok: vivo ? true : null, erro_sensor: null, simulado: true,
-        unidade: "W", energia_estimada: false, tensao_v: vivo ? Math.round(v * 10) / 10 : null,
-        corrente_a: vivo ? Math.round(w / v / 0.94 * 1000) / 1000 : null, potencia: w, fp: vivo ? 0.94 : null, frequencia_hz: vivo ? 60 : null,
+        unidade: "W", energia_estimada: false,
+        tensao_v: !vivo ? null : fases ? Math.round((fases[0].tensao_v + fases[1].tensao_v) / 2 * 10) / 10 : Math.round(v * 10) / 10,
+        corrente_a: !vivo ? null : fases ? Math.round((fases[0].corrente_a + fases[1].corrente_a) * 1000) / 1000 : Math.round(w / v / 0.94 * 1000) / 1000, potencia: w, fp: vivo ? 0.94 : null, frequencia_hz: vivo ? 60 : null,
         rssi: -58, kwh_hoje: Math.round(kwh * 10000) / 10000, custo_hoje: E.tarifa == null ? null : Math.round(kwh * E.tarifa * 100) / 100,
         custo_por_hora: vivo && E.tarifa != null ? Math.round(w / 1000 * E.tarifa * 100) / 100 : null };
     }) };

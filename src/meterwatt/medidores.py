@@ -39,6 +39,36 @@ def numero(dados, chave, minimo, maximo):
     return valor
 
 
+FASES_POR_LIGACAO = {"monofasica": 1, "bifasica": 2, "trifasica": 3}
+
+
+def ler_fases(dados, anteriores, agora):
+    """A lista "fases" da telemetria (de 2 a 3 fases), conferida. Devolve None se não veio ou veio estranha
+    (aí vale a leitura de cima, como num medidor de uma fase). Cada fase: ok com os números, ou o erro e
+    desde quando ela está sem resposta (para o aviso de fase)."""
+    lista = dados.get("fases")
+    if not isinstance(lista, list) or not 2 <= len(lista) <= 3:
+        return None
+    antes = {f.get("fase"): f for f in (anteriores or []) if isinstance(f, dict)}
+    saida, vistas = [], set()
+    for item in lista:
+        if not isinstance(item, dict):
+            return None
+        fase = item.get("fase")
+        if isinstance(fase, bool) or not isinstance(fase, int) or not 1 <= fase <= 3 or fase in vistas:
+            return None
+        vistas.add(fase)
+        tensao, corrente, potencia = numero(item, "tensao_v", 0, 300), numero(item, "corrente_a", 0, 120), numero(item, "potencia_w", 0, 30000)
+        if item.get("ok") is True and None not in (tensao, corrente, potencia):
+            saida.append({"fase": fase, "ok": True, "tensao_v": tensao, "corrente_a": corrente, "potencia_w": potencia,
+                          "fp": numero(item, "fp", 0, 1), "energia_wh": numero(item, "energia_wh", 0, 1e10)})
+        else:
+            anterior = antes.get(fase)
+            desde = anterior["desde"] if anterior and not anterior.get("ok") and isinstance(anterior.get("desde"), (int, float)) else agora
+            saida.append({"fase": fase, "ok": False, "erro": texto_simples(item.get("erro")) or "desconhecido", "desde": desde})
+    return sorted(saida, key=lambda f: f["fase"])
+
+
 def texto_simples(valor):
     return valor if isinstance(valor, str) and TEXTO_SIMPLES.match(valor) else None
 
@@ -204,14 +234,17 @@ class Medidores:
         simulado = 1 if dados.get("simulado") is True else 0
         rssi = numero(dados, "rssi", -130, 0)
         fw = texto_simples(dados.get("fw")) or m["fw"]
+        fases = ler_fases(dados, json.loads(m["fases"]) if m["fases"] else None, agora)
+        lidas = [f for f in fases if f["ok"]] if fases else []
+        guardar_fases = json.dumps([{k: v for k, v in f.items() if k != "energia_wh"} for f in fases]) if fases else None
 
-        if dados.get("sensor_ok") is False:
+        if dados.get("sensor_ok") is False or (fases and not lidas):
             with conn:
                 conn.execute("INSERT INTO leituras (medidor_id, instante, sensor_ok, erro_sensor, rssi, simulado) "
                              "VALUES (?, ?, 0, ?, ?, ?)", (mid, agora, texto_simples(dados.get("erro_sensor")) or "desconhecido",
                                                           rssi, simulado))
                 conn.execute("UPDATE medidores SET ultima_mensagem = ?, ultima_gravacao = ?, status_mqtt = 'online', fw = ?, "
-                             "potencia_anterior = NULL WHERE id = ?", (agora, agora, fw, mid))
+                             "potencia_anterior = NULL, fases = ? WHERE id = ?", (agora, agora, fw, guardar_fases, mid))
             return "sensor_sem_leitura"
 
         tensao = numero(dados, "tensao_v", 0, 300)
@@ -221,7 +254,27 @@ class Medidores:
             corrente = numero(dados, "irms_a", 0, 120)
         wh = 0.0
         contador = m["contador_wh"]
-        if tensao is not None and potencia is not None and corrente is not None:
+        contadores = json.loads(m["contadores_fases"]) if m["contadores_fases"] else {}
+        if lidas:
+            # Várias fases: o total sai das fases lidas, e a energia é contada fase a fase. Uma fase que ficou
+            # sem resposta guarda o último contador; quando volta, o que ela mediu no intervalo entra junto.
+            tipo = "pzem"
+            potencia = sum(f["potencia_w"] for f in lidas)
+            corrente = sum(f["corrente_a"] for f in lidas)
+            tensao = sum(f["tensao_v"] for f in lidas) / len(lidas)
+            va = round(sum(f["tensao_v"] * f["corrente_a"] for f in lidas), 1)
+            fp = min(1.0, potencia / va) if va > 0 else None
+            freq = numero(dados, "frequencia_hz", 40, 70)
+            valor = potencia
+            for f in lidas:
+                novo, chave = f["energia_wh"], str(f["fase"])
+                if novo is None:
+                    continue
+                anterior = contadores.get(chave)
+                if anterior is not None and anterior <= novo <= anterior + 30000:
+                    wh += novo - anterior
+                contadores[chave] = novo
+        elif tensao is not None and potencia is not None and corrente is not None:
             tipo, valor = "pzem", potencia
             va = round(tensao * corrente, 1)
             fp, freq = numero(dados, "fp", 0, 1), numero(dados, "frequencia_hz", 40, 70)
@@ -254,8 +307,9 @@ class Medidores:
                 "simulado = MAX(simulado, excluded.simulado)",
                 (mid, balde, valor, valor, valor, wh, simulado))
             conn.execute("UPDATE medidores SET ultima_mensagem = ?, ultima_gravacao = ?, status_mqtt = 'online', tipo = ?, fw = ?, "
-                         "contador_wh = ?, potencia_anterior = ? WHERE id = ?",
-                         (agora, agora, tipo, fw, contador, valor if tipo == "corrente" else None, mid))
+                         "contador_wh = ?, potencia_anterior = ?, fases = ?, contadores_fases = ? WHERE id = ?",
+                         (agora, agora, tipo, fw, contador, valor if tipo == "corrente" else None, guardar_fases,
+                          json.dumps(contadores) if contadores else None, mid))
         if tipo == "pzem":
             self.p.detetive.observar(conn, mid, m["usuario_id"], agora, potencia)
         return "gravada"
@@ -392,6 +446,10 @@ class Medidores:
                 "kwh_hoje": round(kwh_hoje, 4),
                 "custo_hoje": _reais(kwh_hoje, tarifa),
                 "custo_por_hora": _reais(potencia / 1000, tarifa) if potencia is not None and online else None,
+                # Casa com mais de uma fase: cada uma (só com leitura recente). E quantas a ligação da conta pede,
+                # para a tela avisar quando o medidor de entrada mede menos fases do que a casa tem.
+                "fases": [{k: v for k, v in f.items() if k != "desde"} for f in json.loads(m["fases"])] if atual and m["fases"] else None,
+                "fases_esperadas": FASES_POR_LIGACAO.get(sessao.get("ligacao")) if m["papel"] == "casa" else None,
             })
         return {"medidores": saida, "tarifa_kwh": tarifa, "limite_offline_s": LIMITE_OFFLINE_S,
                 "servidor_em": self.p.iso(agora)}

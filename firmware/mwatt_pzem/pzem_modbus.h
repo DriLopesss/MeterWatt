@@ -12,6 +12,10 @@
  *   0x0007 frequência      0,1 Hz
  *   0x0008 fator de pot.   0,01
  *   0x0009 alarme          0xFFFF = potência acima do limite configurado no módulo
+ *
+ * Trocar o endereço do módulo: função 0x06 (escrever um registrador) no registrador 0x0002,
+ * valor de 0x0001 a 0x00F7. Se deu certo, o módulo devolve o mesmo pedido. O endereço geral 0xF8
+ * só serve com UM módulo na serial: troque o endereço de cada PZEM sozinho, antes de juntar os fios.
  */
 #pragma once
 #include <stddef.h>
@@ -23,10 +27,15 @@ namespace pzem {
 const uint8_t ENDERECO_GERAL = 0xF8;
 const uint8_t FN_LER_MEDIDAS = 0x04;
 const uint8_t FN_ZERAR_ENERGIA = 0x42;
+const uint8_t FN_ESCREVER_REGISTRADOR = 0x06;
+const uint16_t REG_ENDERECO = 0x0002;
+const uint8_t ENDERECO_MINIMO = 0x01;
+const uint8_t ENDERECO_MAXIMO = 0xF7;
 
 const size_t TAM_PEDIDO_LEITURA = 8;
 const size_t TAM_RESPOSTA_LEITURA = 25;
 const size_t TAM_PEDIDO_ZERAR = 4;
+const size_t TAM_PEDIDO_ESCRITA = 8;
 
 struct Medidas {
   float tensao_v;
@@ -96,6 +105,21 @@ inline void montarPedidoZerar(uint8_t endereco, uint8_t saida[TAM_PEDIDO_ZERAR])
   saida[3] = (uint8_t)(crc >> 8);
 }
 
+inline bool enderecoValido(int e) { return e >= ENDERECO_MINIMO && e <= ENDERECO_MAXIMO; }
+
+// Pede ao módulo que está em `enderecoAtual` (use ENDERECO_GERAL com um módulo só) para passar a responder em `novo`.
+inline void montarPedidoEndereco(uint8_t enderecoAtual, uint8_t novo, uint8_t saida[TAM_PEDIDO_ESCRITA]) {
+  saida[0] = enderecoAtual;
+  saida[1] = FN_ESCREVER_REGISTRADOR;
+  saida[2] = (uint8_t)(REG_ENDERECO >> 8);
+  saida[3] = (uint8_t)(REG_ENDERECO & 0xFF);
+  saida[4] = 0x00;
+  saida[5] = novo;
+  uint16_t crc = crc16(saida, 6);
+  saida[6] = (uint8_t)(crc & 0xFF);
+  saida[7] = (uint8_t)(crc >> 8);
+}
+
 inline bool crcConfere(const uint8_t* r, size_t n) {
   if (n < 3) return false;
   uint16_t recebido = (uint16_t)(r[n - 2] | (r[n - 1] << 8));
@@ -104,6 +128,16 @@ inline bool crcConfere(const uint8_t* r, size_t n) {
 
 inline uint16_t palavra(const uint8_t* p) { return (uint16_t)((p[0] << 8) | p[1]); }
 inline uint32_t dupla(const uint8_t* p) { return (uint32_t)palavra(p) | ((uint32_t)palavra(p + 2) << 16); }
+
+// A escrita deu certo quando o módulo devolve o mesmo pedido. O primeiro byte não é conferido: o manual
+// não diz se a resposta vem do endereço antigo ou do novo (a leitura no endereço novo confirma depois).
+inline bool escritaConfirmada(const uint8_t pedido[TAM_PEDIDO_ESCRITA], const uint8_t* r, size_t n) {
+  if (n != TAM_PEDIDO_ESCRITA || !crcConfere(r, n)) return false;
+  for (size_t i = 1; i < 6; i++) {
+    if (r[i] != pedido[i]) return false;
+  }
+  return true;
+}
 
 // Interpreta a resposta do pedido de leitura. Só preenche `m` quando devolve SEM_ERRO.
 inline Erro interpretar(const uint8_t* r, size_t n, uint8_t enderecoPedido, Medidas* m) {

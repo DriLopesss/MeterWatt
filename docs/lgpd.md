@@ -95,6 +95,10 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - **Registro e cópia**: convite, aceite, acesso retirado e saída vão para a atividade das duas contas; a cópia dos dados traz `compartilhamento` (quem vê a minha casa, convites pendentes, casas que eu vejo). Excluir qualquer uma das contas apaga os acessos (chave estrangeira em cascata).
 - **Política**: ganhou uma frase em "Com quem compartilhamos". [ADVOGADO] decidir se isso pede nova versão da política (hoje 2026-11-23; trocar a versão pede novo aceite de todo mundo). Como é o próprio titular que escolhe compartilhar, a base é a execução do serviço que ele pediu; com mais moradores, vale a pendência abaixo sobre informar os outros.
 
+## O que entrou no bloco 14 (casa com duas ou três fases)
+- Nenhum dado de outro tipo: com um PZEM por fase, o medidor manda as mesmas medidas, uma vez por fase. O servidor guarda só a **última leitura de cada fase** (sobrescrita a cada segundo) e o contador de energia de cada uma. Entram na cópia dos dados (`ultima_leitura_por_fase`) e saem ao apagar o consumo ou excluir a conta.
+- **Fase sem resposta**: aviso novo, na mesma base dos outros avisos, com chave própria de e-mail e notificação em Avisos.
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).
