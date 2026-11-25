@@ -1,0 +1,25 @@
+# Só para o teste do conjunto Docker (tools/ensaio_docker.py e o job "Conjunto Docker" do GitHub).
+# Soma ao docker-compose.yml um servidor de e-mail de mentira, com STARTTLS e um certificado de uma
+# autoridade criada pelo teste, que o aplicativo passa a aceitar por SSL_CERT_FILE. NÃO use em produção.
+services:
+  correio:
+    image: python:3.12-slim
+    command: ["python", "/correio.py"]
+    volumes:
+      - ./teste/correio.py:/correio.py:ro
+      - ./teste/certs:/certs:ro
+      - caixa:/caixa
+
+  app:
+    environment:
+      MW_SMTP_HOST: correio
+      MW_SMTP_PORTA: "2525"
+      SSL_CERT_FILE: /certs-teste/ca.pem
+    volumes:
+      - ./teste/certs:/certs-teste:ro
+    depends_on:
+      - mosquitto
+      - correio
+
+volumes:
+  caixa:

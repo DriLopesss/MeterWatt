@@ -77,7 +77,7 @@ A integração foi escrita pela documentação pública e testada com um Mercado
 | Firmware 3.3 (segredo, volta para a conta de pareamento, porta 8883) | Compila no GitHub (89% da memória) e passa no ESP32 simulado. **Não testado em placa** |
 | Conexão criptografada do medidor (TLS, certificado Let's Encrypt) | **Não testada**: precisa do servidor no ar e de uma placa |
 | Backup cifrado e restauração | Testes automáticos |
-| Dockerfile, docker-compose, Caddy, script do Mosquitto | Conferidos na leitura e na sintaxe. **Nunca executados juntos** |
+| Dockerfile, docker-compose, Caddy, script do Mosquitto | Executados juntos no GitHub a cada PR que mexe neles (`tools/ensaio_docker.py`, job "Conjunto Docker"): HTTPS pelo Caddy (autoridade interna, domínio `meterwatt.localhost`), medidor simulado pela 8883 com TLS, e-mail por SMTP com STARTTLS (servidor de mentira), cópia de segurança e reinício. **Não testados com domínio de verdade e Let's Encrypt** |
 | Mercado Pago | HTTP de mentira nos testes. **Nunca falou com o serviço real** |
 | App instalável (manifesto, service worker, sem internet, versão nova) | Chromium de verdade: instalável sem erros, abre sem internet, troca de versão |
 | Notificações | Cifra igual ao exemplo da RFC 8291; no Chromium, a mensagem chega ao service worker e vira notificação. **Nunca entregue por um serviço real** (Google, Apple) nem testada num celular |
