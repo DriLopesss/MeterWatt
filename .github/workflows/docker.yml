@@ -9,6 +9,7 @@ on:
       - "infra/**"
       - "src/meterwatt/**"
       - "src/requirements.txt"
+      - "src/requirements-trava.txt"
       - "tools/ensaio_docker.py"
       - "tools/simulador_pzem.py"
       - ".github/workflows/docker.yml"

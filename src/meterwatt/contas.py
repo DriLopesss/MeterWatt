@@ -9,6 +9,7 @@ Regras que valem para todo o arquivo:
 """
 import re
 import sqlite3
+from datetime import datetime
 import unicodedata
 
 from .erros import ErroDeNegocio, NaoEncontrado
@@ -92,6 +93,51 @@ class Contas:
             (uid, hash_token(token), csrf, etapa, agora, agora, agora + validade, resumir_ip(ip), resumir_navegador(agente)))
         return token, csrf
 
+    # ------------------------------------------------------------ navegador novo
+
+    def reconhecer_aparelho(self, conn, u, aparelho, ip, agente):
+        """Depois de uma entrada completa. `aparelho`: o cookie de longa duração deste navegador (ou None).
+        Devolve o valor do cookie a gravar. Se a pessoa já entrou antes por outro navegador e este é novo, manda
+        um e-mail "foi você?" (quem roubou a senha aparece aqui). A primeira entrada da conta não avisa."""
+        agora = self.p.agora()
+        uid = u["id"]
+        if token_com_formato_valido(aparelho):
+            marca = self.p.cofre.hmac("aparelho:" + aparelho)
+            if conn.execute("SELECT 1 FROM aparelhos_conhecidos WHERE usuario_id = ? AND marca = ?", (uid, marca)).fetchone():
+                with conn:
+                    conn.execute("UPDATE aparelhos_conhecidos SET ultimo = ? WHERE usuario_id = ? AND marca = ?", (agora, uid, marca))
+                return aparelho
+        else:
+            aparelho = novo_token()
+        marca = self.p.cofre.hmac("aparelho:" + aparelho)
+        ja_tinha = conn.execute("SELECT COUNT(*) FROM aparelhos_conhecidos WHERE usuario_id = ?", (uid,)).fetchone()[0]
+        navegador = resumir_navegador(agente)
+        with conn:
+            conn.execute("INSERT OR REPLACE INTO aparelhos_conhecidos (usuario_id, marca, navegador, primeiro, ultimo) "
+                         "VALUES (?, ?, ?, ?, ?)", (uid, marca, navegador, agora, agora))
+            # Guarda no máximo 20 por conta: os mais antigos saem.
+            conn.execute("DELETE FROM aparelhos_conhecidos WHERE usuario_id = ? AND marca NOT IN "
+                         "(SELECT marca FROM aparelhos_conhecidos WHERE usuario_id = ? ORDER BY ultimo DESC LIMIT 20)", (uid, uid))
+            if ja_tinha:
+                self.p.auditar(conn, uid, "entrada_aparelho_novo", navegador, ip)
+        if ja_tinha:
+            quando = datetime.fromtimestamp(agora, self.p.cfg.zona).strftime("%d/%m/%Y às %H:%M")
+            rede = resumir_ip(ip) or "desconhecida"
+            self._avisar(u, "Entrada na sua conta por um navegador novo", (
+                f"Alguém entrou na sua conta do MeterWatt em {quando} (horário de Brasília), pelo {navegador}, "
+                f"na rede {rede}.\n\nSe foi você, é só ignorar este e-mail.\n\n"
+                f"Se não foi você, troque a senha agora: {self._link('esqueci')} (trocar a senha encerra todas as "
+                "sessões abertas). Depois, ligue a verificação em duas etapas em Segurança."))
+        return aparelho
+
+    def _senha_vazada(self, senha):
+        vezes = self.p.vazadas.vezes(senha)
+        if vezes:
+            quantas = "uma vez" if vezes == 1 else f"{vezes:,} vezes".replace(",", ".")
+            return (f"Essa senha já apareceu em vazamentos de dados de outros sites ({quantas}), e quem tenta invadir contas "
+                    "começa por elas. Escolha outra.")
+        return None
+
     def _avisar(self, u, assunto, corpo):
         self.p.enviar_email(u["email"], assunto, f"Olá, {u['nome']}.\n\n{corpo}\n\nEquipe MeterWatt\n")
 
@@ -103,7 +149,7 @@ class Contas:
             raise _invalido("Informe o seu nome, com até 80 caracteres.")
         if not email:
             raise _invalido("Informe um e-mail válido.")
-        problema = problema_na_senha(senha, email)
+        problema = problema_na_senha(senha, email) or self._senha_vazada(senha)
         if problema:
             raise _invalido(problema)
         aceites = aceites if isinstance(aceites, dict) else {}
@@ -177,7 +223,7 @@ class Contas:
 
     # ------------------------------------------------------------ entrada e sessões
 
-    def entrar(self, email, senha, ip=None, agente=None):
+    def entrar(self, email, senha, ip=None, agente=None, aparelho=None):
         conn = self.p.db()
         agora = self.p.agora()
         email = normalizar_email(email) or ""
@@ -213,7 +259,10 @@ class Contas:
             token, csrf = self._criar_sessao(conn, u["id"], etapa, ip, agente)
             if etapa == "completa":
                 self.p.auditar(conn, u["id"], "login", None, ip)
-        return {"token": token, "csrf": csrf, "etapa": etapa}
+        r = {"token": token, "csrf": csrf, "etapa": etapa}
+        if etapa == "completa":
+            r["aparelho"] = self.reconhecer_aparelho(conn, u, aparelho, ip, agente)
+        return r
 
     def sessao_atual(self, token):
         if not token_com_formato_valido(token):
@@ -236,7 +285,7 @@ class Contas:
                 conn.execute("UPDATE sessoes SET ultimo_uso = ? WHERE id = ?", (agora, linha["sessao_id"]))
         return dict(linha)
 
-    def verificar_2fa(self, sessao, codigo, ip=None, agente=None):
+    def verificar_2fa(self, sessao, codigo, ip=None, agente=None, aparelho=None):
         conn = self.p.db()
         uid = sessao["usuario_id"]
         u = self._usuario(conn, uid)
@@ -287,7 +336,7 @@ class Contas:
             self._avisar(u, "Um código de backup foi usado na sua conta", (
                 f"Alguém entrou na sua conta do MeterWatt usando um código de backup. Restam {restantes} código(s).\n\n"
                 "Se foi você, tudo certo. Se não foi, troque a senha e gere códigos novos em Segurança."))
-        return {"token": token, "csrf": csrf, "etapa": "completa"}
+        return {"token": token, "csrf": csrf, "etapa": "completa", "aparelho": self.reconhecer_aparelho(conn, u, aparelho, ip, agente)}
 
     def sair(self, sessao, ip=None):
         conn = self.p.db()
@@ -351,7 +400,7 @@ class Contas:
         if not linha:
             raise ErroDeNegocio("Este link para redefinir a senha não vale mais. Peça outro.", 400, "link_invalido")
         u = self._usuario(conn, linha["usuario_id"])
-        problema = problema_na_senha(nova, u["email"])
+        problema = problema_na_senha(nova, u["email"]) or self._senha_vazada(nova)
         if problema:
             raise _invalido(problema)
         agora = self.p.agora()
@@ -378,7 +427,7 @@ class Contas:
         if not confere_senha(u["senha_hash"], atual if isinstance(atual, str) else "")[0]:
             self.p.limite_confirmacao.registrar(u["id"], agora)
             raise ErroDeNegocio("A senha atual está incorreta.", 403, "senha_incorreta")
-        problema = problema_na_senha(nova, u["email"])
+        problema = problema_na_senha(nova, u["email"]) or self._senha_vazada(nova)
         if problema:
             raise _invalido(problema)
         if confere_senha(u["senha_hash"], nova)[0]:

@@ -16,6 +16,7 @@ import logging
 import mimetypes
 import os
 import re
+from datetime import datetime, timezone
 
 from flask import Flask, Response, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
@@ -51,6 +52,8 @@ def criar_app(plataforma):
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     nome_cookie = "__Host-mw_sessao" if cfg.cookie_seguro else "mw_sessao"
+    # Marca deste navegador, para reconhecer uma entrada por um navegador novo (contas.reconhecer_aparelho).
+    cookie_aparelho = "__Host-mw_aparelho" if cfg.cookie_seguro else "mw_aparelho"
     contas, medidores, privacidade = plataforma.contas, plataforma.medidores, plataforma.privacidade
     alertas, detetive, pagamentos, espera = plataforma.alertas, plataforma.detetive, plataforma.pagamentos, plataforma.espera
     notificacoes, graficos = plataforma.notificacoes, plataforma.graficos
@@ -73,6 +76,12 @@ def criar_app(plataforma):
         idade = 5 * 60 if etapa == "aguardando_2fa" else cfg.sessao_maxima_dias * 86400
         resposta.set_cookie(nome_cookie, token, max_age=idade, path="/", secure=cfg.cookie_seguro,
                             httponly=True, samesite="Strict")
+        return resposta
+
+    def gravar_aparelho(resposta, valor):
+        if valor:
+            resposta.set_cookie(cookie_aparelho, valor, max_age=400 * 86400, path="/", secure=cfg.cookie_seguro,
+                                httponly=True, samesite="Strict")
         return resposta
 
     def apagar_cookie(resposta):
@@ -217,6 +226,19 @@ def criar_app(plataforma):
             return Response("Sem app Android configurado (MW_ANDROID_PACOTE).", status=404, mimetype="text/plain")
         return jsonify(assetlinks(cfg.android_pacote, cfg.android_sha256))
 
+    @app.get("/.well-known/security.txt")
+    def security_txt():
+        """RFC 9116: onde avisar de uma falha de segurança. Sem e-mail configurado, não existe."""
+        if not cfg.email_seguranca:
+            return Response("Sem contato de segurança configurado (MW_EMAIL_SEGURANCA).", status=404, mimetype="text/plain")
+        expira = datetime.fromtimestamp(plataforma.agora() + 180 * 86400, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        texto = (f"Contact: mailto:{cfg.email_seguranca}\n"
+                 f"Expires: {expira}\n"
+                 "Preferred-Languages: pt, en\n"
+                 f"Canonical: {cfg.url_publica}/.well-known/security.txt\n"
+                 "Policy: https://github.com/DriLopesss/MeterWatt/blob/main/SECURITY.md\n")
+        return Response(texto, mimetype="text/plain")
+
     # ------------------------------------------------------------ público
 
     @app.get("/api/publico/info")
@@ -278,16 +300,16 @@ def criar_app(plataforma):
     @app.post("/api/conta/entrar")
     def entrar():
         d = corpo()
-        r = contas.entrar(d.get("email"), d.get("senha"), ip(), agente())
+        r = contas.entrar(d.get("email"), d.get("senha"), ip(), agente(), request.cookies.get(cookie_aparelho))
         resposta, _ = ok({"etapa": r["etapa"], "csrf": r["csrf"]})
-        return gravar_cookie(resposta, r["token"], r["etapa"])
+        return gravar_aparelho(gravar_cookie(resposta, r["token"], r["etapa"]), r.get("aparelho"))
 
     @app.post("/api/conta/2fa")
     @exige_sessao(etapa="aguardando_2fa")
     def segunda_etapa():
-        r = contas.verificar_2fa(g.sessao, corpo().get("codigo"), ip(), agente())
+        r = contas.verificar_2fa(g.sessao, corpo().get("codigo"), ip(), agente(), request.cookies.get(cookie_aparelho))
         resposta, _ = ok({"etapa": r["etapa"], "csrf": r["csrf"]})
-        return gravar_cookie(resposta, r["token"], r["etapa"])
+        return gravar_aparelho(gravar_cookie(resposta, r["token"], r["etapa"]), r.get("aparelho"))
 
     @app.get("/api/conta/2fa/etapa")
     @exige_sessao(etapa="aguardando_2fa")

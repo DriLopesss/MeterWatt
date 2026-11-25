@@ -5,8 +5,10 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN useradd --system --uid 10001 --home-dir /app meterwatt
 WORKDIR /app
-COPY src/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Versões travadas e conferidas pelo hash (src/requirements-trava.txt, gerado do requirements.txt com
+# pip-compile --generate-hashes). Um pacote trocado no caminho não instala. O Dependabot propõe as atualizações.
+COPY src/requirements-trava.txt .
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r requirements-trava.txt
 COPY src/meterwatt ./meterwatt
 RUN mkdir -p /dados && chown meterwatt /dados
 

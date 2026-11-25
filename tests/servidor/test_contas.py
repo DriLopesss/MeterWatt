@@ -100,7 +100,7 @@ def test_2fa_completo(cliente, plataforma, relogio, novo_cliente):
     quarto = novo_cliente()
     entrar(quarto)
     assert quarto.post("/api/conta/2fa", {"codigo": backups[0].upper()}).status_code == 200
-    assert "backup" in plataforma.mensageiro.ultimo_para("ana@exemplo.com.br")["assunto"]
+    assert any("backup" in m["assunto"] for m in plataforma.mensageiro.enviados if m["para"] == "ana@exemplo.com.br")
     quinto = novo_cliente()
     entrar(quinto)
     assert quinto.post("/api/conta/2fa", {"codigo": backups[0]}).status_code == 400

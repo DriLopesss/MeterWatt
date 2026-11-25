@@ -57,6 +57,7 @@ EVENTOS = {
     "login_falhou": "Senha errada ao entrar",
     "login_2fa_falhou": "Código de verificação errado ao entrar",
     "login_2fa_bloqueado": "Verificação em duas etapas bloqueada por uma hora (muitos códigos errados)",
+    "entrada_aparelho_novo": "Entrada por um navegador novo (aviso por e-mail)",
     "login_codigo_backup": "Entrada com código de backup",
     "sair": "Saída da conta",
     "sessao_encerrada": "Sessão encerrada em outro aparelho",
@@ -200,6 +201,9 @@ class Privacidade:
             "plano_de_economia": self.p.economia.exportar(conn, uid),
             "contas_de_luz": self.p.contas_luz.exportar(conn, uid),
             "compartilhamento": self.p.compartilhar.exportar(conn, uid),
+            "navegadores_de_entrada": [{"navegador": r["navegador"], "primeira_entrada": self.p.iso(r["primeiro"]),
+                                        "ultima_entrada": self.p.iso(r["ultimo"])} for r in conn.execute(
+                "SELECT navegador, primeiro, ultimo FROM aparelhos_conhecidos WHERE usuario_id = ? ORDER BY primeiro", (uid,))],
             "chaves_de_integracao": self.p.integracao.exportar(conn, uid),
             "energia_total_kwh": round((conn.execute("SELECT energia_total_wh FROM usuarios WHERE id = ?", (uid,)).fetchone()[0] or 0) / 1000, 3),
             # Só o aparelho e as datas: o endereço e as chaves de notificação são segredos que só servem para
@@ -364,6 +368,9 @@ class Privacidade:
             apagados["sessoes"] = conn.execute(
                 "DELETE FROM sessoes WHERE expira_em < ? OR (etapa = 'completa' AND ultimo_uso < ?)",
                 (agora, agora - c.sessao_ociosa_horas * 3600)).rowcount
+            apagados["tentativas"] = conn.execute("DELETE FROM tentativas WHERE instante < ?", (agora - 86400,)).rowcount
+            apagados["navegadores_de_entrada"] = conn.execute(
+                "DELETE FROM aparelhos_conhecidos WHERE ultimo < ?", (agora - 400 * 86400,)).rowcount
             apagados["tokens_email"] = conn.execute("DELETE FROM tokens_email WHERE expira_em < ?", (agora - 86400,)).rowcount
             apagados["codigos_pareamento"] = conn.execute(
                 "DELETE FROM codigos_pareamento WHERE expira_em < ?", (agora - 86400,)).rowcount

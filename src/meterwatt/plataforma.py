@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from . import banco
 from . import mensageiro as mod_mensageiro
-from .seguranca import Cofre, Limitador, resumir_ip
+from .seguranca import Cofre, resumir_ip
 
 
 class Plataforma:
@@ -16,6 +16,7 @@ class Plataforma:
         self.cofre = Cofre(cfg.chave_cripto)
         self.mensageiro = mensageiro or mod_mensageiro.criar(cfg)
         self._local = threading.local()
+        self._limitadores = []
 
         conn = banco.abrir(cfg.arquivo_banco)
         banco.migrar(conn)
@@ -29,16 +30,16 @@ class Plataforma:
         # Trocado pelo cliente MQTT quando ele conecta (veja mqtt.py).
         self.publicar = lambda topico, mensagem: None
 
-        # Limites de tentativas (na memória). Valores pensados para uma pessoa errando,
-        # não para um robô.
-        self.limite_login_email = Limitador(5, 15 * 60)
-        self.limite_login_ip = Limitador(30, 15 * 60)
-        self.limite_formularios_ip = Limitador(10, 60 * 60)
-        self.limite_exportar = Limitador(5, 60 * 60)
-        self.limite_confirmacao = Limitador(5, 15 * 60)   # senha pedida de novo para ações sensíveis
+        # Limites de tentativas, guardados no banco (limites.py): valem depois de reiniciar o servidor.
+        # Valores pensados para uma pessoa errando, não para um robô.
+        self.limite_login_email = self.limitador("login_email", 5, 15 * 60)
+        self.limite_login_ip = self.limitador("login_ip", 30, 15 * 60)
+        self.limite_formularios_ip = self.limitador("formularios_ip", 10, 60 * 60)
+        self.limite_exportar = self.limitador("exportar", 5, 60 * 60)
+        self.limite_confirmacao = self.limitador("confirmacao", 5, 15 * 60)   # senha pedida de novo para ações sensíveis
         # Códigos errados da verificação em duas etapas, por conta. Não zera ao acertar a senha: sem isso, quem
         # tem a senha entra de novo a cada 4 erros e tenta o código sem fim (achado da revisão de 25/11).
-        self.limite_2fa_conta = Limitador(10, 60 * 60)
+        self.limite_2fa_conta = self.limitador("2fa_conta", 10, 60 * 60)
 
         # Senha própria por medidor: quem cria e apaga é o cliente MQTT, quando o broker
         # usa o plugin dynamic-security (veja mqtt.py). Sem ele, ninguém faz nada.
@@ -56,6 +57,7 @@ class Plataforma:
         from .compartilhar import Compartilhar
         from .qualidade import Qualidade
         from .integracao import Integracao
+        from .vazadas import SenhasVazadas
         from .medidores import Medidores
         from .notificacoes import Notificacoes
         from .pagamentos import Pagamentos
@@ -76,6 +78,7 @@ class Plataforma:
         self.qualidade = Qualidade(self)
         self.integracao = Integracao(self)
         self.notificacoes = Notificacoes(self)
+        self.vazadas = SenhasVazadas(cfg.senhas_vazadas)
 
     # ------------------------------------------------------------ tempo
 
@@ -112,7 +115,15 @@ class Plataforma:
             self._local.conn = conn
         return conn
 
+    def limitador(self, nome, maximo, janela_s):
+        from .limites import LimitadorBanco
+        lim = LimitadorBanco(self, nome, maximo, janela_s)
+        self._limitadores.append(lim)
+        return lim
+
     def fechar_conexao_da_thread(self):
+        for lim in self._limitadores:
+            lim.fechar_conexao_da_thread()
         conn = getattr(self._local, "conn", None)
         if conn is not None:
             conn.close()

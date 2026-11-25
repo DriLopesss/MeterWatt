@@ -11,7 +11,7 @@ import statistics
 import unicodedata
 
 from .erros import ErroDeNegocio, NaoEncontrado
-from .seguranca import Limitador, normalizar_codigo_pareamento, novo_codigo_pareamento
+from .seguranca import normalizar_codigo_pareamento, novo_codigo_pareamento
 
 ID_VALIDO = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 SEGREDO_VALIDO = re.compile(r"^[A-Za-z0-9]{24,64}$")       # senha que o próprio medidor sorteia
@@ -131,11 +131,11 @@ class Medidores:
     def __init__(self, plataforma):
         self.p = plataforma
         # Tentativas de pareamento por aparelho: dificulta adivinhar códigos.
-        self.limite_pareamento = Limitador(10, 15 * 60)
-        self.limite_atrasadas = Limitador(120, 10 * 60)        # mensagens de minutos guardados, por medidor
+        self.limite_pareamento = plataforma.limitador("pareamento", 10, 15 * 60)
+        self.limite_atrasadas = plataforma.limitador("atrasadas", 120, 10 * 60)   # mensagens de minutos guardados, por medidor
         # Códigos errados de todos os medidores juntos: o limite por id não basta, porque a conta de provisão
         # pode publicar em nome de qualquer id (revisão de 25/11).
-        self.limite_pareamento_geral = Limitador(60, 60)
+        self.limite_pareamento_geral = plataforma.limitador("pareamento_geral", 60, 60)
 
     # ------------------------------------------------------------ apoio
 
