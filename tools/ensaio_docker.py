@@ -264,8 +264,11 @@ def main():
 
         # 7) Registros.
         registros = compose("logs", "--no-color", "app", "mosquitto", "caddy", verificar=False).stdout
-        ruins = [l for l in registros.splitlines() if re.search(r"Traceback|\bERROR\b|level\":\"error", l)
-                 and "tls: unknown certificate" not in l]
+        # Esperados, e só esses: o Caddy dá 502 enquanto o app sobe (o ensaio pergunta antes de ele ficar pronto)
+        # e no reinício; o Mosquitto registra a conexão TLS cortada quando o conjunto reinicia.
+        esperados = ("connect: connection refused", "unexpected eof while reading")
+        ruins = [l for l in registros.splitlines() if re.search(r"Traceback|\bERROR\b|level\":\"error|Error", l)
+                 and not any(e in l for e in esperados)]
         passo("Registros do app, do Mosquitto e do Caddy sem erros", not ruins, "; ".join(ruins[:3])[:400])
     except Exception as e:
         passo(f"O ensaio parou: {e}", False)
