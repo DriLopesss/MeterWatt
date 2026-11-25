@@ -245,7 +245,7 @@ cd src && python -m meterwatt            # http://localhost:8000
 # em outro terminal, um medidor de mentira:
 python tools/simulador_pzem.py --intervalo 1 --parear K7QM-2XPA   # código gerado em Medidores > Adicionar
 ```
-Em desenvolvimento os e-mails (confirmação, senha) ficam em `src/instancia/caixa-de-saida/`. A pasta `instancia/` guarda o banco e a chave de desenvolvimento e nunca vai para o Git.
+Em desenvolvimento os e-mails (confirmação, senha) ficam em `src/instancia/caixa-de-saida/`, e os links também aparecem no terminal. Ao ligar o servidor, os e-mails de vezes anteriores vão para `caixa-de-saida/antigos/`, para ninguém abrir um link velho por engano. A pasta `instancia/` guarda o banco e a chave de desenvolvimento e nunca vai para o Git.
 
 - **Segurança**: Argon2id, verificação em duas etapas (TOTP + códigos de backup), senhas vazadas recusadas, aviso por e-mail de entrada por navegador novo, sessões no servidor, CSRF, limites de tentativas guardados no banco, CSP estrita, dependências travadas com hash e vigiadas no GitHub (pip-audit, gitleaks, Dependabot). Detalhes em [`docs/seguranca.md`](docs/seguranca.md); para avisar de uma falha, [`SECURITY.md`](SECURITY.md).
 - **LGPD**: autorizações por finalidade com histórico, cópia dos dados, apagar consumo, excluir conta, atividade visível, retenção automática. Detalhes em [`docs/lgpd.md`](docs/lgpd.md).

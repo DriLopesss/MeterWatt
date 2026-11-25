@@ -27,6 +27,21 @@ VALIDADE_CONFIRMACAO_S = 24 * 3600
 VALIDADE_REDEFINICAO_S = 30 * 60
 VALIDADE_ETAPA_2FA_S = 5 * 60
 
+# Por que um link do e-mail não vale, em palavras de quem abriu (veja Contas._situacao_token).
+MOTIVOS_CONFIRMAR = {
+    "inexistente": "Este link de confirmação não está completo ou não existe. Copie o link inteiro do e-mail, "
+                   "ou tente entrar: se a conta ainda não estiver confirmada, você poderá pedir outro link.",
+    "substituido": "Este link foi trocado por um mais novo. Abra o e-mail de confirmação mais recente.",
+    "usado": "Este link já foi usado. Tente entrar com o seu e-mail e senha.",
+    "vencido": "Este link passou das 24 horas e venceu. Tente entrar: o MeterWatt oferece mandar outro link.",
+}
+MOTIVOS_REDEFINIR = {
+    "inexistente": "Este link para redefinir a senha não está completo ou não existe. Copie o link inteiro do e-mail, ou peça outro.",
+    "substituido": "Você pediu outro link depois deste, e só o mais novo vale. Abra o e-mail \"Redefinir a senha\" mais recente.",
+    "usado": "Este link já foi usado para trocar a senha. Se precisar trocar de novo, peça outro.",
+    "vencido": "Este link passou dos 30 minutos e venceu. Peça outro.",
+}
+
 
 def normalizar_email(email):
     if not isinstance(email, str):
@@ -71,14 +86,26 @@ class Contas:
                      (uid, finalidade, hash_token(token), agora, agora + validade_s))
         return token
 
-    def _token_valido(self, conn, token, finalidade):
+    def _situacao_token(self, conn, token, finalidade):
+        """(linha, motivo). motivo é None quando o link vale; senão "inexistente", "substituido" (chegou
+        um link mais novo para a mesma coisa), "usado" ou "vencido". A linha vem sempre que o token existe."""
         if not token_com_formato_valido(token):
-            return None
+            return None, "inexistente"
         linha = conn.execute("SELECT * FROM tokens_email WHERE token_hash = ? AND finalidade = ?",
                              (hash_token(token), finalidade)).fetchone()
-        if not linha or linha["usado_em"] is not None or linha["expira_em"] < self.p.agora():
-            return None
-        return linha
+        if not linha:
+            return None, "inexistente"
+        if linha["usado_em"] is not None:
+            mais_novo = conn.execute("SELECT 1 FROM tokens_email WHERE usuario_id = ? AND finalidade = ? AND id > ?",
+                                     (linha["usuario_id"], finalidade, linha["id"])).fetchone()
+            return linha, "substituido" if mais_novo else "usado"
+        if linha["expira_em"] < self.p.agora():
+            return linha, "vencido"
+        return linha, None
+
+    def _token_valido(self, conn, token, finalidade):
+        linha, motivo = self._situacao_token(conn, token, finalidade)
+        return linha if motivo is None else None
 
     def _link(self, rota, token=None):
         return f"{self.p.cfg.url_publica}/#{rota}" + (f"/{token}" if token else "")
@@ -194,17 +221,21 @@ class Contas:
             "Se não foi você, pode ignorar este aviso. Nada mudou na sua conta."))
 
     def confirmar_email(self, token, ip=None):
+        """Devolve "confirmado" ou "ja_confirmado" (link aberto de novo, ou um link mais antigo depois de confirmar)."""
         conn = self.p.db()
-        linha = self._token_valido(conn, token, "confirmar")
-        if not linha:
-            raise ErroDeNegocio("Este link de confirmação não vale mais. Tente entrar: se a conta ainda não "
-                                "estiver confirmada, você poderá pedir outro link.", 400, "link_invalido")
+        linha, motivo = self._situacao_token(conn, token, "confirmar")
+        if motivo is not None:
+            u = self._usuario(conn, linha["usuario_id"]) if linha else None
+            if u and u["email_confirmado_em"]:
+                return "ja_confirmado"
+            raise ErroDeNegocio(MOTIVOS_CONFIRMAR[motivo], 400, "link_invalido")
         agora = self.p.agora()
         with conn:
             conn.execute("UPDATE tokens_email SET usado_em = ? WHERE id = ?", (agora, linha["id"]))
             conn.execute("UPDATE usuarios SET email_confirmado_em = COALESCE(email_confirmado_em, ?) WHERE id = ?",
                          (agora, linha["usuario_id"]))
             self.p.auditar(conn, linha["usuario_id"], "email_confirmado", None, ip)
+        return "confirmado"
 
     def reenviar_confirmacao(self, email, ip=None):
         conn = self.p.db()
@@ -394,11 +425,16 @@ class Contas:
             "Para criar uma senha nova, abra este link em até 30 minutos:\n\n"
             f"{self._link('redefinir', token)}\n\nSe você não pediu, ignore este e-mail: a sua senha continua a mesma."))
 
+    def conferir_link_redefinicao(self, token):
+        """Diz, antes de a pessoa digitar a senha nova, se o link ainda vale. Não gasta o link."""
+        linha, motivo = self._situacao_token(self.p.db(), token, "redefinir")
+        if motivo is not None:
+            raise ErroDeNegocio(MOTIVOS_REDEFINIR[motivo], 400, "link_invalido")
+        return linha
+
     def redefinir_senha(self, token, nova, ip=None):
         conn = self.p.db()
-        linha = self._token_valido(conn, token, "redefinir")
-        if not linha:
-            raise ErroDeNegocio("Este link para redefinir a senha não vale mais. Peça outro.", 400, "link_invalido")
+        linha = self.conferir_link_redefinicao(token)
         u = self._usuario(conn, linha["usuario_id"])
         problema = problema_na_senha(nova, u["email"]) or self._senha_vazada(nova)
         if problema:
