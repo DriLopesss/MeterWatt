@@ -27,7 +27,7 @@ jobs:
       - run: pip-audit --require-hashes -r src/requirements-trava.txt
       - run: pip-audit -r src/requirements.txt
       # A trava precisa continuar instalável no Python da imagem, conferindo os hashes
-      - run: pip install --require-hashes --only-binary=:all: -r src/requirements-trava.txt
+      - run: 'pip install --require-hashes --only-binary=:all: -r src/requirements-trava.txt'
 
   segredos:
     name: Senhas e chaves no código
