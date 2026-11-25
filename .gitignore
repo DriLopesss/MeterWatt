@@ -15,6 +15,7 @@ instancia/
 *.sqlite3-*
 *.key
 .simulador-*.segredo
+.simulador-*.cliente
 infra/.env
 meterwatt-demonstracao.html
 # App Android: dependências, projeto gerado por android/gerar-projeto.mjs, saída assinada

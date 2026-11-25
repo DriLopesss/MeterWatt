@@ -26,6 +26,9 @@ pytestmark = pytest.mark.skipif(not (shutil.which("mosquitto") and shutil.which(
                                 reason="Mosquitto com dynamic-security não está instalado")
 MID = "mw-A1B2C3D4E5F6"
 SEGREDO = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+CLIENTE = MID + "-5e1a9c07"          # firmware 3.6: o id e um sufixo sorteado, que só o aparelho conhece
+RESPOSTA = "0123456789abcdef"        # o fim do tópico onde o aparelho espera a resposta do pareamento
+PEDIDO = {"segredo": SEGREDO, "cliente": CLIENTE, "resposta": RESPOSTA}
 
 
 def esperar(condicao, segundos=8.0):
@@ -40,12 +43,14 @@ def esperar(condicao, segundos=8.0):
 class Aparelho:
     """Um medidor de mentira falando MQTT de verdade."""
 
-    def __init__(self, porta, usuario, senha, client_id=MID):
-        self.recebidas, self.codigo_conexao = [], None
+    def __init__(self, porta, usuario, senha, client_id=CLIENTE, assinar=None):
+        self.recebidas, self.codigo_conexao, self.caiu = [], None, False
+        self.assinar = assinar or [f"meterwatt/{MID}/comando", f"meterwatt-resposta/{RESPOSTA}"]
         self.c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
         self.c.username_pw_set(usuario, senha)
         self.c.on_connect = self._ao_conectar
-        self.c.on_message = lambda _c, _u, m: self.recebidas.append(m.payload.decode())
+        self.c.on_message = lambda _c, _u, m: self.recebidas.append((m.topic, m.payload.decode()))
+        self.c.on_disconnect = lambda *_a: setattr(self, "caiu", True)
         self.c.connect("127.0.0.1", porta)
         self.c.loop_start()
         esperar(lambda: self.codigo_conexao is not None)
@@ -53,7 +58,11 @@ class Aparelho:
     def _ao_conectar(self, c, _u, _f, codigo, _p=None):
         self.codigo_conexao = str(codigo)
         if codigo == 0:
-            c.subscribe(f"meterwatt/{MID}/comando", 1)
+            for topico in self.assinar:
+                c.subscribe(topico, 1)
+
+    def textos(self):
+        return [p for _t, p in self.recebidas]
 
     @property
     def conectado(self):
@@ -145,8 +154,8 @@ def test_medidor_ganha_senha_propria_no_pareamento(servidor):
     novo = Aparelho(porta, "provisao", "senha-de-provisao")
     assert novo.conectado
     novo.publicar("telemetria", LEITURA)
-    novo.publicar("pareamento", {"codigo": codigo, "segredo": SEGREDO})
-    assert esperar(lambda: "pareado_credencial" in novo.recebidas), novo.recebidas
+    novo.publicar("pareamento", {"codigo": codigo, **PEDIDO})
+    assert esperar(lambda: ("meterwatt-resposta/" + RESPOSTA, "pareado_credencial") in novo.recebidas), novo.recebidas
     novo.fechar()
     assert leituras(p) == 0
     linha = p.db().execute("SELECT credencial_propria FROM medidores WHERE id = ?", (MID,)).fetchone()
@@ -167,8 +176,9 @@ def test_medidor_ganha_senha_propria_no_pareamento(servidor):
     assert leituras(p) == 1
     falso.fechar()
 
-    # 5. a senha do medidor só vale com o id de cliente dele, e senha errada não entra
+    # 5. a senha do medidor só vale com o id de cliente dele (com o sufixo), e senha errada não entra
     assert not Aparelho(porta, MID, SEGREDO, client_id="clone").conectado
+    assert not Aparelho(porta, MID, SEGREDO, client_id=MID).conectado
     assert not Aparelho(porta, MID, "x" * 32).conectado
 
     # 6. removido da conta, a senha própria deixa de valer
@@ -180,7 +190,7 @@ def test_medidor_ganha_senha_propria_no_pareamento(servidor):
 def test_codigo_errado_nao_cria_conta_no_broker(servidor):
     p, http, porta = servidor
     novo = Aparelho(porta, "provisao", "senha-de-provisao")
-    novo.publicar("pareamento", {"codigo": "AAAA-AAAA", "segredo": SEGREDO})
+    novo.publicar("pareamento", {"codigo": "AAAA-AAAA", **PEDIDO})
     time.sleep(0.8)
     assert novo.recebidas == []
     novo.fechar()
@@ -191,16 +201,75 @@ def test_medidor_de_outra_conta_nao_tem_a_senha_trocada(servidor):
     p, http, porta = servidor
     codigo = http.post("/api/medidores/codigo").get_json()["codigo"]
     dono = Aparelho(porta, "provisao", "senha-de-provisao")
-    dono.publicar("pareamento", {"codigo": codigo, "segredo": SEGREDO})
-    assert esperar(lambda: "pareado_credencial" in dono.recebidas)
+    dono.publicar("pareamento", {"codigo": codigo, **PEDIDO})
+    assert esperar(lambda: "pareado_credencial" in dono.textos())
     dono.fechar()
     # outra pessoa, com um código válido da conta dela, tenta tomar o mesmo medidor
     bia = conta_pronta(Cliente(http.http.application), p, email="bia@exemplo.com.br")
     codigo_bia = bia.post("/api/medidores/codigo").get_json()["codigo"]
     time.sleep(1.0)
     atacante = Aparelho(porta, "provisao", "senha-de-provisao", client_id="atacante")
-    atacante.publicar("pareamento", {"codigo": codigo_bia, "segredo": "b" * 32})
+    atacante.publicar("pareamento", {"codigo": codigo_bia, "segredo": "b" * 32, "cliente": MID + "-00000000", "resposta": "f" * 16})
     time.sleep(0.8)
     atacante.fechar()
     assert Aparelho(porta, MID, SEGREDO).conectado               # a senha do dono continua valendo
     assert not Aparelho(porta, MID, "b" * 32).conectado
+
+
+def parear_dono(http, porta):
+    codigo = http.post("/api/medidores/codigo").get_json()["codigo"]
+    a = Aparelho(porta, "provisao", "senha-de-provisao")
+    a.publicar("pareamento", {"codigo": codigo, **PEDIDO})
+    assert esperar(lambda: "pareado_credencial" in a.textos())
+    a.fechar()
+    time.sleep(1.0)
+    proprio = Aparelho(porta, MID, SEGREDO)
+    assert proprio.conectado
+    return proprio
+
+
+def test_provisao_nao_espiona_os_comandos_de_todos(servidor):
+    """Revisão de 25/11: a conta de provisão (a senha vai em todo medidor) assinava meterwatt/+/comando."""
+    _p, http, porta = servidor
+    espiao = Aparelho(porta, "provisao", "senha-de-provisao", client_id="espiao", assinar=["meterwatt/+/comando", "#"])
+    proprio = parear_dono(http, porta)
+    proprio.fechar()
+    assert http.delete(f"/api/medidores/{MID}").status_code == 200        # o servidor publica "despareado"
+    time.sleep(1.0)
+    espiao.fechar()
+    vistos = [t for t, _ in espiao.recebidas if t.startswith("meterwatt/")]
+    assert vistos == [], vistos                                               # nenhum id de medidor vazou
+
+
+def test_provisao_nao_derruba_o_medidor_pelo_id(servidor):
+    """Revisão de 25/11: entrar com o id de cliente de um medidor derrubava a conexão dele."""
+    _p, http, porta = servidor
+    proprio = parear_dono(http, porta)
+    intruso = Aparelho(porta, "provisao", "senha-de-provisao", client_id=MID)   # o id que aparece na rede MeterWatt-XXXX
+    time.sleep(1.0)
+    assert not proprio.caiu
+    intruso.fechar()
+    proprio.fechar()
+
+
+def test_aparelho_removido_so_pareia_de_novo_ele_mesmo(servidor):
+    """Revisão de 25/11: depois de removido, outro aparelho com o mesmo id podia ser pareado em outra conta."""
+    p, http, porta = servidor
+    proprio = parear_dono(http, porta)
+    proprio.fechar()
+    assert http.delete(f"/api/medidores/{MID}").status_code == 200
+    bia = conta_pronta(Cliente(http.http.application), p, email="bia@exemplo.com.br")
+    codigo_bia = bia.post("/api/medidores/codigo").get_json()["codigo"]
+    atacante = Aparelho(porta, "provisao", "senha-de-provisao", client_id="atacante", assinar=["meterwatt-resposta/" + "e" * 16])
+    atacante.publicar("pareamento", {"codigo": codigo_bia, "segredo": "b" * 32, "cliente": MID + "-11111111", "resposta": "e" * 16})
+    time.sleep(1.0)
+    atacante.fechar()
+    assert atacante.recebidas == []
+    assert bia.get("/api/medidores").get_json()["medidores"] == []
+    # O aparelho de verdade (mesmo segredo) pareia de novo, em qualquer conta.
+    codigo_bia = bia.post("/api/medidores/codigo").get_json()["codigo"]
+    volta = Aparelho(porta, "provisao", "senha-de-provisao")
+    volta.publicar("pareamento", {"codigo": codigo_bia, **PEDIDO})
+    assert esperar(lambda: "pareado_credencial" in volta.textos())
+    volta.fechar()
+    assert [m["id"] for m in bia.get("/api/medidores").get_json()["medidores"]] == [MID]

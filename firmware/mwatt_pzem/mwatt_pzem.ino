@@ -62,7 +62,7 @@
 #include "pareamento.h"
 #include "ca_raiz.h"
 
-#define VERSAO_FW "3.5.0"
+#define VERSAO_FW "3.6.0"
 
 #ifndef USAR_PORTAL_WIFI
 #define USAR_PORTAL_WIFI 1
@@ -145,6 +145,9 @@ fila::Fila filaOffline;            // minutos medidos sem conexão (~26 KB de RA
 pareamento::Estado pedidoPareamento;
 credencial::Estado cred;
 char segredo[33];                  // senha própria deste medidor (sorteada na primeira vez)
+char sufixo[9];                    // fim do id de cliente MQTT, sorteado na primeira vez (v3.6)
+char clienteMqtt[40];              // <id>-<sufixo>: com ele, ninguém derruba a conexão entrando com o id do medidor
+char topicoResposta[64];           // onde chega a resposta do pedido de pareamento em andamento
 bool pedidoReconectar = false;
 void salvarCredencial();
 
@@ -279,7 +282,9 @@ void atenderSerial() {
 }
 
 void aoReceberMqtt(char* topico, byte* dados, unsigned int tamanho) {
-  if (strcmp(topico, topicoComando) != 0) return;
+  // Comandos do servidor: no tópico do medidor, ou a resposta do pedido de pareamento em andamento.
+  bool resposta = pedidoPareamento.ativo && strcmp(topico, topicoResposta) == 0;
+  if (strcmp(topico, topicoComando) != 0 && !resposta) return;
   switch (pareamento::aoComando(&pedidoPareamento, dados, tamanho)) {
     case pareamento::PAREADO:
       Serial.println("Pareamento: confirmado pelo servidor. O medidor ja aparece no aplicativo.");
@@ -318,10 +323,21 @@ void salvarCredencial() {
 void carregarCredencial() {
   credencial::limpar(&cred);
   segredo[0] = '\0';
+  sufixo[0] = '\0';
   memoria.begin("mw-id", true);
   memoria.getString("segredo", segredo, sizeof(segredo));
+  memoria.getString("sufixo", sufixo, sizeof(sufixo));
   cred.propria = memoria.getBool("propria", false);
   memoria.end();
+  if (!credencial::sufixoValido(sufixo)) {
+    // Medidor que veio de uma versão anterior também ganha o sufixo: o servidor só o conhece a partir do
+    // próximo pareamento, então a senha própria antiga deixa de valer e ele volta para a conta de pareamento.
+    credencial::montarSufixo(esp_random(), sufixo);
+    memoria.begin("mw-id", false);
+    memoria.putString("sufixo", sufixo);
+    memoria.end();
+  }
+  snprintf(clienteMqtt, sizeof(clienteMqtt), "%s-%s", idDispositivo, sufixo);
   if (!credencial::segredoValido(segredo)) {
     const uint32_t aleatorio[4] = {esp_random(), esp_random(), esp_random(), esp_random()};
     credencial::montarSegredo(aleatorio, segredo);
@@ -385,7 +401,11 @@ void aoSalvarPagina() {
   if (r != ajustes::AJUSTES_OK) return;
   campoCodigo.setValue("", 12);    // o código vale uma vez e nunca é gravado
   if (codigo[0]) {
-    pareamento::iniciar(&pedidoPareamento, codigo, millis());
+    const uint32_t aleatorio[2] = {esp_random(), esp_random()};
+    char resposta[17];
+    pareamento::montarResposta(aleatorio, resposta);
+    pareamento::iniciar(&pedidoPareamento, codigo, millis(), resposta);
+    pareamento::montarTopicoResposta(pedidoPareamento, topicoResposta, sizeof(topicoResposta));
     Serial.println("Pareamento: codigo recebido, enviando ao servidor (vale 15 minutos).");
   }
   salvarAjustes();
@@ -434,8 +454,8 @@ void vigiarBotao() {
 
 void enviarPareamentoSePreciso() {
   if (!pareamento::deveEnviar(&pedidoPareamento, millis(), mqtt.connected())) return;
-  char json[96];
-  pareamento::montarMensagem(pedidoPareamento, segredo, json, sizeof(json));
+  char json[192];
+  pareamento::montarMensagem(pedidoPareamento, segredo, clienteMqtt, json, sizeof(json));
   if (mqtt.publish(topicoPareamento, json)) pareamento::marcarEnviado(&pedidoPareamento, millis());
 }
 
@@ -451,11 +471,12 @@ void conectarMqttSePreciso() {
   if (tls) mqtt.setClient(redeSegura); else mqtt.setClient(rede);
   Serial.printf("MQTT: conectando a %s:%u%s com a %s...\n", cfg.host, (unsigned)cfg.porta, tls ? " (criptografado)" : "",
                 propria ? "senha propria" : "conta de pareamento");
-  if (mqtt.connect(idDispositivo, propria ? idDispositivo : cfg.usuario, propria ? segredo : cfg.senha,
+  if (mqtt.connect(clienteMqtt, propria ? idDispositivo : cfg.usuario, propria ? segredo : cfg.senha,
                    topicoStatus, 0, true, "offline")) {
     credencial::aoConectar(&cred);
     mqtt.publish(topicoStatus, "online", true);
     mqtt.subscribe(topicoComando);
+    if (pedidoPareamento.ativo) mqtt.subscribe(topicoResposta);
     Serial.println("MQTT: conectado");
   } else {
     Serial.printf("MQTT: falhou (estado %d)\n", mqtt.state());

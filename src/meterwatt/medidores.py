@@ -26,6 +26,8 @@ BALDE_S = 300                     # consumo agregado de 5 em 5 minutos
 PONTOS_NO_GRAFICO = 720
 PERIODOS = {"2h": 2 * 3600, "24h": 86400, "7d": 7 * 86400}
 ATRASADAS_POR_MENSAGEM = 20       # o firmware manda 8 minutos por mensagem
+ATRASADAS_ESPACO_S = 50           # dois minutos guardados não podem estar mais perto que isso
+POTENCIA_MAXIMA_W = 30000         # o que um PZEM de 100 A mede, com folga: limite de energia por segundo
 ATRASO_MAXIMO_S = 13 * 3600       # o firmware guarda até 12 horas
 RECUPERACAO_VISIVEL_S = 7 * 86400
 NOITE_INICIO_H, NOITE_FIM_H = 0, 5
@@ -72,6 +74,21 @@ def ler_fases(dados, anteriores, agora):
     return sorted(saida, key=lambda f: f["fase"])
 
 
+def energia_entre(anterior, novo, segundos, pode_baixar=True):
+    """Wh entre duas leituras do contador do PZEM e o contador a guardar.
+
+    Um salto maior do que 30 kW durante todo o intervalo não é consumo: é leitura estranha ou mensagem forjada,
+    e nada é somado. Contador menor: o módulo foi zerado (só ao vivo; nos minutos guardados sem conexão,
+    `pode_baixar=False` mantém o anterior, porque ninguém zera o módulo sem conexão)."""
+    if anterior is None:
+        return 0.0, novo
+    if novo < anterior:
+        return 0.0, (novo if pode_baixar else anterior)
+    if novo - anterior > POTENCIA_MAXIMA_W * max(segundos, 1) / 3600 + 10:
+        return 0.0, novo
+    return novo - anterior, novo
+
+
 def texto_simples(valor):
     return valor if isinstance(valor, str) and TEXTO_SIMPLES.match(valor) else None
 
@@ -115,6 +132,10 @@ class Medidores:
         self.p = plataforma
         # Tentativas de pareamento por aparelho: dificulta adivinhar códigos.
         self.limite_pareamento = Limitador(10, 15 * 60)
+        self.limite_atrasadas = Limitador(120, 10 * 60)        # mensagens de minutos guardados, por medidor
+        # Códigos errados de todos os medidores juntos: o limite por id não basta, porque a conta de provisão
+        # pode publicar em nome de qualquer id (revisão de 25/11).
+        self.limite_pareamento_geral = Limitador(60, 60)
 
     # ------------------------------------------------------------ apoio
 
@@ -188,12 +209,13 @@ class Medidores:
     def parear(self, mid, dados):
         codigo = normalizar_codigo_pareamento(dados.get("codigo"))
         agora = self.p.agora()
-        if not codigo or self.limite_pareamento.esgotado(mid, agora):
+        if not codigo or self.limite_pareamento.esgotado(mid, agora) or self.limite_pareamento_geral.esgotado("todos", agora):
             return "recusado"
         conn = self.p.db()
         linha = conn.execute("SELECT * FROM codigos_pareamento WHERE codigo_hash = ?", (self.p.cofre.hmac(codigo),)).fetchone()
         if not linha or linha["usado_em"] is not None or linha["expira_em"] < agora:
             self.limite_pareamento.registrar(mid, agora)
+            self.limite_pareamento_geral.registrar("todos", agora)
             return "recusado"
         uid = linha["usuario_id"]
         if not self.p.consentimento(conn, uid, "consumo"):
@@ -206,14 +228,26 @@ class Medidores:
         # Senha própria: o medidor sorteia um segredo e manda junto com o código. Se o broker
         # aceita contas por aparelho, o servidor cadastra esse segredo como a senha dele.
         # Nunca para um medidor de outra conta: isso trocaria a senha do aparelho de outra pessoa.
-        if existente and existente["usuario_id"] != uid:
+        segredo = dados.get("segredo")
+        segredo_ok = isinstance(segredo, str) and bool(SEGREDO_VALIDO.match(segredo))
+        marca = self.p.cofre.hmac("medidor:" + segredo) if segredo_ok else None
+        conhecido = conn.execute("SELECT segredo_hmac FROM medidores_conhecidos WHERE id = ?", (mid,)).fetchone()
+        # Um aparelho que já foi visto só pareia de novo com o mesmo segredo (é ele mesmo), a não ser que continue
+        # na mesma conta (a dona tem o código dela; serve se o segredo se perdeu num apagamento da memória).
+        outro_aparelho = conhecido is not None and conhecido["segredo_hmac"] != marca and not (existente and existente["usuario_id"] == uid)
+        if (existente and existente["usuario_id"] != uid) or outro_aparelho:
             with conn:
                 conn.execute("UPDATE codigos_pareamento SET usado_em = ? WHERE id = ?", (agora, linha["id"]))
                 self.p.auditar(conn, uid, "pareamento_recusado", mid)
+            self.limite_pareamento_geral.registrar("todos", agora)
             return "recusado"
-        segredo = dados.get("segredo")
-        propria = bool(self.p.credenciais and isinstance(segredo, str) and SEGREDO_VALIDO.match(segredo)
-                       and self.p.credenciais.registrar(mid, segredo))
+        # Firmware 3.6: o id de cliente MQTT (o id e um sufixo sorteado) e o tópico onde ele espera a resposta.
+        cliente = dados.get("cliente")
+        cliente = cliente if isinstance(cliente, str) and re.fullmatch(re.escape(mid) + r"-[0-9a-f]{8}", cliente) else None
+        resposta = dados.get("resposta")
+        topico_resposta = (f"meterwatt-resposta/{resposta}" if isinstance(resposta, str) and re.fullmatch(r"[0-9a-f]{16}", resposta)
+                           else f"meterwatt/{mid}/comando")
+        propria = bool(self.p.credenciais and segredo_ok and self.p.credenciais.registrar(mid, segredo, cliente))
         with conn:
             conn.execute("UPDATE codigos_pareamento SET usado_em = ?, medidor_id = ? WHERE id = ?", (agora, mid, linha["id"]))
             if not existente:
@@ -222,8 +256,12 @@ class Medidores:
                 self.p.auditar(conn, uid, "medidor_pareado", mid)
             if propria:
                 conn.execute("UPDATE medidores SET credencial_propria = 1 WHERE id = ?", (mid,))
+            if marca:
+                conn.execute("INSERT INTO medidores_conhecidos (id, segredo_hmac, visto_em) VALUES (?, ?, ?) "
+                             "ON CONFLICT (id) DO UPDATE SET segredo_hmac = excluded.segredo_hmac, visto_em = excluded.visto_em",
+                             (mid, marca, agora))
         self.limite_pareamento.zerar(mid)
-        self.p.publicar(f"meterwatt/{mid}/comando", "pareado_credencial" if propria else "pareado")
+        self.p.publicar(topico_resposta, "pareado_credencial" if propria else "pareado")
         return "pareado"
 
     def registrar_leitura(self, mid, dados):
@@ -264,6 +302,8 @@ class Medidores:
         wh = 0.0
         contador = m["contador_wh"]
         contadores = json.loads(m["contadores_fases"]) if m["contadores_fases"] else {}
+        # Tempo desde a última vez que o contador foi lido (ao vivo ou pelos minutos guardados).
+        desde_contador = agora - max(m["ultima_gravacao"] or 0, m["atrasadas_ate"] or 0)
         if lidas:
             # Várias fases: o total sai das fases lidas, e a energia é contada fase a fase. Uma fase que ficou
             # sem resposta guarda o último contador; quando volta, o que ela mediu no intervalo entra junto.
@@ -279,20 +319,16 @@ class Medidores:
                 novo, chave = f["energia_wh"], str(f["fase"])
                 if novo is None:
                     continue
-                anterior = contadores.get(chave)
-                if anterior is not None and anterior <= novo <= anterior + 30000:
-                    wh += novo - anterior
-                contadores[chave] = novo
+                parte, contadores[chave] = energia_entre(contadores.get(chave), novo, desde_contador)
+                wh += parte
         elif tensao is not None and potencia is not None and corrente is not None:
             tipo, valor = "pzem", potencia
             va = round(tensao * corrente, 1)
             fp, freq = numero(dados, "fp", 0, 1), numero(dados, "frequencia_hz", 40, 70)
             novo = numero(dados, "energia_wh", 0, 1e10)
             if novo is not None:
-                # Contador menor = zerado no módulo; salto absurdo = leitura estranha. Nos dois casos, recomeça dali.
-                if contador is not None and contador <= novo <= contador + 30000:
-                    wh = novo - contador
-                contador = novo
+                # Contador menor = zerado no módulo; salto acima de 30 kW no intervalo = leitura estranha. Recomeça dali.
+                wh, contador = energia_entre(contador, novo, desde_contador)
         elif corrente is not None:
             va = numero(dados, "va", 0, 30000)
             if va is None:
@@ -344,6 +380,10 @@ class Medidores:
         if not self.p.consentimento(conn, m["usuario_id"], "consumo"):
             return "sem_autorizacao"
         agora = self.p.agora()
+        # O firmware manda no máximo 90 mensagens numa recuperação (12 horas, 8 minutos cada).
+        if self.limite_atrasadas.esgotado(mid, agora):
+            return "rapida_demais"
+        self.limite_atrasadas.registrar(mid, agora)
         uptime = numero(dados, "uptime_agora", 0, 2 ** 32)
         lista = dados.get("minutos")
         if uptime is None or not isinstance(lista, list) or not 1 <= len(lista) <= ATRASADAS_POR_MENSAGEM:
@@ -352,6 +392,8 @@ class Medidores:
         for item in lista:
             if not isinstance(item, dict):
                 return "invalida"
+            if isinstance(item.get("u"), bool) or not isinstance(item.get("u"), int):
+                return "invalida"           # o firmware manda segundos inteiros
             u, n = numero(item, "u", 0, uptime), numero(item, "n", 1, 120)
             w, minimo, maximo = numero(item, "w", 0, 30000), numero(item, "min", 0, 30000), numero(item, "max", 0, 30000)
             e = item.get("e")
@@ -365,26 +407,29 @@ class Medidores:
         contador = m["contador_wh"]
         contadores = json.loads(m["contadores_fases"]) if m["contadores_fases"] else {}
         ate = m["atrasadas_ate"] or 0
+        ao_vivo = m["ultima_gravacao"] or 0
+        lido_em = max(ate, ao_vivo)           # quando o contador foi lido pela última vez
         entraram, primeiro, total_wh = 0, None, 0.0
         with conn:
             for u, n, w, minimo, maximo, e in itens:
                 instante = agora - (uptime - u)
-                if uptime - u > ATRASO_MAXIMO_S or instante <= ate or instante < m["pareado_em"]:
+                # Os minutos guardados cobrem a queda: depois da última leitura ao vivo, um por minuto (nunca mais
+                # perto que 50 s: sem isso, uma mensagem forjada empilharia milhares de "minutos" no mesmo segundo).
+                if (uptime - u > ATRASO_MAXIMO_S or instante < m["pareado_em"] or instante <= ao_vivo
+                        or (ate and instante < ate + ATRASADAS_ESPACO_S)):
                     continue
                 wh = 0.0
                 if len(e) == 1:
                     if e[0] is not None:
-                        if contador is not None and contador <= e[0] <= contador + 30000:
-                            wh = e[0] - contador
-                        contador = e[0]
+                        wh, contador = energia_entre(contador, e[0], instante - lido_em, pode_baixar=False)
                 else:
                     for fase, novo in enumerate(e, start=1):
                         if novo is None:
                             continue
-                        anterior = contadores.get(str(fase))
-                        if anterior is not None and anterior <= novo <= anterior + 30000:
-                            wh += novo - anterior
-                        contadores[str(fase)] = novo
+                        parte, contadores[str(fase)] = energia_entre(contadores.get(str(fase)), novo, instante - lido_em,
+                                                                     pode_baixar=False)
+                        wh += parte
+                lido_em = instante
                 conn.execute(
                     "INSERT INTO consumo_5min (medidor_id, inicio, n, soma_w, min_w, max_w, wh, simulado) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                     "ON CONFLICT (medidor_id, inicio) DO UPDATE SET n = n + excluded.n, soma_w = soma_w + excluded.soma_w, "

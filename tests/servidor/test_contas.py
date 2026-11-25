@@ -117,6 +117,30 @@ def test_2fa_cinco_erros_derrubam_a_meia_sessao(cliente, plataforma, relogio, no
     assert outro.get("/api/conta/2fa/etapa").status_code == 401
 
 
+def test_2fa_limite_por_conta_nao_zera_ao_entrar_de_novo(cliente, plataforma, relogio, novo_cliente):
+    """Revisão de 25/11: entrar de novo com a senha dava mais 4 tentativas, sem fim. Agora são 10 por hora, por conta."""
+    conta_pronta(cliente, plataforma)
+    segredo, _ = ativar_2fa(cliente, relogio)
+    atacante = novo_cliente()
+    erradas = 0
+    for _ in range(3):
+        assert entrar(atacante).get_json()["etapa"] == "aguardando_2fa"
+        for _ in range(4):
+            r = atacante.post("/api/conta/2fa", {"codigo": "000000"})
+            if r.status_code == 429:
+                break
+            erradas += 1
+    assert erradas == 10
+    r = atacante.post("/api/conta/2fa", {"codigo": codigo_totp(segredo, relogio())})   # nem o código certo passa agora
+    assert r.status_code in (401, 429)
+    assert "Muitos códigos errados" in plataforma.mensageiro.ultimo_para("ana@exemplo.com.br")["assunto"]
+    # Depois de uma hora, a dona entra normalmente.
+    relogio.avancar(3601)
+    dona = novo_cliente()
+    entrar(dona)
+    assert dona.post("/api/conta/2fa", {"codigo": codigo_totp(segredo, relogio())}).status_code == 200
+
+
 def test_meia_sessao_expira_em_5_minutos(cliente, plataforma, relogio, novo_cliente):
     conta_pronta(cliente, plataforma)
     segredo, _ = ativar_2fa(cliente, relogio)

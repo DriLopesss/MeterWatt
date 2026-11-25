@@ -104,3 +104,55 @@ def test_apagar_consumo_apaga_o_resumo(cliente, plataforma, relogio):
     atrasadas(plataforma, mid, 200, [minuto(100, 600, 10_010), minuto(160, 600, 10_020)])
     assert cliente.post("/api/privacidade/apagar-consumo", {"senha": SENHA}).status_code == 200
     assert plataforma.db().execute("SELECT ultima_recuperacao FROM medidores").fetchone()[0] is None
+
+
+def test_minutos_forjados_nao_inflam_o_consumo(cliente, plataforma, relogio):
+    """Revisão de 25/11: um medidor adulterado empilhava milhares de "minutos" no mesmo segundo, com +30 kWh cada."""
+    conta_pronta(cliente, plataforma)
+    mid = parear(cliente, plataforma, "mw-queda1")
+    relogio.avancar(14 * 3600)
+    ao_vivo(plataforma, mid, 500, 1000)
+    uptime, contador = 100_000, 1000
+    for j in range(300):                                            # 300 mensagens no mesmo segundo
+        lote = []
+        for k in range(8):
+            contador += 30_000
+            lote.append(minuto(uptime - 12 * 3600 + j * 8 + k, 30_000, contador))   # 1 s entre "minutos"
+        atrasadas(plataforma, mid, uptime, lote)
+    total = sum(wh for _, wh in baldes(plataforma, mid).values())
+    n = sum(n for n, _ in baldes(plataforma, mid).values())
+    # No máximo um minuto a cada 50 s cabe na linha do tempo, e cada passo tem no máximo 30 kW de energia.
+    print(f"forjado: {n} leituras, {total} Wh")
+    assert n <= 1 + 120 * 60
+    assert total <= 30_000 * (12 * 3600) / 3600 + 10
+    assert plataforma.medidores.processar_mqtt(f"meterwatt/{mid}/telemetria", json.dumps(
+        {"tipo": "atrasadas", "uptime_agora": uptime, "minutos": [minuto(uptime - 60, 1, contador)]}).encode()) == "rapida_demais"
+
+
+def test_minuto_guardado_nao_baixa_o_contador(cliente, plataforma, relogio):
+    conta_pronta(cliente, plataforma)
+    mid = parear(cliente, plataforma, "mw-queda1")
+    ao_vivo(plataforma, mid, 600, 5000)
+    relogio.avancar(120)
+    assert atrasadas(plataforma, mid, 500, [minuto(450, 600, 1000)]) == "atrasadas"     # contador "menor", forjado
+    relogio.avancar(1)
+    ao_vivo(plataforma, mid, 600, 5001)
+    assert sum(wh for _, wh in baldes(plataforma, mid).values()) == 1                     # e não 4.001 Wh
+
+
+def test_u_fracionado_e_recusado(cliente, plataforma, relogio):
+    conta_pronta(cliente, plataforma)
+    mid = parear(cliente, plataforma, "mw-queda1")
+    ao_vivo(plataforma, mid, 600, 5000)
+    assert atrasadas(plataforma, mid, 500, [{"u": 450.5, "n": 60, "w": 1, "min": 1, "max": 1, "e": [5001]}]) == "invalida"
+
+
+def test_salto_impossivel_ao_vivo_nao_soma(cliente, plataforma, relogio):
+    conta_pronta(cliente, plataforma)
+    mid = parear(cliente, plataforma, "mw-queda1")
+    ao_vivo(plataforma, mid, 600, 5000)
+    relogio.avancar(1)
+    ao_vivo(plataforma, mid, 600, 5000 + 500)          # 500 Wh em 1 s = 1,8 MW
+    relogio.avancar(1)
+    ao_vivo(plataforma, mid, 600, 5501)
+    assert sum(wh for _, wh in baldes(plataforma, mid).values()) == 1

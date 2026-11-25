@@ -16,9 +16,12 @@ topic read meterwatt/+/telemetria
 topic read meterwatt/+/status
 topic read meterwatt/+/pareamento
 topic write meterwatt/+/comando
+# resposta do pareamento (firmware 3.6): num tópico sorteado a cada pedido
+topic write meterwatt-resposta/+
 
 # todos os medidores (%u = usuário que conectou)
 pattern write meterwatt/%u/telemetria
 pattern write meterwatt/%u/status
 pattern write meterwatt/%u/pareamento
 pattern read meterwatt/%u/comando
+topic read meterwatt-resposta/+

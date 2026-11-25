@@ -25,7 +25,7 @@ def test_chave_le_o_estado_e_o_total_so_cresce(cliente, plataforma, relogio):
     assert chave.startswith("mwha_") and r.get_json()["chaves"][0]["nome"] == "Home Assistant da sala"
     assert "chave" not in cliente.get("/api/integracao").get_json()["chaves"][0]       # a chave só aparece uma vez
     plataforma.medidores.processar_mqtt(f"meterwatt/{mid}/telemetria", leitura_pzem(600, 10_000))
-    relogio.avancar(1)
+    relogio.avancar(1500)                     # 250 Wh a 600 W: 25 minutos
     plataforma.medidores.processar_mqtt(f"meterwatt/{mid}/telemetria", leitura_pzem(600, 10_250))
     # Sem cookie: quem chama é o Home Assistant.
     ha = cliente.http.application.test_client()
@@ -52,7 +52,7 @@ def test_circuito_nao_soma_no_total(cliente, plataforma, relogio):
     assert cliente.patch(f"/api/medidores/{cozinha}", {"papel": "circuito"}).status_code == 200
     for mid in (casa, cozinha):
         plataforma.medidores.processar_mqtt(f"meterwatt/{mid}/telemetria", leitura_pzem(300, 1000))
-    relogio.avancar(1)
+    relogio.avancar(1200)                     # 100 Wh a 300 W: 20 minutos
     for mid in (casa, cozinha):
         plataforma.medidores.processar_mqtt(f"meterwatt/{mid}/telemetria", leitura_pzem(300, 1100))
     chave = cliente.post("/api/integracao", {"nome": "HA"}).get_json()["chave"]
@@ -84,7 +84,7 @@ def test_apagar_consumo_zera_o_total(cliente, plataforma, relogio):
     conta_pronta(cliente, plataforma)
     mid = parear(cliente, plataforma, "mw-casa01")
     plataforma.medidores.processar_mqtt(f"meterwatt/{mid}/telemetria", leitura_pzem(600, 10_000))
-    relogio.avancar(1)
+    relogio.avancar(600)                      # 100 Wh a 600 W: 10 minutos
     plataforma.medidores.processar_mqtt(f"meterwatt/{mid}/telemetria", leitura_pzem(600, 10_100))
     chave = cliente.post("/api/integracao", {"nome": "HA"}).get_json()["chave"]
     ha = cliente.http.application.test_client()

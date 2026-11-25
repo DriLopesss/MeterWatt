@@ -56,6 +56,7 @@ EVENTOS = {
     "login": "Entrada na conta",
     "login_falhou": "Senha errada ao entrar",
     "login_2fa_falhou": "Código de verificação errado ao entrar",
+    "login_2fa_bloqueado": "Verificação em duas etapas bloqueada por uma hora (muitos códigos errados)",
     "login_codigo_backup": "Entrada com código de backup",
     "sair": "Saída da conta",
     "sessao_encerrada": "Sessão encerrada em outro aparelho",

@@ -55,15 +55,27 @@ int main() {
   pareamento::Estado e;
   pareamento::limpar(&e);
   CONFERE(!pareamento::deveEnviar(&e, 1000, true));
-  pareamento::iniciar(&e, "ABCD-EFGH", 1000);
+  pareamento::iniciar(&e, "ABCD-EFGH", 1000, "0011223344556677");
   CONFERE(!pareamento::deveEnviar(&e, 1000, false));       // sem MQTT, espera
   CONFERE(pareamento::deveEnviar(&e, 1000, true));
   pareamento::marcarEnviado(&e, 1000);
   CONFERE(!pareamento::deveEnviar(&e, 20000, true));
   CONFERE(pareamento::deveEnviar(&e, 31000, true));
-  char msg[96];
-  int n = pareamento::montarMensagem(e, "0123456789abcdef0123456789abcdef", msg, sizeof(msg));
-  CONFERE(std::strcmp(msg, "{\"codigo\":\"ABCD-EFGH\",\"segredo\":\"0123456789abcdef0123456789abcdef\"}") == 0 && n < 96);
+  char msg[192];
+  int n = pareamento::montarMensagem(e, "0123456789abcdef0123456789abcdef", "mw-A1B2C3D4E5F6-5e1a9c07", msg, sizeof(msg));
+  CONFERE(std::strcmp(msg, "{\"codigo\":\"ABCD-EFGH\",\"segredo\":\"0123456789abcdef0123456789abcdef\","
+                           "\"cliente\":\"mw-A1B2C3D4E5F6-5e1a9c07\",\"resposta\":\"0011223344556677\"}") == 0 && n < 192);
+  char topico[64];
+  pareamento::montarTopicoResposta(e, topico, sizeof(topico));
+  CONFERE(std::strcmp(topico, "meterwatt-resposta/0011223344556677") == 0);
+  char r16[17];
+  const uint32_t al[2] = {0x01234567u, 0x89abcdefu};
+  pareamento::montarResposta(al, r16);
+  CONFERE(std::strcmp(r16, "0123456789abcdef") == 0);
+  char suf[9];
+  credencial::montarSufixo(0x5e1a9c07u, suf);
+  CONFERE(std::strcmp(suf, "5e1a9c07") == 0 && credencial::sufixoValido(suf));
+  CONFERE(!credencial::sufixoValido("5E1A9C07") && !credencial::sufixoValido("5e1a9c0") && !credencial::sufixoValido("5e1a9c071"));
   const unsigned char outro[] = "zerar_energia";
   CONFERE(pareamento::aoComando(&e, outro, 13) == pareamento::OUTRO_COMANDO && e.ativo);
   const unsigned char ok[] = "pareado";
@@ -71,18 +83,18 @@ int main() {
   CONFERE(pareamento::aoComando(&e, ok, 7) == pareamento::OUTRO_COMANDO);     // repetido: nada a fazer
   const unsigned char okCred[] = "pareado_credencial";
   CONFERE(pareamento::aoComando(&e, okCred, 18) == pareamento::OUTRO_COMANDO); // sem pedido em andamento, não vale
-  pareamento::iniciar(&e, "ABCD-EFGH", 1000);
+  pareamento::iniciar(&e, "ABCD-EFGH", 1000, "0011223344556677");
   CONFERE(pareamento::aoComando(&e, okCred, 18) == pareamento::PAREADO_CREDENCIAL && !e.ativo);
   const unsigned char fora[] = "despareado";
   CONFERE(pareamento::aoComando(&e, fora, 10) == pareamento::DESPAREADO);
 
   // 4. Expira em 15 minutos e apaga o código
-  pareamento::iniciar(&e, "ABCD-EFGH", 5000);
+  pareamento::iniciar(&e, "ABCD-EFGH", 5000, "0011223344556677");
   CONFERE(pareamento::deveEnviar(&e, 5000 + 14UL * 60000UL, true));
   CONFERE(!pareamento::deveEnviar(&e, 5000 + 15UL * 60000UL + 1, true) && !e.ativo && e.codigo[0] == '\0');
 
   // 5. millis() dá a volta (49 dias): a conta com unsigned continua certa
-  pareamento::iniciar(&e, "ABCD-EFGH", 0xFFFFFF00UL);
+  pareamento::iniciar(&e, "ABCD-EFGH", 0xFFFFFF00UL, "0011223344556677");
   CONFERE(pareamento::deveEnviar(&e, 0x00000100UL, true));
 
   // 6. Senha própria: só desiste depois de 3 recusas do servidor; rede fora do ar não conta
