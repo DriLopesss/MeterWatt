@@ -1,0 +1,34 @@
+# Sobe o conjunto de produção (infra/docker-compose.yml: app, Mosquitto, Caddy) numa máquina do GitHub
+# e passa um medidor simulado por ele: HTTPS, porta 8883 com TLS, e-mail por SMTP com STARTTLS,
+# cópia de segurança, reinício. Roteiro em tools/ensaio_docker.py.
+name: Conjunto Docker
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - "src/meterwatt/**"
+      - "src/requirements.txt"
+      - "tools/ensaio_docker.py"
+      - "tools/simulador_pzem.py"
+      - ".github/workflows/docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conjunto:
+    name: Conjunto Docker (produção)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r src/requirements.txt
+      # O domínio do ensaio: .localhost faz o Caddy usar a autoridade interna (sem Let's Encrypt)
+      - run: echo "127.0.0.1 meterwatt.localhost" | sudo tee -a /etc/hosts
+      - run: docker compose version
+      - run: python tools/ensaio_docker.py

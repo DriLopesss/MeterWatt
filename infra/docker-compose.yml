@@ -5,8 +5,8 @@
 #   cp .env.exemplo .env      # preencha
 #   docker compose up -d --build
 #
-# NÃO TESTADO num servidor de verdade ainda: foi conferido peça por peça (veja a seção
-# "O que foi testado" do guia). O primeiro teste é de vocês, com um domínio.
+# Testado junto no GitHub (tools/ensaio_docker.py, com um domínio .localhost e a autoridade interna
+# do Caddy). NÃO testado num servidor de verdade com domínio e Let's Encrypt: esse teste é de vocês.
 services:
   app:
     build:
