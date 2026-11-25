@@ -295,6 +295,7 @@ def main():
         # 6) Segurança: o medidor 2 publica no tópico do 1, e a provisão tenta mandar leitura. Nada pode entrar.
         import paho.mqtt.client as mqtt
         segredo2 = open(os.path.join(pasta, f".simulador-{M2}.segredo"), encoding="ascii").read().strip()
+        cliente2 = M2 + "-" + open(os.path.join(pasta, f".simulador-{M2}.cliente"), encoding="ascii").read().strip()
 
         def tentar(usuario, senha, client_id, topico):
             c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
@@ -314,9 +315,9 @@ def main():
             c.disconnect()
             return conectou[0] if conectou else "sem resposta"
 
-        # A senha própria só vale com o id do próprio medidor: entra como o medidor 2 (derruba o simulador dele
-        # por um instante) e tenta publicar no tópico do 1. A provisão entra, mas só pode pedir pareamento.
-        como_m2 = tentar(M2, segredo2, M2, f"meterwatt/{M1}/telemetria")
+        # A senha própria só vale com o id de cliente do próprio medidor: entra como o medidor 2 (derruba o simulador
+        # dele por um instante) e tenta publicar no tópico do 1. A provisão entra, mas só pode pedir pareamento.
+        como_m2 = tentar(M2, segredo2, cliente2, f"meterwatt/{M1}/telemetria")
         como_provisao = tentar(PROVISAO, PROVISAO_SENHA, "provisao-x", f"meterwatt/{M1}/telemetria")
         time.sleep(1.5)
         historico = site.get(f"/api/medidores/{M1}/historico?periodo=2h")["pontos"]
@@ -324,8 +325,8 @@ def main():
               f"medidor 2: {como_m2}; provisão: {como_provisao}")
         passo("Leitura falsa no tópico do medidor 1 não entrou (nem pelo medidor 2, nem pela provisão)",
               all(w < 20000 for _, w in historico) and (medidor(M1)["potencia"] or 0) < 20000)
-        como_outro_id = tentar(M2, segredo2, M2 + "-x", f"meterwatt/{M2}/telemetria")
-        passo("A senha do medidor 2 não vale com outro id de cliente", como_outro_id != "Success", como_outro_id)
+        como_outro_id = tentar(M2, segredo2, M2, f"meterwatt/{M2}/telemetria")
+        passo("A senha do medidor 2 não vale com outro id de cliente (nem com o id puro)", como_outro_id != "Success", como_outro_id)
         passo("Medidor 2 volta sozinho depois de ter sido derrubado", esperar(lambda: "recusou" not in log(M2) and medidor(M2)["online"], 30))
 
         # 7) Medidor 2 cai: o "testamento" do MQTT avisa o servidor.
@@ -345,7 +346,7 @@ def main():
         # 9) Remover o medidor 2: a senha própria dele deixa de valer no broker.
         st, _ = site.chamar("DELETE", f"/api/medidores/{M2}")
         time.sleep(1.5)
-        recusado = tentar(M2, segredo2, M2, f"meterwatt/{M2}/telemetria")
+        recusado = tentar(M2, segredo2, cliente2, f"meterwatt/{M2}/telemetria")
         passo("Medidor removido perde a senha própria", st == 200 and recusado != "Success", f"conexão: {recusado}")
 
         # 10) Direitos e cópia de segurança.

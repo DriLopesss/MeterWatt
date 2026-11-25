@@ -14,6 +14,7 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 - Segredo **cifrado** no banco (Fernet, chave `MW_CHAVE_CRIPTO` fora do banco).
 - 10 códigos de backup de uso único, guardados como HMAC. Usar um avisa por e-mail.
 - 5 códigos errados derrubam a meia-sessão; ela também expira em 5 minutos.
+- No máximo 10 códigos errados por hora **por conta**, valendo mesmo que a pessoa entre de novo com a senha (sem isso, quem tinha a senha repetia "entrar, 4 códigos" sem fim). Ao chegar no limite, a dona da conta recebe um e-mail.
 - `MW_EXIGIR_2FA=1` bloqueia painel e medidores para contas sem 2FA. Privacidade continua liberada (direitos do titular).
 
 ## Sessões
@@ -30,14 +31,17 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 - Limites de tentativas: login 5 por e-mail e 30 por rede a cada 15 min; formulários públicos 10 por hora por rede; senha pedida de novo em ações sensíveis 5 a cada 15 min; cópia dos dados 5 por hora.
 - Recurso de outra conta responde **404**, igual a um que não existe.
 - No navegador, nada de `innerHTML` com dado do servidor.
+- E-mail que vai para um endereço digitado por outra pessoa (convite da casa): assunto fixo, e o nome da conta só com letras, espaços, apóstrofo e hífen (sem isso, o nome virava um e-mail de golpe com o remetente do MeterWatt).
 
 ## Medidores e MQTT
-- Pareamento por código de 8 caracteres (31 símbolos, ~10¹² combinações), 15 minutos, no máximo 3 ativos por conta, guardado como HMAC. 10 códigos errados por aparelho em 15 min bloqueiam aquele aparelho.
-- Medidor que já é de outra conta não é transferido.
+- Pareamento por código de 8 caracteres (31 símbolos, ~10¹² combinações), 15 minutos, no máximo 3 ativos por conta, guardado como HMAC. 10 códigos errados por aparelho em 15 min bloqueiam aquele aparelho, e 60 por minuto somando todos os aparelhos param os pedidos de todo mundo por um minuto (a conta de provisão pode publicar em nome de qualquer id).
+- Medidor que já é de outra conta não é transferido. Um aparelho que já foi visto só é pareado de novo com o mesmo segredo (é ele mesmo), mesmo depois de removido de uma conta (`medidores_conhecidos`).
 - Mensagem de aparelho não pareado é descartada (nada é guardado). Mensagens acima de 2 KB, fora do formato ou mais rápidas que 0,8 s são ignoradas.
-- **Senha própria por medidor** (`MW_MQTT_DYNSEC=1`, Mosquitto com o plugin dynamic-security): no pareamento, o medidor manda um segredo de 128 bits que ele mesmo sorteou; o servidor cria no broker um usuário só dele, preso ao id de cliente dele, com permissão apenas para `meterwatt/<id>/...`. Antes de parear, o medidor usa uma conta de "provisão" que só consegue pedir pareamento. Remover o medidor apaga o usuário. Um código válido de outra conta nunca troca a senha de um medidor que já tem dono. Testado contra o Mosquitto 2.0.18.
+- Energia: um salto do contador maior que 30 kW durante o intervalo não é somado. Minutos guardados sem conexão: no máximo 120 mensagens a cada 10 minutos por medidor, um minuto a cada 50 s ou mais, só depois da última leitura ao vivo, e nunca baixam o contador.
+- **Senha própria por medidor** (`MW_MQTT_DYNSEC=1`, Mosquitto com o plugin dynamic-security): no pareamento, o medidor manda um segredo de 128 bits que ele mesmo sorteou; o servidor cria no broker um usuário só dele, preso ao id de cliente dele, com permissão apenas para `meterwatt/<id>/...`. Antes de parear, o medidor usa uma conta de "provisão" que só consegue pedir pareamento e ler as respostas, que chegam em `meterwatt-resposta/<16 letras sorteadas a cada pedido>` (firmware 3.6). Remover o medidor apaga o usuário. Um código válido de outra conta nunca troca a senha de um medidor que já tem dono. Testado contra o Mosquitto 2.0.18.
 - **Conexão criptografada**: firmware 3.3 usa TLS na porta 8883 e confere o certificado do servidor (raiz da Let's Encrypt em `ca_raiz.h`). Não testado em placa.
-- Limite conhecido: quem extrair a senha de provisão de um medidor consegue derrubar a conexão de outro (conectando com o mesmo id), mas não ler nem enviar consumo.
+- A senha de provisão está em todo medidor, então conta como pública. Desde o firmware 3.6 ela não lê mais os comandos de ninguém (antes via o id de todos os medidores), e o id de cliente de cada medidor leva um sufixo sorteado que só ele conhece: entrar com o id dele não derruba mais a conexão. Medidores com firmware anterior ao 3.6 não completam o pareamento (não recebem a resposta).
+- Revisão de segurança independente em 25/11/2026 (um revisor que não escreveu o código, com testes de prova): 4 falhas, todas corrigidas no PR #21 com testes que as reproduzem. Nenhuma permitia ler dados de outra conta.
 - Sem o dynamic-security (rede de casa), vale o esquema antigo: `infra/mosquitto-acl.exemplo`.
 
 ## App instalado e notificações
@@ -73,4 +77,4 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 - [ ] Alertas de login em aparelho novo.
 - [ ] Cópia automática dos backups para fora do servidor e ensaio de restauração.
 - [ ] Testar em placa: senha própria, TLS e a volta para a conta de pareamento.
-- [ ] Rodar o conjunto Docker num servidor de verdade.
+- [ ] Rodar o conjunto Docker num servidor de verdade (no GitHub ele já roda a cada PR: `tools/ensaio_docker.py`).

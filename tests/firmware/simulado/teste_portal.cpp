@@ -1,5 +1,6 @@
 // Roda o firmware firmware/mwatt_pzem num ESP32 simulado: página de configuração, memória, atualização pelo Wi-Fi e botão BOOT.
 // Use tests/firmware/simulado/rodar.sh na raiz do repositório.
+#include <algorithm>
 #include "arduino_falso.h"
 #include "../../../firmware/mwatt_pzem/mwatt_pzem.ino"
 static int falhas = 0;
@@ -42,24 +43,35 @@ int main() {
   CONFERE(nvs.count("codigo") == 0);                                  // e nunca vai para a memória
   girar(100);
   CONFERE(std::string(segredo).size() == 32 && nvsId["segredo"] == segredo);          // sorteado na primeira vez e guardado
-  CONFERE(pedidos() == 1 && publicadas.back().corpo == std::string("{\"codigo\":\"K7QM-2XPA\",\"segredo\":\"") + segredo + "\"}" && !publicadas.back().retido);
+  // v3.6: o id de cliente leva um sufixo sorteado, e a resposta vem num tópico que só este pedido conhece
+  CONFERE(std::string(sufixo).size() == 8 && nvsId["sufixo"] == sufixo && mqtt.idCliente == std::string("mw-A1B2C3D4E5F6-") + sufixo);
+  CONFERE(pedidos() == 1 && publicadas.back().corpo == std::string("{\"codigo\":\"K7QM-2XPA\",\"segredo\":\"") + segredo
+          + "\",\"cliente\":\"mw-A1B2C3D4E5F6-" + sufixo + "\",\"resposta\":\"" + pedidoPareamento.resposta + "\"}" && !publicadas.back().retido);
+  CONFERE(std::string(topicoResposta) == std::string("meterwatt-resposta/") + pedidoPareamento.resposta
+          && std::find(assinados.begin(), assinados.end(), std::string(topicoResposta)) != assinados.end());
   girar(31000);
   CONFERE(pedidos() == 2);                                            // repete a cada 30 s
-  { char t[] = "meterwatt/mw-A1B2C3D4E5F6/comando"; byte r[] = {'p','a','r','e','a','d','o'}; mqtt.cb(t, r, 7); }
+  { char t[] = "meterwatt-resposta/ffffffffffffffff"; byte r[] = {'p','a','r','e','a','d','o'}; mqtt.cb(t, r, 7); }
+  CONFERE(pedidoPareamento.ativo);                                    // resposta de outro pedido: não vale
+  { std::string t = topicoResposta; byte r[] = {'p','a','r','e','a','d','o'}; mqtt.cb(&t[0], r, 7); }
   CONFERE(!pedidoPareamento.ativo);
   girar(31000);
   CONFERE(pedidos() == 2);                                            // confirmado: parou de pedir
 
   // 3c. Senha própria: o servidor confirma, o medidor reconecta com usuário = id e senha = segredo
   auto comando = [](const char* texto) { char t[] = "meterwatt/mw-A1B2C3D4E5F6/comando"; std::string c(texto); mqtt.cb(t, (byte*)c.data(), (unsigned)c.size()); };
+  auto resposta = [](const char* texto) { std::string t = topicoResposta; std::string c(texto); mqtt.cb(&t[0], (byte*)c.data(), (unsigned)c.size()); };
   CONFERE(mqtt.usuario == "casa1" && !cred.propria);                  // até aqui, a conta da página
   comando("pareado_credencial");
   CONFERE(!cred.propria);                                             // sem pedido em andamento, ninguém liga a senha própria de fora
+  std::string respostaAntiga = topicoResposta;
   portal.enviar({{"codigo", "ABCD-EFGH"}}); girar(100);
-  comando("pareado_credencial");
+  CONFERE(respostaAntiga != topicoResposta);                          // cada pedido sorteia um tópico novo
+  resposta("pareado_credencial");
   CONFERE(cred.propria && nvsId["propria"] == "1");
   girar(200);
-  CONFERE(mqtt.connected() && mqtt.usuario == "mw-A1B2C3D4E5F6" && mqtt.senha == segredo);
+  CONFERE(mqtt.connected() && mqtt.usuario == "mw-A1B2C3D4E5F6" && mqtt.senha == segredo
+          && mqtt.idCliente == std::string("mw-A1B2C3D4E5F6-") + sufixo);
   // porta 8883 = conexão criptografada, conferindo o certificado do servidor
   CONFERE(cfg.porta == 8883 && mqtt.cliente == (Client*)&redeSegura && redeSegura.ca == CA_RAIZ);
   portal.enviar({{"mqtt_porta", "1883"}}); girar(6000);

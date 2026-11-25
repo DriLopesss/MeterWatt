@@ -3,8 +3,14 @@
  *
  * 1. No aplicativo, a pessoa toca em "Adicionar medidor" e recebe um código (vale 15 min).
  * 2. Na página de configuração do medidor, digita o código.
- * 3. O medidor publica {"codigo":"XXXX-XXXX"} em meterwatt/<id>/pareamento a cada 30 s,
- *    até o servidor responder "pareado" em meterwatt/<id>/comando ou passarem 15 min.
+ * 3. O medidor publica {"codigo":"XXXX-XXXX",...} em meterwatt/<id>/pareamento a cada 30 s,
+ *    até o servidor responder "pareado" ou passarem 15 min.
+ *
+ * RESPOSTA SÓ PARA ELE (v3.6): a resposta vai para meterwatt-resposta/<16 letras sorteadas a cada pedido>,
+ * que só este medidor conhece (ele manda junto com o código). Antes ia para meterwatt/<id>/comando, e a
+ * conta de pareamento (cuja senha está em todo medidor) podia ler os comandos de todos. O medidor também
+ * entra no servidor com um id de cliente que leva um sufixo sorteado (<id>-xxxxxxxx), para ninguém derrubar
+ * a conexão dele entrando com o mesmo id.
  *
  * O código fica só na memória RAM: nunca é gravado. Não depende do Arduino, para ser
  * testado no computador (tests/firmware/teste_pareamento.cpp).
@@ -29,6 +35,7 @@ const uint32_t REPETIR_MS = 30UL * 1000UL;
 
 struct Estado {
   char codigo[10];
+  char resposta[17];    // fim do tópico onde a resposta deste pedido chega (sorteado a cada pedido)
   uint32_t inicio;
   uint32_t ultimoEnvio;
   bool ativo;
@@ -37,14 +44,21 @@ struct Estado {
 
 inline void limpar(Estado* e) {
   memset(e->codigo, 0, sizeof(e->codigo));
+  memset(e->resposta, 0, sizeof(e->resposta));
   e->inicio = e->ultimoEnvio = 0;
   e->ativo = e->jaEnviou = false;
 }
 
-// `codigo` já normalizado (ajustes::normalizarCodigo).
-inline void iniciar(Estado* e, const char* codigo, uint32_t agora) {
+// 16 letras de 0-9a-f a partir de dois números aleatórios de 32 bits.
+inline void montarResposta(const uint32_t aleatorio[2], char saida[17]) {
+  snprintf(saida, 17, "%08lx%08lx", (unsigned long)aleatorio[0], (unsigned long)aleatorio[1]);
+}
+
+// `codigo` já normalizado (ajustes::normalizarCodigo); `resposta` de montarResposta.
+inline void iniciar(Estado* e, const char* codigo, uint32_t agora, const char* resposta) {
   limpar(e);
   strncpy(e->codigo, codigo, sizeof(e->codigo) - 1);
+  strncpy(e->resposta, resposta, sizeof(e->resposta) - 1);
   e->inicio = agora;
   e->ativo = true;
 }
@@ -65,8 +79,14 @@ inline void marcarEnviado(Estado* e, uint32_t agora) {
   e->jaEnviou = true;
 }
 
-inline int montarMensagem(const Estado& e, const char* segredo, char* saida, size_t tamanho) {
-  return snprintf(saida, tamanho, "{\"codigo\":\"%s\",\"segredo\":\"%s\"}", e.codigo, segredo);
+inline int montarMensagem(const Estado& e, const char* segredo, const char* cliente, char* saida, size_t tamanho) {
+  return snprintf(saida, tamanho, "{\"codigo\":\"%s\",\"segredo\":\"%s\",\"cliente\":\"%s\",\"resposta\":\"%s\"}",
+                  e.codigo, segredo, cliente, e.resposta);
+}
+
+// O tópico onde chega a resposta deste pedido.
+inline int montarTopicoResposta(const Estado& e, char* saida, size_t tamanho) {
+  return snprintf(saida, tamanho, "meterwatt-resposta/%s", e.resposta);
 }
 
 enum Comando {
@@ -126,6 +146,18 @@ inline void aoDesparear(Estado* e) { limpar(e); }
 inline void montarSegredo(const uint32_t aleatorio[4], char saida[33]) {
   snprintf(saida, 33, "%08lx%08lx%08lx%08lx", (unsigned long)aleatorio[0], (unsigned long)aleatorio[1],
            (unsigned long)aleatorio[2], (unsigned long)aleatorio[3]);
+}
+
+// Sufixo do id de cliente MQTT: 8 letras de 0-9a-f, sorteadas uma vez e guardadas com o segredo.
+inline void montarSufixo(uint32_t aleatorio, char saida[9]) { snprintf(saida, 9, "%08lx", (unsigned long)aleatorio); }
+
+inline bool sufixoValido(const char* s) {
+  if (!s) return false;
+  size_t n = 0;
+  for (; s[n]; n++) {
+    if (!((s[n] >= '0' && s[n] <= '9') || (s[n] >= 'a' && s[n] <= 'f')) || n >= 8) return false;
+  }
+  return n == 8;
 }
 
 inline bool segredoValido(const char* s) {

@@ -385,6 +385,16 @@ MIGRACOES = [
     CREATE INDEX chaves_integracao_usuario ON chaves_integracao(usuario_id);
     ALTER TABLE usuarios ADD COLUMN energia_total_wh REAL NOT NULL DEFAULT 0;
     """,
+    # 18: aparelhos já vistos e a marca do segredo de cada um. Um medidor removido de uma conta só pode ser pareado
+    # de novo pelo próprio aparelho (o mesmo segredo, que fica numa memória que o BOOT não apaga). Sem isso, quem
+    # tem a senha de provisão pareava o id de um aparelho removido na própria conta (revisão de 25/11).
+    """
+    CREATE TABLE medidores_conhecidos (
+        id TEXT PRIMARY KEY,
+        segredo_hmac TEXT NOT NULL,
+        visto_em REAL NOT NULL
+    );
+    """,
 ]
 
 

@@ -34,7 +34,7 @@ Um servidor só, com três peças: o site (`app`), o servidor de mensagens dos m
    ```
    O Caddy pede o certificado HTTPS sozinho. O Mosquitto espera esse certificado aparecer e só então inicia (pode levar um minuto).
 5. Abra `https://SEU-DOMINIO`. Crie a sua conta e ative a verificação em duas etapas.
-6. Em cada medidor (firmware 3.3 ou mais novo), na página de configuração: servidor = o domínio, **porta = 8883**, usuário e senha = os de `MW_MQTT_PROVISAO_*`. Depois, o código de pareamento. A partir daí o medidor passa a usar a senha só dele.
+6. Em cada medidor (firmware 3.6 ou mais novo), na página de configuração: servidor = o domínio, **porta = 8883**, usuário e senha = os de `MW_MQTT_PROVISAO_*`. Depois, o código de pareamento. A partir daí o medidor passa a usar a senha só dele.
 
 ## Manutenção
 - **Atualizar:** `git pull && docker compose up -d --build`.

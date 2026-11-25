@@ -24,7 +24,12 @@ CONTROLE = "$CONTROL/dynamic-security/v1"
 RESPOSTA = CONTROLE + "/response"
 PAPEL_SERVIDOR = "meterwatt-servidor"
 PAPEL_PROVISAO = "meterwatt-provisao"
-ERROS_ESPERADOS = ("already exists", "already in", "Internal error")   # repetir o preparo não é problema
+ERROS_ESPERADOS = ("already exists", "already in", "Internal error", "not found")   # repetir o preparo não é problema
+# Onde o servidor responde a um pedido de pareamento: um tópico que só o medidor que pediu conhece (ele sorteia o
+# fim e manda junto com o código). Antes ia para meterwatt/<id>/comando, que a conta de provisão podia assinar
+# com curinga: quem tivesse a senha de provisão (todo comprador) via o id de todos os medidores (revisão de 25/11).
+RESPOSTA_PAREAMENTO = "meterwatt-resposta/"
+ACL_ANTIGA_PROVISAO = {"acltype": "subscribePattern", "topic": "meterwatt/+/comando"}
 
 
 def _acl(tipo, topico):
@@ -33,12 +38,15 @@ def _acl(tipo, topico):
 
 def comandos_de_preparo(cfg):
     """Papéis do servidor e da conta de provisão. Pode ser enviado quantas vezes for."""
-    acls_servidor = [_acl("subscribePattern", t) for t, _ in TOPICOS] + [_acl("publishClientSend", "meterwatt/+/comando")]
-    acls_provisao = [_acl("publishClientSend", "meterwatt/+/pareamento"), _acl("subscribePattern", "meterwatt/+/comando")]
+    acls_servidor = [_acl("subscribePattern", t) for t, _ in TOPICOS] + [_acl("publishClientSend", "meterwatt/+/comando"),
+                                                                         _acl("publishClientSend", RESPOSTA_PAREAMENTO + "+")]
+    acls_provisao = [_acl("publishClientSend", "meterwatt/+/pareamento"), _acl("subscribePattern", RESPOSTA_PAREAMENTO + "+")]
     comandos = [{"command": "createRole", "rolename": PAPEL_SERVIDOR}]
     comandos += [{"command": "addRoleACL", "rolename": PAPEL_SERVIDOR, **a} for a in acls_servidor]
     comandos += [{"command": "createRole", "rolename": PAPEL_PROVISAO}]
     comandos += [{"command": "addRoleACL", "rolename": PAPEL_PROVISAO, **a} for a in acls_provisao]
+    # Broker que já rodou uma versão anterior: a provisão perde a permissão de ler os comandos de todos.
+    comandos.append({"command": "removeRoleACL", "rolename": PAPEL_PROVISAO, **ACL_ANTIGA_PROVISAO})
     if cfg.mqtt_provisao_usuario:
         comandos.append({"command": "createClient", "username": cfg.mqtt_provisao_usuario, "password": cfg.mqtt_provisao_senha,
                          "textname": "MeterWatt: medidores ainda não pareados", "roles": [{"rolename": PAPEL_PROVISAO}]})
@@ -48,14 +56,18 @@ def comandos_de_preparo(cfg):
     return comandos
 
 
-def comandos_do_medidor(mid, segredo):
+def comandos_do_medidor(mid, segredo, cliente=None):
+    """`cliente`: o id de cliente MQTT do medidor. No firmware 3.6, o id mais um sufixo sorteado que só ele conhece:
+    quem tem a senha de provisão não consegue entrar com o id dele e derrubar a conexão (revisão de 25/11)."""
     papel = f"medidor-{mid}"
+    cliente = cliente or mid
     acls = [_acl("publishClientSend", f"meterwatt/{mid}/{t}") for t in ("telemetria", "status", "pareamento")]
     acls.append(_acl("subscribeLiteral", f"meterwatt/{mid}/comando"))
     return [
         {"command": "createRole", "rolename": papel, "acls": acls},
-        {"command": "createClient", "username": mid, "password": segredo, "clientid": mid, "roles": [{"rolename": papel}]},
+        {"command": "createClient", "username": mid, "password": segredo, "clientid": cliente, "roles": [{"rolename": papel}]},
         {"command": "setClientPassword", "username": mid, "password": segredo},   # se já existia: vale o segredo novo
+        {"command": "setClientId", "username": mid, "clientid": cliente},
     ]
 
 
@@ -71,8 +83,8 @@ class Credenciais:
         info = self.cliente.publish(CONTROLE, json.dumps({"commands": [{**c, "correlationData": marca} for c in comandos]}), qos=1)
         return info.rc == mqtt.MQTT_ERR_SUCCESS
 
-    def registrar(self, mid, segredo):
-        return self._enviar(comandos_do_medidor(mid, segredo), f"medidor:{mid}")
+    def registrar(self, mid, segredo, cliente=None):
+        return self._enviar(comandos_do_medidor(mid, segredo, cliente), f"medidor:{mid}")
 
     def remover(self, mid):
         return self._enviar([{"command": "deleteClient", "username": mid}, {"command": "deleteRole", "rolename": f"medidor-{mid}"}],

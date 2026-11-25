@@ -136,3 +136,15 @@ def test_excluir_a_conta_apaga_os_acessos(casa, plataforma):
     assert bia.get("/api/conta/eu").get_json()["casas"] == []
     r = bia.get("/api/medidores", headers={"X-MW-Casa": str(dono)})
     assert r.status_code == 403 and r.get_json()["codigo"] == "sem_acesso"
+
+
+def test_convite_nao_vira_email_de_golpe(cliente, plataforma):
+    """Revisão de 25/11: o nome da conta ia no assunto de um e-mail para qualquer endereço."""
+    from conftest import cadastrar, entrar
+    cadastrar(cliente, plataforma, nome="Banco Seguro: conta bloqueada, regularize em http://evil.example")
+    entrar(cliente)
+    assert cliente.post("/api/casa/convites", {"email": "qualquer@vitima.example"}).status_code == 201
+    m = plataforma.mensageiro.ultimo_para("qualquer@vitima.example")
+    assert m["assunto"] == "Convite para ver o consumo de energia de uma casa no MeterWatt"
+    assert "http://evil" not in m["texto"] and "evil.example" not in m["texto"] and ":" not in m["texto"].split('"')[1]
+    assert '(nome na conta: "Banco Seguro conta bloqueada regularize")' in m["texto"]

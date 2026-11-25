@@ -189,6 +189,19 @@ def main():
             f.write(segredo)
         os.chmod(arquivo_segredo, 0o600)
 
+    # Como o firmware 3.6: o id de cliente leva um sufixo sorteado uma vez e guardado (ninguém derruba a conexão
+    # entrando com o id do medidor), e cada pedido de pareamento sorteia o tópico onde a resposta vai chegar.
+    arquivo_sufixo = f".simulador-{args.id}.cliente"
+    if os.path.exists(arquivo_sufixo):
+        sufixo = open(arquivo_sufixo, encoding="ascii").read().strip()
+    else:
+        sufixo = secrets.token_hex(4)
+        with open(arquivo_sufixo, "w", encoding="ascii") as f:
+            f.write(sufixo)
+    id_cliente = f"{args.id}-{sufixo}"
+    resposta = secrets.token_hex(8)
+    topico_resposta = f"meterwatt-resposta/{resposta}"
+
     pareado = threading.Event()
     com_senha_propria = threading.Event()
     if args.senha_propria:
@@ -202,8 +215,8 @@ def main():
             print("Pareamento confirmado pelo servidor: o medidor já aparece no aplicativo.")
 
     def conectar():
-        # O id de cliente é o próprio id do medidor: a senha própria só vale com ele.
-        c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=args.id)
+        # O id de cliente é o id do medidor com o sufixo dele: a senha própria só vale com esse id.
+        c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=id_cliente)
         if com_senha_propria.is_set():
             c.username_pw_set(args.id, segredo)
         elif os.getenv("MQTT_USUARIO"):
@@ -213,7 +226,8 @@ def main():
         c.will_set(f"{base}/status", "offline", retain=True)
         c.on_message = ao_receber
         c.on_connect = lambda cl, _u, _f, codigo, _p=None: (
-            cl.subscribe(f"{base}/comando"), cl.publish(f"{base}/status", "online", retain=True)) if codigo == 0 else print(
+            cl.subscribe(f"{base}/comando"), cl.subscribe(topico_resposta) if args.parear and not pareado.is_set() else None,
+            cl.publish(f"{base}/status", "online", retain=True)) if codigo == 0 else print(
             f"O servidor MQTT recusou a conexão ({codigo}). Confira usuário e senha"
             + (", ou pareie de novo: a senha própria não vale mais." if com_senha_propria.is_set() else "."))
         c.connect(host, porta)
@@ -223,7 +237,7 @@ def main():
     cliente = conectar()
     time.sleep(0.5)
     if args.parear:
-        pedido = json.dumps({"codigo": args.parear.strip().upper(), "segredo": segredo})
+        pedido = json.dumps({"codigo": args.parear.strip().upper(), "segredo": segredo, "cliente": id_cliente, "resposta": resposta})
         limite = time.time() + 15 * 60
         while not pareado.is_set() and time.time() < limite:   # igual ao firmware: repete a cada 30 s
             cliente.publish(f"{base}/pareamento", pedido, qos=1)

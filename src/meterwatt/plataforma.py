@@ -36,6 +36,9 @@ class Plataforma:
         self.limite_formularios_ip = Limitador(10, 60 * 60)
         self.limite_exportar = Limitador(5, 60 * 60)
         self.limite_confirmacao = Limitador(5, 15 * 60)   # senha pedida de novo para ações sensíveis
+        # Códigos errados da verificação em duas etapas, por conta. Não zera ao acertar a senha: sem isso, quem
+        # tem a senha entra de novo a cada 4 erros e tenta o código sem fim (achado da revisão de 25/11).
+        self.limite_2fa_conta = Limitador(10, 60 * 60)
 
         # Senha própria por medidor: quem cria e apaga é o cliente MQTT, quando o broker
         # usa o plugin dynamic-security (veja mqtt.py). Sem ele, ninguém faz nada.

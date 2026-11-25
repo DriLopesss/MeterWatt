@@ -8,12 +8,23 @@
 - A dona pode tirar o acesso a qualquer momento; quem foi convidado pode sair. Tudo vai para a atividade das duas
   contas e para a cópia dos dados.
 """
+import unicodedata
+
 from .erros import ErroDeNegocio, NaoEncontrado
 from .seguranca import hash_token, novo_token, token_com_formato_valido
 
 VALIDADE_S = 7 * 86400
 MAXIMO_PESSOAS = 5
 MAXIMO_CONVITES_DIA = 10
+
+
+def nome_no_email(nome):
+    """O nome de quem convida, do jeito que pode ir num e-mail para um endereço qualquer: só letras, espaços,
+    apóstrofo e hífen, até 40 caracteres. Sem isso, um "nome" como "Banco X: regularize em http://..." virava
+    um e-mail de golpe com o remetente do MeterWatt (revisão de 25/11)."""
+    limpo = "".join(c if unicodedata.category(c).startswith("L") or c in " '-" else " " for c in nome or "")
+    limpo = " ".join(limpo.split())[:40].strip(" '-")
+    return limpo or "Uma pessoa"
 
 
 def _email(texto):
@@ -85,9 +96,11 @@ class Compartilhar:
             conn.execute("INSERT INTO convites_casa (dono_id, email, token_hash, criado_em, expira_em) VALUES (?, ?, ?, ?, ?)",
                          (uid, email, hash_token(token), agora, agora + VALIDADE_S))
             self.p.auditar(conn, uid, "casa_convite", None, ip)
-        self.p.enviar_email(email, f"{sessao['nome']} quer compartilhar o consumo de energia da casa com você", (
-            f"Olá.\n\n{sessao['nome']} usa o MeterWatt para acompanhar o consumo de energia da casa e convidou você para ver "
-            "o painel: quanto a casa gasta agora, a meta do mês e o relatório. Você só vê; não muda nada.\n\n"
+        # O assunto é fixo: o nome vem de quem cadastrou a conta, e o e-mail vai para um endereço qualquer.
+        self.p.enviar_email(email, "Convite para ver o consumo de energia de uma casa no MeterWatt", (
+            f"Olá.\n\nUma pessoa que usa o MeterWatt (nome na conta: \"{nome_no_email(sessao['nome'])}\") convidou você para ver "
+            "o painel de consumo de energia da casa dela: quanto a casa gasta agora, a meta do mês e o relatório. "
+            "Você só vê; não muda nada.\n\n"
             f"Para aceitar, entre na sua conta do MeterWatt com este e-mail (ou crie uma) e abra:\n"
             f"{self.p.cfg.url_publica}/#compartilhar/{token}\n\nO convite vale 7 dias. Se não conhece quem mandou, "
             "é só ignorar este e-mail.\n\nEquipe MeterWatt\n"))

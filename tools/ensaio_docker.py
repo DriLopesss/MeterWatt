@@ -18,8 +18,6 @@ Precisa de Docker com o compose, de acesso ao Docker Hub, das dependências de s
 infra/.env (que pode ser o de produção de vocês).
 """
 import argparse
-import email
-import email.policy
 import http.cookiejar
 import json
 import os

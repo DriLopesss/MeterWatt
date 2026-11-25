@@ -241,6 +241,10 @@ class Contas:
         uid = sessao["usuario_id"]
         u = self._usuario(conn, uid)
         agora = self.p.agora()
+        espera = self.p.limite_2fa_conta.esgotado(uid, agora)
+        if espera:
+            raise ErroDeNegocio(f"Muitos códigos errados nesta conta. Tente de novo em {max(1, round(espera / 60))} minuto(s).",
+                                429, "muitas_tentativas")
         passo = confere_totp(self.p.cofre.decifrar(u["totp_cifrado"]), codigo, agora, u["totp_ultimo_passo"])
         backup = None
         if passo is None:
@@ -249,6 +253,16 @@ class Contas:
                 backup = conn.execute("SELECT id FROM codigos_backup WHERE usuario_id = ? AND codigo_hash = ? AND usado_em IS NULL",
                                       (uid, self.p.cofre.hmac(normal))).fetchone()
         if passo is None and backup is None:
+            self.p.limite_2fa_conta.registrar(uid, agora)
+            if self.p.limite_2fa_conta.esgotado(uid, agora):
+                # Chegou ao limite agora: quem errou tanto já tem a senha. A dona da conta precisa saber.
+                with conn:
+                    self.p.auditar(conn, uid, "login_2fa_bloqueado", None, ip)
+                self._avisar(u, "Muitos códigos errados na sua conta", (
+                    "Alguém acertou a sua senha do MeterWatt, mas errou o código de verificação em duas etapas muitas vezes. "
+                    "Por segurança, a verificação ficou bloqueada por uma hora.\n\n"
+                    "Se não foi você, troque a senha agora (Esqueci a senha, na tela de entrada). A conta continua protegida "
+                    "pela verificação em duas etapas."))
             tentativas = sessao["tentativas_2fa"] + 1
             with conn:
                 if tentativas >= 5:

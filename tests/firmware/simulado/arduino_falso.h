@@ -150,14 +150,14 @@ static std::vector<std::string> assinados;
 static int recusarLogin = 0;        // 0 = aceita; senão, o estado MQTT devolvido para a senha própria (4 ou 5)
 struct PubSubClient {
   bool conectado = false; void (*cb)(char*, byte*, unsigned int) = nullptr; std::string lwt; size_t buf = 256;
-  Client* cliente = nullptr; std::string usuario, senha; int estado = 0, tentativas = 0;
+  Client* cliente = nullptr; std::string usuario, senha, idCliente; int estado = 0, tentativas = 0;
   PubSubClient(Client& c) : cliente(&c) {}
   void setClient(Client& c) { cliente = &c; }
   void setServer(const char*, int) {} void setBufferSize(size_t n) { buf = n; }
   void setCallback(void (*f)(char*, byte*, unsigned int)) { cb = f; }
   bool connect(const char* id, const char* u, const char* s, const char* t, int, bool, const char*) {
-    tentativas++; usuario = u; senha = s; lwt = t;
-    if (recusarLogin && usuario == id) { estado = recusarLogin; conectado = false; return false; }
+    tentativas++; usuario = u; senha = s; lwt = t; idCliente = id;
+    if (recusarLogin && std::string(id).rfind(usuario + "-", 0) == 0) { estado = recusarLogin; conectado = false; return false; }
     estado = 0; conectado = true; return true; }
   bool connected() { return conectado; } int state() { return estado; } void loop() {} void disconnect() { conectado = false; desconexoes++; } int desconexoes = 0;
   bool subscribe(const char* t) { assinados.push_back(t); return true; }
