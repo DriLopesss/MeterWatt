@@ -247,7 +247,7 @@ python tools/simulador_pzem.py --intervalo 1 --parear K7QM-2XPA   # código gera
 ```
 Em desenvolvimento os e-mails (confirmação, senha) ficam em `src/instancia/caixa-de-saida/`. A pasta `instancia/` guarda o banco e a chave de desenvolvimento e nunca vai para o Git.
 
-- **Segurança**: Argon2id, verificação em duas etapas (TOTP + códigos de backup), sessões no servidor, CSRF, limites de tentativas, CSP estrita. Detalhes em [`docs/seguranca.md`](docs/seguranca.md).
+- **Segurança**: Argon2id, verificação em duas etapas (TOTP + códigos de backup), senhas vazadas recusadas, aviso por e-mail de entrada por navegador novo, sessões no servidor, CSRF, limites de tentativas guardados no banco, CSP estrita, dependências travadas com hash e vigiadas no GitHub (pip-audit, gitleaks, Dependabot). Detalhes em [`docs/seguranca.md`](docs/seguranca.md); para avisar de uma falha, [`SECURITY.md`](SECURITY.md).
 - **LGPD**: autorizações por finalidade com histórico, cópia dos dados, apagar consumo, excluir conta, atividade visível, retenção automática. Detalhes em [`docs/lgpd.md`](docs/lgpd.md).
 - **Consumo fantasma**: quanto a casa gasta parada (madrugadas dos últimos 7 dias), em W, kWh e R$ por mês.
 - **Meta do mês**: previsão da conta até o fim do mês e quanto dá para gastar por dia para caber.

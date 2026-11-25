@@ -208,6 +208,8 @@ def main():
             http_status, destino = 200, ""
         except urllib.error.HTTPError as e:
             http_status, destino = e.code, e.headers.get("Location", "")
+        st_sec, _, texto_sec = site.chamar("GET", "/.well-known/security.txt", cru=True)
+        passo("security.txt publicado com o contato de segurança", st_sec == 200 and "Contact: mailto:privacidade@exemplo.com.br" in texto_sec)
         passo("HTTP (porta 80) redireciona para HTTPS", http_status in (301, 302, 307, 308) and destino.startswith("https://"),
               f"{http_status} {destino}")
 

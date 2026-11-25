@@ -1,0 +1,52 @@
+# Vigilância: bibliotecas com falha conhecida (pip-audit) e senhas ou chaves no código (gitleaks).
+# Roda em cada PR e toda segunda-feira (falhas novas são publicadas depois que a versão foi travada).
+name: Segurança
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 10 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bibliotecas:
+    name: Bibliotecas com falha conhecida
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      # O que o Docker instala (travado, com hash) e o que o requirements.txt deixa instalar hoje
+      - run: pip-audit --require-hashes -r src/requirements-trava.txt
+      - run: pip-audit -r src/requirements.txt
+      # A trava precisa continuar instalável no Python da imagem, conferindo os hashes
+      - run: 'pip install --require-hashes --only-binary=:all: -r src/requirements-trava.txt'
+
+  segredos:
+    name: Senhas e chaves no código
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # gitleaks 8.21.2, conferido pelo SHA-256 publicado no próprio lançamento
+      - run: |
+          curl -sSL -o gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz
+          echo "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba  gitleaks.tgz" | sha256sum -c -
+          tar xzf gitleaks.tgz gitleaks
+      - name: Procura no código atual
+        run: ./gitleaks dir . --no-banner --redact
+      - name: Procura nos commits deste PR (ou no histórico do main)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ./gitleaks git . --no-banner --redact --log-opts="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          else
+            ./gitleaks git . --no-banner --redact
+          fi

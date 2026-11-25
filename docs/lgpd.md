@@ -113,6 +113,11 @@ Cada decisão fica registrada com versão do texto, data e origem (cadastro ou p
 - **Total de energia** da conta (um número que só cresce): sai ao apagar o consumo e vai na cópia dos dados.
 - Quem cria a chave decide entregar esses números (potência, consumo, custo do dia, tensão) ao Home Assistant dele. Daí em diante, o tratamento é dele, no sistema dele.
 
+## O que entrou no bloco 20 (proteções da conta)
+- **Navegador novo:** um cookie de segurança (aleatório, 400 dias) reconhece o navegador. No banco ficam só o HMAC dele, o tipo de navegador ("Chrome no Android") e as datas da primeira e da última entrada; nada do endereço de rede além do que já vai na atividade. Entrar por um navegador novo manda um e-mail "foi você?". Entra na cópia dos dados (`navegadores_de_entrada`), sai com a conta e depois de 400 dias sem uso. A política fala dos dois cookies. Base: segurança da conta (execução do contrato e legítimo interesse) [ADVOGADO: confirmar; o texto da política mudou nessa frase].
+- **Senhas vazadas:** no cadastro e na troca de senha, os 5 primeiros caracteres do SHA-1 da senha vão ao Pwned Passwords (Have I Been Pwned, fora do Brasil). A senha e o resumo inteiro nunca saem; o serviço não recebe e-mail, nome nem endereço da pessoa. [ADVOGADO: listar como operador/transferência internacional, mesmo sem dado pessoal identificável.]
+- **Limites de tentativa no banco:** as chaves (e-mail, rede, conta) ficam como HMAC e as linhas são apagadas depois de um dia.
+
 ## Pendências jurídicas e de operação
 - [ ] [ADVOGADO] Revisar política e termos (rascunhos em `src/meterwatt/estatico/index.html`).
 - [ ] [ADVOGADO] Nomear o encarregado (DPO) ou registrar a dispensa para agente de pequeno porte (Resolução CD/ANPD nº 2/2022).

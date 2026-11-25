@@ -79,6 +79,8 @@ class Config:
     mqtt_provisao_senha: str | None = None
     # cópias de segurança
     backup_automatico: bool = False
+    email_seguranca: str | None = None    # quem recebe avisos de falha de segurança (security.txt)
+    senhas_vazadas: bool = False      # confere a senha nova no Pwned Passwords (k-anonimato); ligado em produção
     backup_manter: int = 14
     # notificações no celular (Web Push): chave do servidor (VAPID) e contato que vai junto de cada envio
     vapid_chave_privada: str | None = None
@@ -262,6 +264,7 @@ def carregar(env=None):
         remetente=env.get("MW_REMETENTE", "MeterWatt <nao-responda@localhost>"),
         controlador=env.get("MW_CONTROLADOR") or None,
         email_privacidade=env.get("MW_EMAIL_PRIVACIDADE") or None,
+        email_seguranca=(env.get("MW_EMAIL_SEGURANCA") or env.get("MW_EMAIL_PRIVACIDADE") or "").strip() or None,
         encarregado=env.get("MW_ENCARREGADO") or None,
         exigir_2fa=_bool(env.get("MW_EXIGIR_2FA"), False),
         retencao_bruta_horas=int(env.get("MW_RETENCAO_BRUTA_HORAS", "48")),
@@ -281,6 +284,7 @@ def carregar(env=None):
         mqtt_provisao_usuario=env.get("MW_MQTT_PROVISAO_USUARIO") or None,
         mqtt_provisao_senha=env.get("MW_MQTT_PROVISAO_SENHA") or None,
         backup_automatico=_bool(env.get("MW_BACKUP_AUTOMATICO"), producao),
+        senhas_vazadas=_bool(env.get("MW_SENHAS_VAZADAS"), producao),
         backup_manter=max(1, int(env.get("MW_BACKUP_MANTER", "14"))),
         vapid_chave_privada=vapid or None,
         vapid_contato=contato,

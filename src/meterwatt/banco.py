@@ -395,6 +395,28 @@ MIGRACOES = [
         visto_em REAL NOT NULL
     );
     """,
+    # 19: navegadores em que a pessoa já entrou (um cookie de longa duração, guardado aqui só como HMAC). Entrar por
+    # um navegador novo manda um e-mail "foi você?". Só o tipo de navegador e as datas, nada do endereço.
+    """
+    CREATE TABLE aparelhos_conhecidos (
+        usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        marca TEXT NOT NULL,
+        navegador TEXT,
+        primeiro REAL NOT NULL,
+        ultimo REAL NOT NULL,
+        PRIMARY KEY (usuario_id, marca)
+    );
+    """,
+    # 20: limites de tentativa (login, duas etapas, pareamento...) no banco, para valerem depois de reiniciar.
+    # A chave (e-mail, rede, conta, medidor) fica como HMAC. Apagadas depois de um dia (retenção).
+    """
+    CREATE TABLE tentativas (
+        nome TEXT NOT NULL,
+        chave TEXT NOT NULL,
+        instante REAL NOT NULL
+    );
+    CREATE INDEX tentativas_busca ON tentativas(nome, chave, instante);
+    """,
 ]
 
 

@@ -37,7 +37,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from .erros import ErroDeNegocio, NaoEncontrado
-from .seguranca import Limitador, resumir_navegador
+from .seguranca import resumir_navegador
 
 log = logging.getLogger("meterwatt.notificacoes")
 
@@ -186,7 +186,7 @@ class Notificacoes:
         cfg = plataforma.cfg
         self.vapid = Vapid(cfg.vapid_chave_privada, cfg.vapid_contato, plataforma.agora) if cfg.vapid_chave_privada else None
         self.transporte = transporte or enviar_http
-        self.limite_teste = Limitador(5, 15 * 60)
+        self.limite_teste = plataforma.limitador("teste_notificacao", 5, 15 * 60)
 
     @property
     def disponivel(self):

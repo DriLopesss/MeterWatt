@@ -1,0 +1,17 @@
+# O GitHub abre PRs quando sai versão nova (ou correção de segurança) do que o projeto usa.
+# Os PRs vão para o main; cada um roda os testes e, se mexer no servidor, o conjunto Docker.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /src                      # requirements-trava.txt (o que o Docker instala, com hash)
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: npm
+    directory: /android                  # @bubblewrap/core, que gera o app Android
+    schedule:
+      interval: monthly

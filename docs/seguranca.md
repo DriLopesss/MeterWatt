@@ -8,6 +8,8 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 - **Ninguém descobre se um e-mail tem conta**: cadastro, "esqueci a senha" e reenvio respondem igual; a entrada gasta o mesmo tempo com ou sem conta. Quem tenta cadastrar um e-mail já usado só gera um aviso para o dono do e-mail.
 - E-mail precisa ser confirmado (link de 24 h). Links de e-mail levam o token depois do `#`: o navegador não manda essa parte ao servidor, então ela não aparece em registros de acesso.
 - Redefinir senha: link de 30 minutos, uso único; encerra todas as sessões.
+- **Senhas vazadas** recusadas no cadastro, na troca e na redefinição (Pwned Passwords, k-anonimato: só os 5 primeiros caracteres do SHA-1 saem, com `Add-Padding`). Se o serviço não responder em 3 s, a senha segue. Ligado em produção (`MW_SENHAS_VAZADAS`).
+- **Navegador novo:** um cookie de segurança reconhece cada navegador (no banco, só o HMAC). Entrar por um navegador em que a conta nunca entrou manda um e-mail "foi você?", com o link para trocar a senha (o que encerra todas as sessões). A primeira entrada da conta não avisa. Com duas etapas, o aviso só sai depois do código.
 
 ## Verificação em duas etapas
 - TOTP (RFC 6238, 6 dígitos, 30 s, ±1 passo), testado com os vetores da RFC. Código usado não vale de novo.
@@ -28,7 +30,8 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 - Pedidos que alteram dados precisam ser JSON e vir da própria origem (`Origin` e `Sec-Fetch-Site`).
 - Corpo máximo de 64 KB. Erros sempre em JSON, sem detalhes internos.
 - Cabeçalhos: CSP só com `'self'` (sem `unsafe-inline`, sem nada de fora: as fontes são servidas pelo próprio servidor), HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, COOP e CORP.
-- Limites de tentativas: login 5 por e-mail e 30 por rede a cada 15 min; formulários públicos 10 por hora por rede; senha pedida de novo em ações sensíveis 5 a cada 15 min; cópia dos dados 5 por hora.
+- Limites de tentativas: login 5 por e-mail e 30 por rede a cada 15 min; formulários públicos 10 por hora por rede; senha pedida de novo em ações sensíveis 5 a cada 15 min; cópia dos dados 5 por hora. Guardados no banco (`limites.py`, tabela `tentativas`, chaves como HMAC): valem depois de reiniciar o servidor e entre processos; uma tentativa errada conta mesmo quando a operação é desfeita. Se o banco estiver ocupado, a contagem cai para a memória.
+- `/.well-known/security.txt` (RFC 9116) com o contato de segurança (`MW_EMAIL_SEGURANCA`) e a política em `SECURITY.md`.
 - Recurso de outra conta responde **404**, igual a um que não existe.
 - No navegador, nada de `innerHTML` com dado do servidor.
 - E-mail que vai para um endereço digitado por outra pessoa (convite da casa): assunto fixo, e o nome da conta só com letras, espaços, apóstrofo e hífen (sem isso, o nome virava um e-mail de golpe com o remetente do MeterWatt).
@@ -53,6 +56,10 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 - Trocar ou redefinir a senha, ativar o 2FA e encerrar sessões também desligam as notificações nos outros aparelhos.
 - Teste de notificação: 5 a cada 15 minutos por conta.
 
+## Vigilância no GitHub
+- **Dependências travadas** com hash (`src/requirements-trava.txt`, `pip-compile --generate-hashes`): o Docker só instala o que confere. O **Dependabot** propõe as atualizações (Python, GitHub Actions e o gerador do app Android).
+- Job **Segurança** em cada PR e toda segunda-feira: `pip-audit` (falhas conhecidas nas bibliotecas) e `gitleaks` (senhas e chaves no código e nos commits do PR), com o binário conferido pelo SHA-256 publicado.
+
 ## Banco
 - SQLite com WAL, chaves estrangeiras e `secure_delete` (o que é apagado é sobrescrito). Arquivo com permissão 600.
 - Migrações versionadas (`PRAGMA user_version`). O esquema passa para PostgreSQL quando houver muitos clientes.
@@ -72,9 +79,11 @@ O que está no código (`src/meterwatt`) e o que ainda falta para receber client
 
 ## Ainda falta
 - [ ] Pentest independente antes do lançamento.
-- [ ] Limitador de tentativas compartilhado (Redis) quando houver mais de um processo.
-- [ ] Verificar senhas vazadas (Have I Been Pwned, consulta k-anonymity).
-- [ ] Alertas de login em aparelho novo.
+- [x] Limites de tentativa guardados no banco (valem entre processos e depois de reiniciar).
+- [x] Verificar senhas vazadas (Have I Been Pwned, consulta k-anonymity).
+- [x] Alertas de login em aparelho novo.
+- [ ] Entrar com passkey (WebAuthn).
+- [ ] Firmware assinado e memória cifrada no ESP32 (secure boot e flash encryption: grava fusíveis, sem volta; para a placa de produção).
 - [ ] Cópia automática dos backups para fora do servidor e ensaio de restauração.
 - [ ] Testar em placa: senha própria, TLS e a volta para a conta de pareamento.
 - [ ] Rodar o conjunto Docker num servidor de verdade (no GitHub ele já roda a cada PR: `tools/ensaio_docker.py`).
