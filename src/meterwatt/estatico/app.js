@@ -1115,6 +1115,16 @@ async function abrirPareamento() {
   contar();                    // sem esperar 1 s: o texto de um código anterior não aparece
   const consulta = setInterval(async () => {
     try {
+      const s = await api("POST", "/api/medidores/codigo/situacao", { codigo: r.codigo });
+      if (s.situacao === "pareado" && !s.novo) {
+        // O código foi usado por um medidor que já estava na conta (o mesmo aparelho, ou o simulador com o mesmo --id).
+        clearInterval(consulta);
+        status.className = "parear-status";
+        status.textContent = `Esse aparelho é o ${s.apelido} (${s.medidor}), que já estava na sua conta. Nada mudou. `
+          + "Para adicionar outro medidor, gere um código novo e use no outro aparelho.";
+        return;
+      }
+      if (s.situacao !== "pareado") return;
       const lista = await api("GET", "/api/medidores");
       const novo = lista.medidores.find((m) => !antes.has(m.id));
       if (novo) {
@@ -3024,12 +3034,12 @@ function desenharPlano(r) {
   const caixa = $("#plano-conteudo");
   if (!r.disponivel) {
     caixa.replaceChildren(el("div", { class: "vazio" }, el("h2", {}, "Sem cobrança por enquanto"),
-      el("p", {}, `O MeterWatt está em fase de testes e a assinatura ainda não foi ligada. Cada conta pode ter até ${r.limite_pago} medidores.`)));
+      el("p", {}, `O MeterWatt está em fase de testes e a assinatura ainda não foi ligada. ${r.limite_pago == null ? "Cada conta pode ter quantos medidores quiser." : `Cada conta pode ter até ${r.limite_pago} medidores.`}`)));
     return;
   }
   const a = r.assinatura;
   const ativa = r.plano === "casa";
-  const medidores = (n) => `${n} medidor${n === 1 ? "" : "es"}`;
+  const medidores = (n) => n == null ? "medidores sem limite" : `${n} medidor${n === 1 ? "" : "es"}`;
   const acao = () => {
     if (a && a.status === "ativa") {
       return [el("p", { class: "valor-sub" }, a.proxima_cobranca ? `Próxima cobrança em ${fmt.quando(a.proxima_cobranca).split(",")[0]}.` : "Assinatura ativa."),
@@ -3049,7 +3059,7 @@ function desenharPlano(r) {
       ativa ? null : el("p", { class: "atual-marca" }, "Seu plano atual")),
     el("article", { class: `bloco plano destaque${ativa ? " vigente" : ""}` },
       el("h2", {}, "Casa"), app.daPlayStore ? null : el("p", { class: "valor-grande" }, `${fmt.reais(r.preco_mensal)} `, el("small", {}, "por mês")),
-      el("ul", {}, el("li", {}, `Até ${medidores(r.limite_pago)}: casa, edícula, ar-condicionado em circuito separado`), el("li", {}, "Tudo do plano grátis"), el("li", {}, "Cancele quando quiser, aqui mesmo")),
+      el("ul", {}, el("li", {}, `${r.limite_pago == null ? "Medidores sem limite" : `Até ${medidores(r.limite_pago)}`}: casa, edícula, ar-condicionado em circuito separado`), el("li", {}, "Tudo do plano grátis"), el("li", {}, "Cancele quando quiser, aqui mesmo")),
       ativa ? el("p", { class: "atual-marca" }, "Seu plano atual") : null,
       ...acao())),
   el("p", { class: "dica" }, `Você tem ${medidores(r.medidores)} na conta. `

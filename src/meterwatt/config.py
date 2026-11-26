@@ -71,8 +71,8 @@ class Config:
     mp_access_token: str | None = None
     mp_webhook_segredo: str | None = None
     plano_preco: float = 14.90                   # valor de exemplo: quem decide o preço são vocês
-    limite_medidores_gratis: int = 1
-    limite_medidores_pago: int = 5
+    limite_medidores_gratis: int | None = 1      # None = sem limite (MW_LIMITE_MEDIDORES_*=0)
+    limite_medidores_pago: int | None = None     # plano Casa: medidores sem limite (decisão de 25/11)
     # senha própria de cada medidor (Mosquitto com o plugin dynamic-security)
     mqtt_dynsec: bool = False
     mqtt_provisao_usuario: str | None = None
@@ -146,6 +146,14 @@ def _vapid_valida(texto):
 PACOTE_ANDROID = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
 IMPRESSAO_SHA256 = re.compile(r"^([0-9A-F]{2}:){31}[0-9A-F]{2}$")
 
+
+
+def _limite(texto):
+    """Quantidade máxima de medidores por conta. 0 (ou vazio) = sem limite."""
+    n = int(texto or 0)
+    if n < 0:
+        raise ConfiguracaoInvalida("MW_LIMITE_MEDIDORES_* precisa ser 0 (sem limite) ou um número positivo.")
+    return n or None
 
 
 def criar_pasta_privada(caminho):
@@ -291,8 +299,8 @@ def carregar(env=None):
         mp_access_token=env.get("MW_MP_ACCESS_TOKEN") or None,
         mp_webhook_segredo=env.get("MW_MP_WEBHOOK_SEGREDO") or None,
         plano_preco=round(preco, 2),
-        limite_medidores_gratis=int(env.get("MW_LIMITE_MEDIDORES_GRATIS", "1")),
-        limite_medidores_pago=int(env.get("MW_LIMITE_MEDIDORES_PAGO", "5")),
+        limite_medidores_gratis=_limite(env.get("MW_LIMITE_MEDIDORES_GRATIS", "1")),
+        limite_medidores_pago=_limite(env.get("MW_LIMITE_MEDIDORES_PAGO", "0")),
         mqtt_dynsec=dynsec,
         mqtt_provisao_usuario=env.get("MW_MQTT_PROVISAO_USUARIO") or None,
         mqtt_provisao_senha=env.get("MW_MQTT_PROVISAO_SENHA") or None,

@@ -223,7 +223,8 @@ class Medidores:
         existente = conn.execute("SELECT usuario_id FROM medidores WHERE id = ?", (mid,)).fetchone()
         if not existente:
             total = conn.execute("SELECT COUNT(*) FROM medidores WHERE usuario_id = ?", (uid,)).fetchone()[0]
-            if total >= self.p.pagamentos.limite_de_medidores(conn, uid):
+            limite = self.p.pagamentos.limite_de_medidores(conn, uid)
+            if limite is not None and total >= limite:
                 return "recusado"                 # o plano mudou entre gerar o código e parear
         # Senha própria: o medidor sorteia um segredo e manda junto com o código. Se o broker
         # aceita contas por aparelho, o servidor cadastra esse segredo como a senha dele.
@@ -464,7 +465,7 @@ class Medidores:
                                 403, "sem_autorizacao")
         total = conn.execute("SELECT COUNT(*) FROM medidores WHERE usuario_id = ?", (uid,)).fetchone()[0]
         limite = self.p.pagamentos.limite_de_medidores(conn, uid)
-        if total >= limite:
+        if limite is not None and total >= limite:
             if self.p.pagamentos.plano_de(conn, uid) == "casa":
                 raise ErroDeNegocio(f"A sua conta já tem {limite} medidores, o máximo do plano.", 403, "limite_plano")
             raise ErroDeNegocio(f"O plano grátis permite {limite} medidor{'es' if limite != 1 else ''}. "
@@ -480,6 +481,24 @@ class Medidores:
                          (uid, self.p.cofre.hmac(normalizar_codigo_pareamento(codigo)), agora, agora + VALIDADE_CODIGO_S))
             self.p.auditar(conn, uid, "codigo_pareamento", None, ip)
         return {"codigo": codigo, "expira_em": self.p.iso(agora + VALIDADE_CODIGO_S), "validade_s": VALIDADE_CODIGO_S}
+
+    def situacao_do_codigo(self, sessao, codigo):
+        """O que aconteceu com um código de pareamento desta conta: a janela "Adicionar medidor" pergunta isso.
+        "novo" diz se o medidor entrou agora ou já estava na conta (pareado de novo, nada muda)."""
+        conn = self.p.db()
+        c = normalizar_codigo_pareamento(codigo)
+        linha = conn.execute("SELECT * FROM codigos_pareamento WHERE codigo_hash = ? AND usuario_id = ?",
+                             (self.p.cofre.hmac(c), sessao["usuario_id"])).fetchone() if c else None
+        if not linha:
+            raise NaoEncontrado("Código não encontrado.")
+        if linha["usado_em"] is None:
+            return {"situacao": "expirado" if linha["expira_em"] < self.p.agora() else "esperando"}
+        m = conn.execute("SELECT id, apelido, pareado_em FROM medidores WHERE id = ? AND usuario_id = ?",
+                         (linha["medidor_id"], sessao["usuario_id"])).fetchone() if linha["medidor_id"] else None
+        if not m:
+            return {"situacao": "recusado"}
+        return {"situacao": "pareado", "medidor": m["id"], "apelido": m["apelido"],
+                "novo": m["pareado_em"] == linha["usado_em"]}   # parear() grava os dois com o mesmo instante
 
     def renomear(self, sessao, mid, apelido, ip=None):
         self.alterar(sessao, mid, {"apelido": apelido}, ip)

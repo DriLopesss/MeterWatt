@@ -415,6 +415,11 @@ def criar_app(plataforma):
     def codigo_pareamento():
         return ok(medidores.gerar_codigo(g.sessao, ip()), 201)
 
+    @app.post("/api/medidores/codigo/situacao")
+    @exige_sessao()
+    def situacao_do_codigo():
+        return ok(medidores.situacao_do_codigo(g.sessao, corpo().get("codigo")))
+
     @app.patch("/api/medidores/<mid>")
     @exige_sessao()
     def alterar_medidor(mid):
