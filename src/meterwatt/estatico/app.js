@@ -614,17 +614,8 @@ async function atualizarFantasma() {
 
 async function atualizarDias() {
   const r = await api("GET", "/api/consumo/dias?dias=14");
-  const max = Math.max(0.001, ...r.dias.map((d) => d.kwh));
   const caixa = $("#barras-dias");
-  const hoje = r.dias[r.dias.length - 1].dia;
-  caixa.replaceChildren(...r.dias.map((d, i) => {
-    const barra = el("i");
-    barra.style.height = `${Math.max(1, (d.kwh / max) * 100)}%`;
-    barra.style.animationDelay = `${i * 30}ms`;
-    const [, mes, dia] = d.dia.split("-");
-    return el("div", { class: `barra${d.dia === hoje ? " hoje" : ""}`, "data-valor": `${fmt.kwh(d.kwh)}${d.custo != null ? ` | ${fmt.reais(d.custo)}` : ""}`, title: `${dia}/${mes}` },
-      barra, el("small", {}, dia));
-  }));
+  if (window.MWGraficos) window.MWGraficos.desenharUltimosDias(caixa, r);
   const total = r.dias.reduce((s, d) => s + d.kwh, 0);
   caixa.setAttribute("aria-label", `Consumo por dia nos últimos 14 dias: total de ${fmt.kwh(total)}`);
   // Resumo ao lado do "Hoje": ontem e a média dos últimos 7 dias completos.
@@ -840,7 +831,7 @@ async function telaMedidores() {
       // A cada 30 s, o gráfico das últimas 2 horas anda junto com os números.
       $$("#lista-medidores .medidor").forEach((cartao) => {
         const id = cartao.dataset.id;
-        if ((estado.periodo[id] || "2h") === "2h") desenharGrafico($("canvas", cartao), id, "2h");
+        if ((estado.periodo[id] || "2h") === "2h") desenharGrafico($(".grafico-linha", cartao), id, "2h");
       });
     }).catch(() => {});
   }, 3000));
@@ -933,7 +924,7 @@ function desenharFases(cartao, m) {
 
 function cartaoMedidor(m) {
   const medida = (chave, rotulo, destaque) => el("div", { class: destaque ? "destaque" : null }, el("dt", {}, rotulo), el("dd", { "data-medida": chave }, "—"));
-  const canvas = el("canvas", { "aria-label": `Gráfico de consumo de ${m.apelido}`, role: "img" });
+  const canvas = el("div", { class: "grafico-linha", tabindex: "0", role: "img", "aria-label": `Gráfico de consumo de ${m.apelido}` });
   const periodo = estado.periodo[m.id] || "2h";
   const botoesPeriodo = ["2h", "24h", "7d"].map((p) => el("button", {
     type: "button", "aria-pressed": String(p === periodo),
@@ -1015,66 +1006,26 @@ function papelDoMedidor(m) {
       : null);
 }
 
-async function desenharGrafico(canvas, id, periodo) {
+// A linha de potência de um medidor (graficos.js desenha). Guarda a última resposta para redesenhar
+// na mesma hora quando a largura muda (girar o celular, abrir o menu).
+const observadorLinha = new ResizeObserver((entradas) => {
+  for (const e of entradas) {
+    const caixa = e.target;
+    if (caixa._historico && Math.abs(caixa.clientWidth - (caixa._largura || 0)) > 8 && window.MWGraficos) {
+      caixa._largura = caixa.clientWidth;
+      window.MWGraficos.desenharLinha(caixa, caixa._historico);
+    }
+  }
+});
+
+async function desenharGrafico(caixa, id, periodo) {
   let h;
   try { h = await api("GET", `/api/medidores/${encodeURIComponent(id)}/historico?periodo=${periodo}`); } catch { return; }
-  const dpr = window.devicePixelRatio || 1;
-  const larg = canvas.clientWidth, alt = canvas.clientHeight;
-  if (!larg) return;
-  canvas.width = larg * dpr;
-  canvas.height = alt * dpr;
-  const c = canvas.getContext("2d");
-  c.scale(dpr, dpr);
-  c.clearRect(0, 0, larg, alt);
-  const margem = { e: 46, d: 8, t: 10, b: 22 };
-  const w = larg - margem.e - margem.d, ht = alt - margem.t - margem.b;
-  const fim = h.agora, inicio = fim - { "2h": 7200, "24h": 86400, "7d": 604800 }[periodo];
-  const max = Math.max(10, ...h.pontos.map((p) => p[1])) * 1.1;
-  const x = (t) => margem.e + ((t - inicio) / (fim - inicio)) * w;
-  const y = (v) => margem.t + ht - (v / max) * ht;
-  c.font = "11px 'JetBrains Mono', monospace";
-  c.fillStyle = "#8a85b0";
-  c.strokeStyle = "rgba(255,255,255,.07)";
-  for (let i = 0; i <= 3; i++) {
-    const v = (max / 3) * i;
-    c.beginPath(); c.moveTo(margem.e, y(v)); c.lineTo(larg - margem.d, y(v)); c.stroke();
-    c.fillText(i === 3 ? `${Math.round(v)} ${h.unidade}` : `${Math.round(v)}`, 4, y(v) + (i === 3 ? 12 : 4));
-  }
-  for (let i = 0; i <= 4; i++) {
-    const t = inicio + ((fim - inicio) / 4) * i;
-    const d = new Date(t * 1000);
-    const rot = periodo === "7d" ? d.toLocaleDateString("pt-BR", { weekday: "short" }) : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-    c.fillText(rot, Math.min(x(t) - 14, larg - 44), alt - 4);
-  }
-  if (!h.pontos.length) {
-    c.fillStyle = "#b7b2d8";
-    c.font = "14px system-ui";
-    c.fillText("Sem leituras neste período", margem.e + 12, margem.t + ht / 2);
-    return;
-  }
-  const buraco = { "2h": 30, "24h": 700, "7d": 4000 }[periodo];
-  const grad = c.createLinearGradient(0, margem.t, 0, margem.t + ht);
-  grad.addColorStop(0, "rgba(54,227,255,.35)");
-  grad.addColorStop(1, "rgba(54,227,255,0)");
-  let trechos = [[]];
-  h.pontos.forEach((p, i) => {
-    if (i && p[0] - h.pontos[i - 1][0] > buraco) trechos.push([]);
-    trechos[trechos.length - 1].push(p);
-  });
-  trechos = trechos.filter((t) => t.length);
-  for (const t of trechos) {
-    c.beginPath();
-    c.moveTo(x(t[0][0]), y(0));
-    t.forEach((p) => c.lineTo(x(p[0]), y(p[1])));
-    c.lineTo(x(t[t.length - 1][0]), y(0));
-    c.fillStyle = grad;
-    c.fill();
-    c.beginPath();
-    t.forEach((p, i) => (i ? c.lineTo(x(p[0]), y(p[1])) : c.moveTo(x(p[0]), y(p[1]))));
-    c.strokeStyle = "#36e3ff";
-    c.lineWidth = 1.6;
-    c.stroke();
-  }
+  if (!caixa.isConnected || !window.MWGraficos) return;
+  caixa._historico = h;
+  caixa._largura = caixa.clientWidth;
+  window.MWGraficos.desenharLinha(caixa, h);
+  observadorLinha.observe(caixa);
 }
 
 async function removerMedidor(m) {

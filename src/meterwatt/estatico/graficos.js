@@ -5,19 +5,25 @@
  * - Perfil do dia: hoje hora a hora contra o normal da casa, e o mapa dos últimos 14 dias.
  * - A casa em 3D: a casa em linhas em volta do número de "Sua casa agora", com a cor pela carga.
  *
- * Cores das marcas: paleta validada pelo método do skill de dataviz no fundo dos cartões (#171428):
- * energia #c78602, sempre ligado #ee3dc9 (o mesmo magenta do consumo fantasma) e resto #7d7899.
- * As partes têm a mesma cor por tipo: quem diz qual é qual é o rótulo ao lado, nunca só a cor.
+ * - Últimos 14 dias, relatório do mês, Tarifa Branca, tensão de cada dia e a linha de cada medidor.
+ *
+ * A cara é a do protótipo do MeterWatt (o quadro de disjuntores): âmbar é energia passando, magenta é
+ * pico, ciano é o que está calmo; números em monoespaçada, barras que sobem do zero, dica escura de
+ * borda ciano. As cores neon ficam acima da faixa de luminosidade que o método de dataviz recomenda
+ * (escolha da marca); contraste com o fundo #171428 e separação para daltonismo passam no validador.
+ * Por isso nenhum gráfico depende só da cor: rótulos, dica, texto ao lado e tabela dizem o mesmo.
  * Texto nunca usa a cor da série. Nada de innerHTML: o que vem do servidor entra como texto.
  */
 "use strict";
 (() => {
   const NS = "http://www.w3.org/2000/svg";
   const semMovimento = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const COR = { energia: "#c78602", base: "#ee3dc9", resto: "#7d7899", normal: "#b7b2d8", grade: "rgba(255,255,255,.08)" };
+  const COR = { ambar: "#ffb020", magenta: "#ff4fd8", ciano: "#36e3ff", verde: "#46f0a0", vermelho: "#ff6b84",
+    fundo: "#171428", energia: "#ffb020", base: "#ff4fd8", resto: "#8a85b0", normal: "#b7b2d8", grade: "rgba(255,255,255,.08)" };
   const COR_DO_TIPO = { circuito: COR.energia, aparelho: COR.energia, entrada: COR.energia, base: COR.base, resto: COR.resto };
-  // Rampa sequencial (uma cor, do escuro para o claro), com luminosidade crescente: mapa de 14 dias.
-  const RAMPA = ["#382b19", "#4f3a1c", "#684a1d", "#815a1d", "#9b6b1a", "#b67c13", "#d28e00", "#eda101", "#ffb84a"];
+  // Rampa do mapa de 14 dias: do roxo da noite ao magenta e ao âmbar, com a luminosidade sempre subindo
+  // (quanto mais claro, mais gasto). A mesma rampa está na legenda (app.css, .legenda-rampa).
+  const RAMPA = ["#241a3d", "#3a1c54", "#561f66", "#772371", "#9a2a74", "#bd3a70", "#dc5363", "#f27850", "#ffa23c", "#ffc93a"];
   const SEMANA = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 
   function s(tag, attrs = {}, ...filhos) {
@@ -54,6 +60,173 @@
     return texto.length <= maxLetras ? texto : `${texto.slice(0, Math.max(1, maxLetras - 1))}…`;
   }
 
+
+  /* ------------------------------------------------------------ peças comuns: degradê, brilho, dica */
+
+  let proximoId = 0;
+  const novoId = (nome) => `mw-${nome}-${++proximoId}`;
+
+  // Degradê da energia no espaço do gráfico (não de cada barra): barra baixa fica âmbar, só a alta chega ao magenta.
+  function degrade(svg, yTopo, yBase, paradas) {
+    const id = novoId("degrade");
+    svg.append(s("defs", {}, s("linearGradient", { id, gradientUnits: "userSpaceOnUse", x1: 0, y1: yTopo, x2: 0, y2: yBase },
+      paradas.map(([o, cor, op]) => s("stop", { offset: o, "stop-color": cor, "stop-opacity": op ?? 1 })))));
+    return `url(#${id})`;
+  }
+  const degradeEnergia = (svg, yTopo, yBase) => degrade(svg, yTopo, yBase, [[0, COR.magenta], [0.55, "#ff8a5c"], [1, COR.ambar]]);
+  function brilho(svg, cor, forca = 3) {
+    const id = novoId("brilho");
+    svg.append(s("defs", {}, s("filter", { id, x: "-20%", y: "-60%", width: "140%", height: "220%" },
+      s("feDropShadow", { dx: 0, dy: 0, stdDeviation: forca, "flood-color": cor, "flood-opacity": 0.7 }))));
+    return `url(#${id})`;
+  }
+  // Barras que sobem do zero, uma depois da outra (só no primeiro desenho, e nunca com "reduzir movimento").
+  function crescer(no, k, animar) {
+    if (animar && !semMovimento) {
+      no.classList.add("cresce");
+      no.style.setProperty("--k", k);
+    }
+    return no;
+  }
+  function grade(svg, m, W, y, max, casasMin = 0) {
+    for (let i = 0; i <= 2; i++) {
+      const v = (max / 2) * i;
+      const casas = Math.max(casasMin, [0, 1, 2].find((c) => Math.abs(v * 10 ** c - Math.round(v * 10 ** c)) < 1e-9) ?? 2);
+      svg.append(s("line", { x1: m.e, x2: W - m.d, y1: y(v), y2: y(v), class: "grade" }),
+        s("text", { x: m.e - 6, y: y(v) + 4, class: "eixo", "text-anchor": "end" }, num(v, casas)));
+    }
+  }
+  // Posição do ponteiro em coordenadas do desenho (o SVG encolhe no celular).
+  function pontoNoDesenho(svg, ev, W, H) {
+    const r = svg.getBoundingClientRect();
+    return [((ev.clientX - r.left) * W) / (r.width || W), ((ev.clientY - r.top) * H) / (r.height || H)];
+  }
+  function naTela(svg, x, y, W, H) {
+    const r = svg.getBoundingClientRect();
+    return [r.left + (x * r.width) / W, r.top + (y * r.height) / H];
+  }
+
+  // A dica que acompanha o ponteiro (no toque, fica 2,5 s). Ela só repete o que já está no texto ao lado do
+  // gráfico ou na tabela, que é o que o leitor de tela lê: por isso é aria-hidden.
+  const dica = (() => {
+    let caixa = null, relogio = 0;
+    addEventListener("scroll", () => caixa && caixa.classList.remove("on"), { passive: true });
+    return {
+      mostrar(texto, x, y, cor) {
+        if (!caixa) {
+          caixa = document.createElement("div");
+          caixa.className = "mw-dica";
+          caixa.setAttribute("aria-hidden", "true");
+          document.body.append(caixa);
+        }
+        clearTimeout(relogio);
+        caixa.textContent = texto;
+        caixa.style.setProperty("--cor-dica", cor || COR.ciano);
+        caixa.classList.add("on");
+        const w = caixa.offsetWidth, h = caixa.offsetHeight;
+        caixa.style.left = `${Math.round(Math.min(innerWidth - w - 8, Math.max(8, x - w / 2)))}px`;
+        caixa.style.top = `${Math.round(y - h - 16 < 8 ? y + 20 : y - h - 16)}px`;
+      },
+      esconder(depois = 0) {
+        clearTimeout(relogio);
+        relogio = setTimeout(() => caixa && caixa.classList.remove("on"), depois);
+      },
+    };
+  })();
+  // achar(ev) -> {texto, cor, x, y} (x e y opcionais: senão a dica vai no ponteiro) ou null. sair() ao sair.
+  function ligarDica(alvo, achar, sair) {
+    const mostrar = (ev) => {
+      const r = achar(ev);
+      if (r) dica.mostrar(r.texto, r.x ?? ev.clientX, r.y ?? ev.clientY, r.cor);
+      else dica.esconder();
+      return r;
+    };
+    alvo.addEventListener("pointermove", (ev) => { if (ev.pointerType === "mouse") mostrar(ev); });
+    alvo.addEventListener("pointerdown", (ev) => { if (ev.pointerType !== "mouse" && mostrar(ev)) dica.esconder(2500); });
+    alvo.addEventListener("pointerleave", (ev) => { if (ev.pointerType === "mouse") { dica.esconder(); if (sair) sair(); } });
+  }
+  const diaMes = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+  const diaDaSemana = (iso) => SEMANA[(new Date(`${iso}T12:00:00`).getDay() + 6) % 7];
+
+  /* ------------------------------------------------------------ colunas por dia */
+
+  // Últimos 14 dias e o relatório do mês. o.itens: {valor, eixo, dica, inteiro (false: só contorno), parcial
+  // (hoje, ainda enchendo)}. o.n: quantas posições (o mês tem dias que ainda não chegaram). o.media: linha tracejada.
+  function desenharColunas(caixa, o) {
+    const W = largura(caixa), H = o.altura || 196;
+    const m = { e: 40, d: 8, t: 28, b: 22 };
+    const pw = W - m.e - m.d, ph = H - m.t - m.b, base = m.t + ph;
+    const n = Math.max(1, o.n || o.itens.length);
+    const max = teto(Math.max(o.minimo || 0.5, ...o.itens.map((d) => d.valor || 0), o.media || 0) * 1.06);
+    const y = (v) => m.t + ph - (v / max) * ph;
+    const slot = pw / n, bw = Math.max(3, Math.min(o.larguraMax || 26, slot * 0.66));
+    const animar = !caixa.querySelector("svg");
+    const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "grafico-svg", "aria-hidden": "true" });
+    const tinta = degradeEnergia(svg, m.t, base);
+    const luz = brilho(svg, COR.ambar, 4);
+    grade(svg, m, W, y, max);
+    svg.append(s("text", { x: m.e - 6, y: 12, class: "eixo", "text-anchor": "end" }, o.unidade || "kWh"));
+    const foco = s("rect", { x: 0, y: m.t - 6, width: slot, height: ph + 6, rx: 8, class: "foco-coluna", visibility: "hidden" });
+    svg.append(foco);
+    let maior = -1;
+    o.itens.forEach((d, i) => { if (d.inteiro !== false && !d.parcial && (maior < 0 || d.valor > o.itens[maior].valor)) maior = i; });
+    o.itens.forEach((d, i) => {
+      if (!(d.valor > 0)) return;
+      const cx = m.e + i * slot + slot / 2;
+      const caminho = colunaPath(cx - bw / 2, y(d.valor), bw, base - y(d.valor), Math.min(6, bw / 2));
+      const coluna = d.inteiro === false
+        ? s("path", { d: caminho, fill: "none", stroke: COR.ambar, "stroke-width": 1.5, "stroke-dasharray": "3 3", class: "coluna" })
+        : s("path", { d: caminho, fill: tinta, class: `coluna${d.parcial ? " parcial" : ""}`, filter: i === maior ? luz : null });
+      svg.append(crescer(coluna, i, animar));
+      // Números só onde ajudam: o maior dia e hoje (ou o dia ainda incompleto).
+      if (i === maior || d.parcial) {
+        const tx = Math.min(W - m.d - 2, Math.max(m.e + 2, cx));
+        svg.append(s("text", { x: tx, y: y(d.valor) - 7, class: `valor-coluna${d.parcial ? " hoje" : ""}`, "text-anchor": "middle" },
+          num(d.valor, 1)));
+      }
+    });
+    if (o.media != null && o.media > 0) {
+      svg.append(s("line", { x1: m.e, x2: W - m.d, y1: y(o.media), y2: y(o.media), class: "linha-media" }));
+      // A legenda da linha fica no canto de cima, onde não bate nos números das barras.
+      const rotulo = `média ${num(o.media, 1)} ${o.unidade || "kWh"}`;
+      const xr = W - m.d - rotulo.length * 6.4;
+      svg.append(s("line", { x1: xr - 22, x2: xr - 6, y1: 9, y2: 9, class: "linha-media" }),
+        s("text", { x: W - m.d, y: 13, class: "rotulo-media", "text-anchor": "end" }, rotulo));
+    }
+    const ultimo = o.itens.length - 1;
+    o.itens.forEach((d, i) => {
+      if (o.afinar && slot < 26 && (ultimo - i) % 2) return;     // no celular, um dia sim, um não (hoje sempre aparece)
+      if (d.eixo) svg.append(s("text", { x: m.e + i * slot + slot / 2, y: H - 6, class: `eixo${d.parcial ? " agora" : ""}`, "text-anchor": "middle" }, d.eixo));
+    });
+    const indice = (ev) => {
+      const [px] = pontoNoDesenho(svg, ev, W, H);
+      const i = Math.floor((px - m.e) / slot);
+      return i >= 0 && i < o.itens.length && o.itens[i].dica ? i : -1;
+    };
+    ligarDica(svg, (ev) => {
+      const i = indice(ev);
+      if (i < 0) { foco.setAttribute("visibility", "hidden"); return null; }
+      foco.setAttribute("x", m.e + i * slot);
+      foco.setAttribute("visibility", "visible");
+      return { texto: o.itens[i].dica, cor: COR.ambar };
+    }, () => foco.setAttribute("visibility", "hidden"));
+    caixa.replaceChildren(svg);
+  }
+
+  function desenharUltimosDias(caixa, r) {
+    const hoje = r.dias.length - 1;
+    const completos = r.dias.slice(0, -1).filter((d) => d.kwh > 0);
+    const media = completos.length ? completos.reduce((t, d) => t + d.kwh, 0) / completos.length : null;
+    desenharColunas(caixa, {
+      altura: 200, larguraMax: 30, media, afinar: true,
+      itens: r.dias.map((d, i) => ({
+        valor: d.kwh, parcial: i === hoje,
+        eixo: i === hoje ? "hoje" : String(Number(d.dia.slice(8, 10))),
+        dica: `${diaDaSemana(d.dia)} ${diaMes(d.dia)}: ${kwh(d.kwh)}${d.custo != null ? ` · ${reais(d.custo)}` : ""}${i === hoje ? " até agora" : ""}`,
+      })),
+    });
+  }
+
   /* ------------------------------------------------------------ para onde vai agora */
 
   function desenharFluxo(caixa, r) {
@@ -88,6 +261,7 @@
     const yEntrada = yEsq;
 
     const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "fluxo-svg", "aria-hidden": "true" });
+    const luzes = { [COR.energia]: brilho(svg, COR.energia, 2.5), [COR.base]: brilho(svg, COR.base, 2.5), [COR.resto]: null };
     svg.append(s("text", { x: xEsq, y: 13, class: "fluxo-rotulo-entrada" }, "Entrada"));
     const xm = (xEsq + NO + xDir) / 2;
     partes.forEach((p, i) => {
@@ -103,7 +277,7 @@
         // As "partículas": tracinhos que andam da entrada para a parte, mais depressa quanto mais potência.
         const duracao = Math.max(0.5, 5.5 - Math.log10(Math.max(1, p.watts)) * 1.3);
         const corre = s("path", { class: "fluxo-corre", stroke: cor, d: `M${x0},${lc}C${xm},${lc} ${xm},${rc} ${xDir},${rc}`,
-          "stroke-width": Math.min(3, Math.max(1.5, hs[i] / 5)).toFixed(1) });
+          "stroke-width": Math.min(3, Math.max(1.5, hs[i] / 5)).toFixed(1), filter: luzes[cor] || null });
         corre.style.animationDuration = `${duracao.toFixed(2)}s`;      // pelo CSSOM: a CSP do site bloqueia o atributo style
         g.append(corre);
         g.append(s("rect", { x: xDir, y: r0, width: NO, height: hs[i], rx: 2, fill: cor }));
@@ -142,11 +316,13 @@
     const detalhes = cartao.querySelector(".perfil-detalhes");
     const botoes = Array.from(cartao.querySelectorAll("[data-vista]"));
     let dados = null, vista = "hoje", foco = null;      // foco: hora (hoje) ou [linha, hora] (mapa)
+    let animar = false, geo = null;                      // geo: medidas do último desenho, para a dica
 
     botoes.forEach((b) => b.addEventListener("click", () => {
       vista = b.dataset.vista;
       botoes.forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
       foco = null;
+      animar = true;
       desenhar();
     }));
     detalhes.addEventListener("toggle", () => { if (detalhes.open) montarTabela(); });
@@ -164,6 +340,23 @@
       desenhar();
     });
     grafico.addEventListener("pointerleave", () => { foco = null; desenhar(); });
+    ligarDica(grafico, (ev) => {
+      const svg = grafico.querySelector("svg");
+      if (!dados || !geo || !svg) return null;
+      const [px, py] = pontoNoDesenho(svg, ev, geo.W, geo.H);
+      const h = Math.floor((px - geo.x0) / geo.slot);
+      if (h < 0 || h > 23) return null;
+      if (vista === "hoje") {
+        const v = dados.hoje.horas[h], n = dados.normal ? dados.normal.horas[h] : null;
+        const normal = n != null ? ` · normal ${kwh(n)}` : "";
+        return { texto: h > dados.hora_atual ? `${hora(h)}: ainda não chegou${normal}` : `${hora(h)}: ${kwh(v)}${h === dados.hora_atual ? " até agora" : ""}${normal}`, cor: COR.ambar };
+      }
+      const l = Math.floor((py - geo.topo) / geo.passo);
+      const linha = dados.mapa[l];
+      if (!linha || (l === dados.mapa.length - 1 && h > dados.hora_atual)) return null;
+      const [, mes, dia] = linha.dia.split("-");
+      return { texto: `${SEMANA[linha.dia_da_semana]} ${dia}/${mes}, ${hora(h)}: ${kwh(linha.horas[h])}`, cor: COR.magenta };
+    });
 
     function custo(v) {
       return v != null && dados.tarifa_kwh != null ? ` (${reais(v * dados.tarifa_kwh)})` : "";
@@ -181,20 +374,26 @@
       const y = (v) => m.t + ph - (v / max) * ph;
       const slot = pw / 24, bw = Math.max(3, Math.min(24, slot - 2));
       const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, "aria-hidden": "true" });
-      for (let i = 0; i <= 2; i++) {
-        const v = (max / 2) * i;
-        const casas = [0, 1, 2].find((c) => Math.abs(v * 10 ** c - Math.round(v * 10 ** c)) < 1e-9) ?? 2;
-        svg.append(s("line", { x1: m.e, x2: W - m.d, y1: y(v), y2: y(v), class: "grade" }),
-          s("text", { x: m.e - 6, y: y(v) + 4, class: "eixo", "text-anchor": "end" }, num(v, casas)));
-      }
+      geo = { W, H, x0: m.e, slot };
+      const tinta = degradeEnergia(svg, m.t, m.t + ph);
+      grade(svg, m, W, y, max);
       svg.append(s("text", { x: m.e - 6, y: 10, class: "eixo", "text-anchor": "end" }, "kWh"));
-      if (foco != null) svg.append(s("rect", { x: m.e + foco * slot, y: m.t, width: slot, height: ph, class: "foco" }));
+      if (foco != null) svg.append(s("rect", { x: m.e + foco * slot, y: m.t, width: slot, height: ph, rx: 4, class: "foco" }));
+      // A hora mais pesada até agora ganha brilho e o número em cima.
+      let pico = -1;
+      hoje.forEach((v, h) => { if (v != null && h <= dados.hora_atual && (pico < 0 || v > hoje[pico])) pico = h; });
+      const luz = brilho(svg, COR.ambar, 4);
       hoje.forEach((v, h) => {
         if (v == null || v <= 0) return;
         const x = m.e + h * slot + (slot - bw) / 2;
-        svg.append(s("path", { d: colunaPath(x, y(v), bw, m.t + ph - y(v), 4), fill: COR.energia,
-          class: h === dados.hora_atual ? "barra-parcial" : null }));
+        svg.append(crescer(s("path", { d: colunaPath(x, y(v), bw, m.t + ph - y(v), Math.min(5, bw / 2)), fill: tinta,
+          class: h === dados.hora_atual ? "barra-parcial" : null, filter: h === pico ? luz : null }), h, animar));
       });
+      if (pico >= 0 && hoje[pico] > 0) {
+        const topo = Math.max(hoje[pico], normal[pico] ?? 0);
+        svg.append(s("text", { x: Math.min(W - m.d - 14, Math.max(m.e + 14, m.e + pico * slot + slot / 2)), y: y(topo) - 7,
+          class: "valor-coluna", "text-anchor": "middle" }, num(hoje[pico], 2)));
+      }
       // O normal: uma linha em degraus, hora a hora.
       let d = "";
       normal.forEach((v, h) => {
@@ -237,6 +436,7 @@
       const valores = linhas.flatMap((l) => l.horas.filter((v) => v != null));
       const max = Math.max(0.05, ...valores);
       const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, "aria-hidden": "true" });
+      geo = { W, H, x0: rotulo, slot, topo, passo: alto + vao };
       [0, 6, 12, 18].forEach((h) => svg.append(s("text", { x: rotulo + h * slot + 1, y: 11, class: "eixo" }, `${h}h`)));
       linhas.forEach((l, i) => {
         const y = topo + i * (alto + vao);
@@ -320,19 +520,20 @@
     function desenhar() {
       if (!dados) return;
       if (vista === "hoje") desenharHoje(); else desenharMapa();
+      animar = false;
       if (detalhes.open) montarTabela();
     }
 
     let largUltima = 0;
     new ResizeObserver(() => { const w = grafico.clientWidth; if (w && Math.abs(w - largUltima) > 8) { largUltima = w; desenhar(); } }).observe(grafico);
-    return { atualizar(d) { dados = d; desenhar(); } };
+    return { atualizar(d) { animar = animar || !dados; dados = d; desenhar(); } };
   }
 
   /* ------------------------------------------------------------ Tarifa Branca: o dia útil típico */
 
-  // Do mais barato ao mais caro: o mesmo caminho de cores da casa em 3D (frio quando a casa está calma,
-  // magenta no pico). Conferidas no validador de paleta sobre o fundo #171428 (contraste, daltonismo).
-  const COR_POSTO = { fora: "#14a3bf", intermediario: "#c78602", ponta: "#ee3dc9" };
+  // Do mais barato ao mais caro: o mesmo caminho de cores da casa em 3D (ciano quando a casa está calma,
+  // âmbar no meio, magenta no pico). Contraste e daltonismo conferidos no validador sobre o fundo #171428.
+  const COR_POSTO = { fora: COR.ciano, intermediario: COR.ambar, ponta: COR.magenta };
   const NOME_POSTO = { fora: "fora de ponta", intermediario: "intermediário", ponta: "ponta" };
   const meiaHora = (i) => `${Math.floor(i / 2)}h${i % 2 ? "30" : ""}`;
   const horaCurta = (texto) => {             // "18:00" -> "18h", "17:30" -> "17h30", "00:00" (fim) -> "24h"
@@ -348,7 +549,9 @@
     const max = teto(Math.max(0.02, ...dados.filter((v) => v != null)));
     const y = (v) => m.t + ph - (v / max) * ph;
     const slot = pw / 48, bw = Math.max(2, Math.min(14, slot - 1.5));
+    const animar = !caixa.querySelector("svg");
     const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, "aria-hidden": "true" });
+    const luz = { fora: null, intermediario: null, ponta: brilho(svg, COR.magenta, 3) };
     // As faixas da ponta e do intermediário, atrás das barras.
     const faixas = [];
     for (let i = 0; i < 48;) {
@@ -370,12 +573,22 @@
         s("text", { x: m.e - 6, y: y(v) + 4, class: "eixo", "text-anchor": "end" }, num(v, casas)));
     }
     svg.append(s("text", { x: m.e - 6, y: 10, class: "eixo", "text-anchor": "end" }, "kWh"));
+    const foco = s("rect", { x: 0, y: m.t, width: slot, height: ph, rx: 4, class: "foco-coluna", visibility: "hidden" });
+    svg.append(foco);
     dados.forEach((v, i) => {
       if (v == null || v <= 0) return;
       const x = m.e + i * slot + (slot - bw) / 2;
-      svg.append(s("path", { d: colunaPath(x, y(v), bw, m.t + ph - y(v), Math.min(3, bw / 2)), fill: COR_POSTO[r.postos[i]] },
-        s("title", {}, `${meiaHora(i)} às ${meiaHora(i + 1)}: ${kwh(v)} (${NOME_POSTO[r.postos[i]]})`)));
+      svg.append(crescer(s("path", { d: colunaPath(x, y(v), bw, m.t + ph - y(v), Math.min(3, bw / 2)), fill: COR_POSTO[r.postos[i]],
+        filter: luz[r.postos[i]] }), i, animar));
     });
+    ligarDica(svg, (ev) => {
+      const [px] = pontoNoDesenho(svg, ev, W, H);
+      const i = Math.floor((px - m.e) / slot);
+      if (i < 0 || i >= 48 || dados[i] == null) { foco.setAttribute("visibility", "hidden"); return null; }
+      foco.setAttribute("x", m.e + i * slot);
+      foco.setAttribute("visibility", "visible");
+      return { texto: `${meiaHora(i)} às ${meiaHora(i + 1)}: ${kwh(dados[i])} · ${NOME_POSTO[r.postos[i]]}`, cor: COR_POSTO[r.postos[i]] };
+    }, () => foco.setAttribute("visibility", "hidden"));
     [0, 6, 12, 18, 24].forEach((h) => svg.append(s("text", { x: m.e + h * 2 * slot, y: H - 6, class: "eixo",
       "text-anchor": h === 0 ? "start" : h === 24 ? "end" : "middle" }, `${h}h`)));
     caixa.replaceChildren(svg);
@@ -388,36 +601,17 @@
   /* ------------------------------------------------------------ relatório: dia a dia */
 
   function desenharDiasDoMes(caixa, r) {
-    const W = largura(caixa), H = 190;
-    const m = { e: 40, d: 4, t: 22, b: 22 };
-    const pw = W - m.e - m.d, ph = H - m.t - m.b;
-    const n = r.dias_no_mes;
-    const max = teto(Math.max(0.5, ...r.dias.map((d) => d.kwh)));
-    const y = (v) => m.t + ph - (v / max) * ph;
-    const slot = pw / n, bw = Math.max(3, Math.min(18, slot - 3));
-    const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, "aria-hidden": "true" });
-    for (let i = 0; i <= 2; i++) {
-      const v = (max / 2) * i;
-      const casas = [0, 1, 2].find((c) => Math.abs(v * 10 ** c - Math.round(v * 10 ** c)) < 1e-9) ?? 2;
-      svg.append(s("line", { x1: m.e, x2: W - m.d, y1: y(v), y2: y(v), class: "grade" }),
-        s("text", { x: m.e - 6, y: y(v) + 4, class: "eixo", "text-anchor": "end" }, num(v, casas)));
-    }
-    svg.append(s("text", { x: m.e - 6, y: 10, class: "eixo", "text-anchor": "end" }, "kWh"));
-    if (r.media_dia != null) {
-      svg.append(s("line", { x1: m.e, x2: W - m.d, y1: y(r.media_dia), y2: y(r.media_dia), class: "rel-media", stroke: COR.normal }));
-    }
-    r.dias.forEach((d, i) => {
-      if (d.kwh <= 0) return;
-      const x = m.e + i * slot + (slot - bw) / 2;
-      const titulo = s("title", {}, `${d.dia.slice(8, 10)}/${d.dia.slice(5, 7)}: ${kwh(d.kwh)}${d.custo != null ? ` (${reais(d.custo)})` : ""}${d.inteiro ? "" : ", medição incompleta"}`);
-      svg.append(s("path", { d: colunaPath(x, y(d.kwh), bw, m.t + ph - y(d.kwh), Math.min(4, bw / 2)),
-        fill: d.inteiro ? COR.energia : "none", stroke: d.inteiro ? null : COR.energia, "stroke-width": d.inteiro ? null : 1.5,
-        class: d.inteiro ? null : "rel-incompleto" }, titulo));
+    desenharColunas(caixa, {
+      n: r.dias_no_mes, media: r.media_dia, larguraMax: 20,
+      itens: r.dias.map((d) => {
+        const dia = Number(d.dia.slice(8, 10));
+        return {
+          valor: d.kwh, inteiro: d.inteiro,
+          eixo: [1, 8, 15, 22, 29].includes(dia) ? String(dia) : "",
+          dica: `${diaDaSemana(d.dia)} ${diaMes(d.dia)}: ${kwh(d.kwh)}${d.custo != null ? ` · ${reais(d.custo)}` : ""}${d.inteiro ? "" : " (medição incompleta)"}`,
+        };
+      }),
     });
-    // Dias no eixo: 1, 8, 15, 22, 29 (cabem no celular).
-    [1, 8, 15, 22, 29].filter((dia) => dia <= n).forEach((dia) => svg.append(s("text", { x: m.e + (dia - 0.5) * slot, y: H - 6,
-      class: "eixo", "text-anchor": "middle" }, String(dia))));
-    caixa.replaceChildren(svg);
     caixa.setAttribute("aria-label", `Consumo por dia em ${r.nome}${r.media_dia != null ? `, média de ${num(r.media_dia, 1)} kWh por dia` : ""}. A tabela abaixo tem cada dia.`);
   }
 
@@ -444,13 +638,32 @@
       rotulos.push(y(v));
       svg.append(s("text", { x: m.e - 6, y: y(v) + 4, class: "eixo", "text-anchor": "end" }, num(v)));
     }
+    // A cor do dia é a pior faixa que ele tocou; quem diz qual é a faixa é a dica e a lista abaixo.
+    const faixaDoDia = (d) => (d.min < pMin || d.max > pMax ? "critica" : d.min < aMin || d.max > aMax ? "precaria" : "adequada");
+    const COR_FAIXA = { adequada: COR.verde, precaria: COR.ambar, critica: COR.vermelho };
+    const NOME_FAIXA = { adequada: "sempre na faixa adequada", precaria: "passou pela faixa precária", critica: "chegou à faixa crítica" };
+    const luz = brilho(svg, COR.vermelho, 3);
+    const foco = s("rect", { x: 0, y: m.t, width: slot, height: ph, rx: 4, class: "foco-coluna", visibility: "hidden" });
+    svg.append(foco);
+    const desloc = n - q.dias.length;
     q.dias.forEach((d, i) => {
-      const x = m.e + (n - q.dias.length + i) * slot + slot / 2;
-      const titulo = s("title", {}, `${d.dia.slice(8, 10)}/${d.dia.slice(5, 7)}: de ${num(d.min, 1)} a ${num(d.max, 1)} V, média de ${num(d.media, 1)} V`);
-      svg.append(s("g", {}, titulo,
-        s("rect", { x: x - bw / 2, y: y(d.max), width: bw, height: Math.max(2, y(d.min) - y(d.max)), rx: Math.min(3, bw / 2), fill: COR.normal, class: "qe-dia" }),
-        s("circle", { cx: x, cy: y(d.media), r: 3.2, fill: COR.energia, stroke: "#171428", "stroke-width": 1.5 })));
+      const x = m.e + (desloc + i) * slot + slot / 2;
+      const f = faixaDoDia(d);
+      svg.append(s("g", { class: `qe-dia qe-dia-${f}` },
+        s("rect", { x: x - bw / 2, y: y(d.max), width: bw, height: Math.max(2, y(d.min) - y(d.max)), rx: Math.min(3, bw / 2),
+          fill: COR_FAIXA[f], "fill-opacity": f === "adequada" ? 0.55 : 0.95, filter: f === "critica" ? luz : null }),
+        s("circle", { cx: x, cy: y(d.media), r: 3.2, fill: COR.fundo, stroke: "#f4f1ff", "stroke-width": 1.5 })));
     });
+    ligarDica(svg, (ev) => {
+      const [px] = pontoNoDesenho(svg, ev, W, H);
+      const i = Math.floor((px - m.e) / slot) - desloc;
+      const d = q.dias[i];
+      if (!d) { foco.setAttribute("visibility", "hidden"); return null; }
+      foco.setAttribute("x", m.e + (desloc + i) * slot);
+      foco.setAttribute("visibility", "visible");
+      const f = faixaDoDia(d);
+      return { texto: `${diaMes(d.dia)}: ${num(d.min, 1)} a ${num(d.max, 1)} V, média ${num(d.media, 1)} V · ${NOME_FAIXA[f]}`, cor: COR_FAIXA[f] };
+    }, () => foco.setAttribute("visibility", "hidden"));
     const ultimo = q.dias[q.dias.length - 1], primeiro = q.dias[0];
     if (primeiro) svg.append(s("text", { x: m.e + (n - q.dias.length) * slot + slot / 2, y: H - 6, class: "eixo", "text-anchor": "start" },
       `${primeiro.dia.slice(8, 10)}/${primeiro.dia.slice(5, 7)}`));
@@ -458,6 +671,113 @@
       `${ultimo.dia.slice(8, 10)}/${ultimo.dia.slice(5, 7)}`));
     caixa.replaceChildren(svg);
     caixa.setAttribute("aria-label", `Tensão de cada dia, da menor à maior, com a média. A faixa adequada vai de ${aMin} a ${aMax} V.`);
+  }
+
+  /* ------------------------------------------------------------ a linha de cada medidor */
+
+  // Potência ao longo de 2 horas, 24 horas ou 7 dias. Linha ciano com brilho, área em degradê, o pico
+  // marcado em magenta e, ao vivo, o ponto de agora pulsando. O cursor segue o ponteiro (ou as setas).
+  const DURACAO = { "2h": 7200, "24h": 86400, "7d": 604800 };
+  const BURACO = { "2h": 30, "24h": 700, "7d": 4000 };       // mais que isso entre dois pontos: a linha quebra
+  const horaMinuto = (t) => new Date(t * 1000).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const quando = (t, periodo) => {
+    const d = new Date(t * 1000);
+    return periodo === "7d" ? `${SEMANA[(d.getDay() + 6) % 7]} ${d.getDate()}, ${horaMinuto(t)}` : horaMinuto(t);
+  };
+
+  function desenharLinha(caixa, h) {
+    const W = largura(caixa), H = W < 480 ? 190 : 220;
+    const m = { e: 46, d: 12, t: 24, b: 24 };
+    const pw = W - m.e - m.d, ph = H - m.t - m.b, base = m.t + ph;
+    const periodo = DURACAO[h.periodo] ? h.periodo : "2h";
+    const fim = h.agora, inicio = fim - DURACAO[periodo];
+    const pts = h.pontos.filter((p) => p[0] >= inicio - 60);
+    const maxV = pts.reduce((a, p) => Math.max(a, p[1]), 0);
+    const max = teto(Math.max(10, maxV * 1.1));
+    const x = (t) => m.e + ((t - inicio) / (fim - inicio)) * pw;
+    const y = (v) => base - (v / max) * ph;
+    const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "grafico-svg linha-medidor", "aria-hidden": "true" });
+    grade(svg, m, W, y, max);
+    svg.append(s("text", { x: m.e - 6, y: 12, class: "eixo", "text-anchor": "end" }, h.unidade));
+    for (let i = 0; i <= 4; i++) {
+      const t = inicio + ((fim - inicio) / 4) * i;
+      const rotulo = periodo === "7d" ? `${SEMANA[(new Date(t * 1000).getDay() + 6) % 7]} ${new Date(t * 1000).getDate()}` : horaMinuto(t);
+      svg.append(s("text", { x: x(t), y: H - 6, class: "eixo", "text-anchor": i === 0 ? "start" : i === 4 ? "end" : "middle" }, rotulo));
+    }
+    caixa.replaceChildren(svg);
+    if (!pts.length) {
+      svg.append(s("text", { x: m.e + pw / 2, y: m.t + ph / 2, class: "grafico-vazio", "text-anchor": "middle" }, "Sem leituras neste período"));
+      caixa.setAttribute("aria-label", "Sem leituras neste período.");
+      return;
+    }
+    const area = degrade(svg, m.t, base, [[0, COR.ciano, 0.42], [0.7, COR.ciano, 0.08], [1, COR.ciano, 0]]);
+    const luz = brilho(svg, COR.ciano, 2.5);
+    const trechos = [[]];
+    pts.forEach((p, i) => {
+      if (i && p[0] - pts[i - 1][0] > BURACO[periodo]) trechos.push([]);
+      trechos[trechos.length - 1].push(p);
+    });
+    const desenhoLinha = s("g", { class: semMovimento ? null : "linha-entra" });
+    for (const t of trechos) {
+      const caminho = t.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
+      desenhoLinha.append(
+        s("path", { d: `${caminho}L${x(t[t.length - 1][0]).toFixed(1)},${base}L${x(t[0][0]).toFixed(1)},${base}Z`, fill: area }),
+        s("path", { d: caminho, class: "linha-valor", stroke: COR.ciano, filter: luz }));
+    }
+    svg.append(desenhoLinha);
+    // O pico do período, em magenta, com o número.
+    const pico = pts.reduce((a, p) => (p[1] > a[1] ? p : a), pts[0]);
+    const px = x(pico[0]), py = y(pico[1]);
+    svg.append(s("circle", { cx: px, cy: py, r: 4, fill: COR.magenta, stroke: COR.fundo, "stroke-width": 1.5, filter: brilho(svg, COR.magenta, 3) }),
+      s("text", { x: Math.min(W - m.d, Math.max(m.e, px)), y: Math.max(11, py - 9), class: "valor-coluna",
+        "text-anchor": px > W - 90 ? "end" : px < m.e + 60 ? "start" : "middle" }, `pico ${num(pico[1])} ${h.unidade}`));
+    // Ao vivo: o ponto de agora pulsa.
+    const ultimo = pts[pts.length - 1];
+    if (fim - ultimo[0] <= BURACO[periodo] * 2) {
+      svg.append(s("circle", { cx: x(ultimo[0]), cy: y(ultimo[1]), r: 4, class: semMovimento ? "agora-ponto" : "agora-ponto pulsa" }));
+    }
+    // O cursor.
+    const cursor = s("g", { class: "cursor", visibility: "hidden" },
+      s("line", { y1: m.t, y2: base, class: "cursor-linha" }),
+      s("circle", { r: 5, fill: COR.ciano, stroke: COR.fundo, "stroke-width": 2 }));
+    svg.append(cursor);
+    const perto = (t) => {                // o ponto mais perto do instante t (busca binária: até ~700 pontos)
+      let a = 0, b = pts.length - 1;
+      while (b - a > 1) { const c = (a + b) >> 1; if (pts[c][0] < t) a = c; else b = c; }
+      return Math.abs(pts[a][0] - t) <= Math.abs(pts[b][0] - t) ? a : b;
+    };
+    let atual = null;
+    const mostrar = (i) => {
+      atual = i;
+      const [t, v] = pts[i];
+      cursor.setAttribute("visibility", "visible");
+      cursor.firstChild.setAttribute("x1", x(t)); cursor.firstChild.setAttribute("x2", x(t));
+      cursor.lastChild.setAttribute("cx", x(t)); cursor.lastChild.setAttribute("cy", y(v));
+      return { texto: `${quando(t, periodo)} · ${num(v)} ${h.unidade}`, cor: COR.ciano };
+    };
+    const esconder = () => { atual = null; cursor.setAttribute("visibility", "hidden"); };
+    ligarDica(svg, (ev) => {
+      const [pxx] = pontoNoDesenho(svg, ev, W, H);
+      if (pxx < m.e - 4 || pxx > W - m.d + 4) { esconder(); return null; }
+      const i = perto(inicio + ((pxx - m.e) / pw) * (fim - inicio));
+      if (Math.abs(x(pts[i][0]) - pxx) > Math.max(24, pw / 20)) { esconder(); return null; }
+      return mostrar(i);
+    }, esconder);
+    // Teclado: setas andam de ponto em ponto (dez de cada vez com Shift), Home e End vão às pontas.
+    caixa.onkeydown = (ev) => {
+      const passo = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity }[ev.key];
+      if (passo === undefined) return;
+      ev.preventDefault();
+      const n = Math.abs(passo) === Infinity ? passo : passo * (ev.shiftKey ? 10 : 1);
+      const i = Math.max(0, Math.min(pts.length - 1, (atual ?? pts.length - 1) + (Math.abs(n) === Infinity ? Math.sign(n) * pts.length : n)));
+      const r = mostrar(i);
+      const [sx, sy] = naTela(svg, x(pts[i][0]), y(pts[i][1]), W, H);
+      dica.mostrar(r.texto, sx, sy, r.cor);
+    };
+    caixa.onblur = () => { esconder(); dica.esconder(); };
+    const minimo = pts.reduce((a, p) => Math.min(a, p[1]), Infinity);
+    caixa.setAttribute("aria-label", `Potência de ${quando(pts[0][0], periodo)} a ${quando(ultimo[0], periodo)}: de ${num(minimo)} a ${num(pico[1])} ${h.unidade}, ` +
+      `pico às ${quando(pico[0], periodo)}, última leitura ${num(ultimo[1])} ${h.unidade}. Use as setas para ler cada ponto.`);
   }
 
   /* ------------------------------------------------------------ a casa em 3D */
@@ -612,5 +932,6 @@
     }
   }
 
-  window.MWGraficos = { desenharFluxo, criarPerfil, CasaEm3D, desenharTarifaBranca, COR_POSTO, horaCurta, desenharDiasDoMes, desenharTensao };
+  window.MWGraficos = { desenharFluxo, criarPerfil, CasaEm3D, desenharTarifaBranca, COR_POSTO, horaCurta, desenharDiasDoMes, desenharTensao,
+    desenharUltimosDias, desenharLinha };
 })();
