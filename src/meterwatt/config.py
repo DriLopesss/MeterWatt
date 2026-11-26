@@ -147,6 +147,19 @@ PACOTE_ANDROID = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$"
 IMPRESSAO_SHA256 = re.compile(r"^([0-9A-F]{2}:){31}[0-9A-F]{2}$")
 
 
+
+def criar_pasta_privada(caminho):
+    """Cria a pasta só para o dono (0700) no Linux e no macOS.
+
+    No Windows não passa o modo: desde o Python 3.13, mode=0o700 grava no Windows uma lista de
+    acesso fechada que impede até o Bloco de notas da própria pessoa de abrir os arquivos (visto
+    em 25/11 com os e-mails de teste). Lá a pasta fica com as permissões normais, herdadas da
+    pasta do usuário, que outras contas do computador já não leem."""
+    if os.name == "nt":
+        os.makedirs(caminho, exist_ok=True)
+    else:
+        os.makedirs(caminho, mode=0o700, exist_ok=True)
+
 def carregar(env=None):
     env = os.environ if env is None else env
     modo = env.get("MW_MODO", "desenvolvimento").strip().lower()
@@ -155,7 +168,7 @@ def carregar(env=None):
     producao = modo == "producao"
 
     pasta = os.path.abspath(env.get("MW_PASTA_INSTANCIA", "instancia"))
-    os.makedirs(pasta, mode=0o700, exist_ok=True)
+    criar_pasta_privada(pasta)
     porta = int(env.get("MW_HTTP_PORTA", "8000"))
     url = env.get("MW_URL_PUBLICA", f"http://localhost:{porta}").strip().rstrip("/")
     if urlparse(url).scheme not in ("http", "https") or not urlparse(url).netloc:

@@ -78,3 +78,15 @@ def test_caixa_de_saida_guarda_os_antigos_ao_ligar(tmp_path, capsys):
     assert list(pasta.glob("*.txt")) == []
     assert len(list((pasta / "antigos").glob("*.txt"))) == 1
     assert os.path.isdir(pasta / "antigos")
+
+
+def test_pasta_privada_no_windows_nao_fecha_para_o_dono(tmp_path, monkeypatch):
+    # Python 3.13 no Windows: mode=0o700 grava uma lista de acesso que bloqueia até o Bloco de notas.
+    from meterwatt import config
+    chamadas = []
+    monkeypatch.setattr(config.os, "makedirs", lambda caminho, **kw: chamadas.append(kw))
+    monkeypatch.setattr(config.os, "name", "nt")
+    config.criar_pasta_privada(str(tmp_path / "x"))
+    monkeypatch.setattr(config.os, "name", "posix")
+    config.criar_pasta_privada(str(tmp_path / "y"))
+    assert chamadas == [{"exist_ok": True}, {"mode": 0o700, "exist_ok": True}]

@@ -15,12 +15,14 @@ import time
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from .config import criar_pasta_privada
+
 SUFIXO = ".mwbackup"
 
 
 def pasta(cfg):
     caminho = os.path.join(cfg.pasta_instancia, "backups")
-    os.makedirs(caminho, mode=0o700, exist_ok=True)
+    criar_pasta_privada(caminho)
     return caminho
 
 

@@ -16,6 +16,8 @@ import time
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
+from .config import criar_pasta_privada
+
 log = logging.getLogger("meterwatt.email")
 
 
@@ -31,7 +33,7 @@ class MensageiroArquivo(Mensageiro):
 
     def __init__(self, pasta):
         self.pasta = os.path.join(pasta, "caixa-de-saida")
-        os.makedirs(self.pasta, mode=0o700, exist_ok=True)
+        criar_pasta_privada(self.pasta)
         self._arquivar_antigos()
 
     def _arquivar_antigos(self):
@@ -40,7 +42,7 @@ class MensageiroArquivo(Mensageiro):
             if not nome.endswith(".txt"):
                 continue
             try:
-                os.makedirs(antigos, mode=0o700, exist_ok=True)
+                criar_pasta_privada(antigos)
                 os.replace(os.path.join(self.pasta, nome), os.path.join(antigos, nome))
             except OSError:
                 pass   # arquivo aberto em outro programa: fica onde está
