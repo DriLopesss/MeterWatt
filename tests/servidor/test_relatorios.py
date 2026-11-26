@@ -93,3 +93,11 @@ def test_resumo_mensal_no_dia_1(cliente, plataforma, relogio):
     assert m["assunto"] == "MeterWatt: Resumo de novembro" and "/#relatorio/2026-11" in m["texto"]
     plataforma.alertas.verificar()                                  # uma vez só
     assert len([a for a in cliente.get("/api/avisos").get_json()["avisos"] if a["tipo"] == "resumo_mensal"]) == 1
+
+
+def test_conta_sem_medidor_abre_o_relatorio(cliente, plataforma):
+    # Achado do conferir_front.py (26/11): conta nova, sem medidor, dava erro 500 no relatório.
+    conta_pronta(cliente, plataforma)
+    r = cliente.get("/api/relatorios/2026-11")
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()["kwh"] == 0
