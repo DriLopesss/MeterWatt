@@ -1120,7 +1120,7 @@ async function abrirPareamento() {
         // O código foi usado por um medidor que já estava na conta (o mesmo aparelho, ou o simulador com o mesmo --id).
         clearInterval(consulta);
         status.className = "parear-status";
-        status.textContent = `Esse aparelho é o ${s.apelido} (${s.medidor}), que já estava na sua conta. Nada mudou. `
+        status.textContent = `Esse medidor já está pareado (${s.apelido}) e não houve mudanças. `
           + "Para adicionar outro medidor, gere um código novo e use no outro aparelho.";
         return;
       }

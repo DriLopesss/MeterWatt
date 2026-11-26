@@ -156,7 +156,9 @@ class FilaOffline:
 
 def main():
     ap = argparse.ArgumentParser(description="Simulador de MeterWatt com PZEM-004T v3 (dados inventados).")
-    ap.add_argument("--id", default="mw-SIMULADO", help="identificador do medidor simulado")
+    ap.add_argument("--id", default=None,
+                    help="identificador do medidor simulado. Sem --id, com --parear: um medidor NOVO, com id sorteado "
+                         "(cada aparelho de verdade tem o seu). Sem os dois: mw-SIMULADO")
     ap.add_argument("--intervalo", type=float, default=1.0, help="segundos entre mensagens (o firmware manda a cada 1 s)")
     ap.add_argument("--tensao", type=float, default=127.0, choices=[127.0, 220.0], help="tensão nominal da rede")
     ap.add_argument("--acelerar", type=float, default=1.0, help="quantas vezes o tempo da casa corre mais rápido")
@@ -173,6 +175,13 @@ def main():
     args = ap.parse_args()
     if args.sem_fase is not None and not 1 <= args.sem_fase <= args.fases:
         ap.error("--sem-fase precisa ser uma das fases simuladas (use junto com --fases)")
+
+    if args.id is None:
+        if args.parear:
+            args.id = "mw-" + secrets.token_hex(3).upper()
+            print(f"Medidor novo: {args.id}. Para ligar este mesmo medidor de novo depois, use --id {args.id}")
+        else:
+            args.id = "mw-SIMULADO"
 
     host = os.getenv("MQTT_HOST", "localhost")
     porta = int(os.getenv("MQTT_PORTA", "1883"))
