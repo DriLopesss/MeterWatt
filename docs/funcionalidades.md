@@ -6,15 +6,17 @@ demonstração). Os que começam com **M** dependem do broker MQTT e do medidor,
 `python tools/ensaio_completo.py` (no Linux, macOS ou WSL, e no GitHub a cada PR). Os **P** precisam de uma
 pessoa (celular de verdade, HTTPS, placa).
 
-Situação em 26/11/2026, antes do visual novo: **40 de 40 F** certos (depois de corrigir o erro 500 do
-relatório numa conta sem medidor) e **26 de 26 M** no ensaio geral.
+Situação em 26/11/2026: antes do visual novo, **40 de 40 F** certos (depois de corrigir o erro 500 do relatório
+numa conta sem medidor). Depois do visual novo (PR #25), **43 de 43 F**, com três itens novos (F06, F43, F44),
+e **26 de 26 M** no ensaio geral.
 
 ## Página inicial e lista de espera
 - **F01** A página inicial abre, com título, calculadora e lista de espera.
 - **F02** A calculadora de consumo fantasma muda com os botões + e − e com a tarifa.
 - **F03** Entrar na lista de espera, confirmar pelo link do e-mail e ver a posição na fila.
 - **F04** Sair da lista pelo link do e-mail.
-- **F05** Páginas abertas: política de privacidade, termos de uso, excluir a conta, `/.well-known/security.txt` e a tela de endereço inexistente (404).
+- **F05** Páginas abertas: política de privacidade, termos de uso, excluir a conta, `/.well-known/security.txt` e a tela de endereço inexistente (404), com o interruptor que acende a luz.
+- **F06** Vitrine 3D: a rolagem abre o medidor passo a passo e, no fim, o visor sai do palco.
 
 ## Conta
 - **F10** Cadastro recusa senha fraca, com mensagem.
@@ -48,6 +50,8 @@ relatório numa conta sem medidor) e **26 de 26 M** no ensaio geral.
 - **F40** Relatório do mês: números, gráfico dia a dia e tabela.
 - **F41** Avisos: a tela lista os avisos.
 - **F42** Sair da demonstração.
+- **F43** Osciloscópio de cada medidor: tensão e corrente com o ângulo do fator de potência.
+- **F44** A Faísca comenta o consumo de agora.
 
 ## Celular
 - **F50** Página inicial, entrar e cadastro cabem na tela, sem rolar para o lado.

@@ -209,7 +209,25 @@ def conferir(c, navegador, url, caixa):
         assert b"Contact:" in r.read()
         p.goto(url + "/#nao-existe")
         visivel(p, "#area-erro")
+        p.click("#area-erro .interruptor")
+        assert p.locator("#area-erro.acesa").count(), "o interruptor não acendeu a luz"
         c.foto(p, "erro-404")
+
+    @c.item("F06", "Vitrine 3D: a rolagem abre o medidor passo a passo e, no fim, o visor sai do palco")
+    def _():
+        p.goto(url + "/#inicio")
+        p.wait_for_timeout(800)
+        topo = p.evaluate("document.getElementById('vitrine').getBoundingClientRect().top + scrollY")
+        altura = p.evaluate("document.getElementById('vitrine').offsetHeight - innerHeight")
+        vistos = []
+        for f in (0.05, 0.25, 0.45, 0.62, 0.8, 0.97):
+            p.mouse.wheel(0, 0)
+            p.evaluate(f"scrollTo(0, {topo + altura * f})")
+            p.wait_for_timeout(900)
+            vistos.append(p.locator(".vitrine-passo.ativo").inner_text().split("\n")[1] if p.locator(".vitrine-passo.ativo").count() else "")
+        assert len(set(vistos)) >= 5, f"os passos não mudaram: {vistos}"
+        assert p.locator(".fuga-visor.solta").count(), "o visor não saiu do palco no fim"
+        assert p.locator(".vitrine-modelo .face").count() > 40, "o medidor 3D não foi montado"
 
     # ------------------------------------------------------------------ conta
     @c.item("F10", "Cadastro: senha fraca é recusada com mensagem")
@@ -409,6 +427,12 @@ def conferir(c, navegador, url, caixa):
         assert d.locator(".mw-dica.on").count(), "a dica não apareceu"
         d.mouse.move(0, 0)
 
+    @c.item("F44", "Painel: a Faísca comenta o consumo de agora")
+    def _():
+        d.goto(url + "/#painel")
+        d.wait_for_timeout(3500)
+        assert re.search(r"\d", d.inner_text(".faisca-fala")), "a Faísca não falou"
+
     @c.item("F35", "Casa em 3D liga e desliga pelo botão 3D")
     def _():
         antes = d.get_attribute("#botao-3d", "aria-pressed")
@@ -428,6 +452,14 @@ def conferir(c, navegador, url, caixa):
             assert d.locator(".medidor .grafico-linha svg").count(), f"gráfico {i} vazio"
         assert d.locator(".qe-grafico svg").count(), "sem qualidade da energia"
         c.foto(d, "demo-medidores")
+
+    @c.item("F43", "Medidores: osciloscópio desenha tensão e corrente com o ângulo do fator de potência")
+    def _():
+        d.goto(url + "/#medidores")
+        d.wait_for_timeout(2500)
+        o = d.locator(".medidor .osciloscopio")
+        assert o.count(), "sem osciloscópio"
+        assert "φ" in d.inner_text(".medidor .osciloscopio-leitura"), d.inner_text(".medidor .osciloscopio-leitura")
 
     @c.item("F37", "Medidores: gráfico responde às setas do teclado")
     def _():
@@ -510,7 +542,8 @@ def conferir(c, navegador, url, caixa):
     @c.item("F52", "Celular: tocar num gráfico mostra a dica")
     def _():
         caixa_dias = m.locator("#barras-dias svg")
-        caixa_dias.scroll_into_view_if_needed()
+        caixa_dias.evaluate("e => e.scrollIntoView({block: 'center'})")     # longe da barra de abas de baixo
+        m.wait_for_timeout(600)
         b = caixa_dias.bounding_box()
         m.touchscreen.tap(b["x"] + b["width"] * 0.5, b["y"] + b["height"] * 0.6)
         m.wait_for_timeout(300)
