@@ -518,6 +518,8 @@ async function atualizarAgora() {
   visor.mostrar(texto, unidade);
   $(".relogio").dataset.estado = online.length ? "ok" : "sem-sinal";
   const custoHora = online.reduce((s, m) => (m.custo_por_hora == null ? s : (s ?? 0) + m.custo_por_hora), null);
+  // Para os enfeites (efeitos.js): a Faísca comenta e o disco do relógio gira nesta velocidade.
+  document.dispatchEvent(new CustomEvent("mw:agora", { detail: { watts: online.length ? total : null, unidade, custoHora } }));
   const simulado = online.some((m) => m.simulado);
   $("#agora-sub").textContent = online.length
     ? `${custoHora != null ? `${fmt.reais(custoHora)} por hora neste ritmo` : "Informe a tarifa para ver em reais"}${simulado ? " (dados simulados)" : ""}`

@@ -40,7 +40,7 @@ class Relatorios:
         saida = {}
         d = primeiro
         while d < ultimo:
-            saida[d] = {"wh": 0.0, "baldes": set(), "horas": [0.0] * 24}
+            saida[d] = {"wh": 0.0, "baldes": set(), "horas": [0.0] * 24, "cobertura": 0.0}   # conta sem medidor: tudo zero
             d += timedelta(days=1)
         if not ids:
             return saida
