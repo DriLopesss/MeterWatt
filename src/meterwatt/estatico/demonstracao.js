@@ -683,7 +683,7 @@
   }
 
   function plano() {
-    return { disponivel: true, modo_teste: true, plano: E.plano, preco_mensal: 14.9, limite_gratis: 1, limite_pago: 5, medidores: E.medidores.length,
+    return { disponivel: true, modo_teste: true, plano: E.plano, preco_mensal: 14.9, limite_gratis: 1, limite_pago: null, medidores: E.medidores.length,
       assinatura: E.assinatura };
   }
   function privacidade() {
@@ -740,7 +740,7 @@
     if (chave === "GET /publico/info") {
       return [200, { versao: "demonstração", modo: "demonstracao", exigir_2fa: false, termos_versao: "2026-11-16", privacidade_versao: "2026-11-23",
         finalidades: {}, retencao: RETENCAO, contato: { controlador: null, email_privacidade: null, encarregado: null }, email_de_teste: false,
-        plano: { disponivel: true, preco_mensal: 14.9, limite_gratis: 1, limite_pago: 5 }, na_lista_de_espera: 0 }];
+        plano: { disponivel: true, preco_mensal: 14.9, limite_gratis: 1, limite_pago: null }, na_lista_de_espera: 0 }];
     }
     if (chave === "POST /conta/entrar") { E.dentro = true; return [200, { etapa: "completa", csrf: "demonstracao" }]; }
     if (chave === "POST /conta/sair") { E.dentro = false; return [200, { ok: true }]; }

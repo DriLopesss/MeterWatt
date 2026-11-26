@@ -288,8 +288,10 @@ def criar_app(plataforma):
 
     @app.post("/api/conta/confirmar")
     def confirmar():
-        contas.confirmar_email(corpo().get("token"), ip())
-        return ok({"mensagem": "E-mail confirmado. Agora é só entrar."})
+        r = contas.confirmar_email(corpo().get("token"), ip())
+        if r == "ja_confirmado":
+            return ok({"mensagem": "Este e-mail já estava confirmado. É só entrar.", "situacao": r})
+        return ok({"mensagem": "E-mail confirmado. Agora é só entrar.", "situacao": r})
 
     @app.post("/api/conta/reenviar")
     def reenviar():
@@ -336,6 +338,11 @@ def criar_app(plataforma):
         limite_de_formularios()
         contas.pedir_redefinicao(corpo().get("email"), ip())
         return ok({"mensagem": "Se houver uma conta com esse e-mail, enviamos um link para criar uma senha nova."}, 202)
+
+    @app.post("/api/conta/redefinir/conferir")
+    def redefinir_conferir():
+        contas.conferir_link_redefinicao(corpo().get("token"))
+        return ok({"vale": True})
 
     @app.post("/api/conta/redefinir")
     def redefinir():
@@ -407,6 +414,11 @@ def criar_app(plataforma):
     @exige_sessao()
     def codigo_pareamento():
         return ok(medidores.gerar_codigo(g.sessao, ip()), 201)
+
+    @app.post("/api/medidores/codigo/situacao")
+    @exige_sessao()
+    def situacao_do_codigo():
+        return ok(medidores.situacao_do_codigo(g.sessao, corpo().get("codigo")))
 
     @app.patch("/api/medidores/<mid>")
     @exige_sessao()

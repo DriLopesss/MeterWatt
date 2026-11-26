@@ -164,9 +164,10 @@ class Pagamentos:
         return "gratis"
 
     def limite_de_medidores(self, conn, uid):
+        """Quantos medidores a conta pode ter. None = sem limite."""
         c = self.p.cfg
         if self.provedor is None:
-            return c.limite_medidores_pago          # sem cobrança configurada, ninguém é barrado
+            return None                             # sem cobrança configurada, ninguém é barrado
         return c.limite_medidores_pago if self.plano_de(conn, uid) == "casa" else c.limite_medidores_gratis
 
     def estado(self, sessao):

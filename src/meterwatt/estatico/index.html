@@ -216,6 +216,10 @@
 
     <section data-rota="redefinir" hidden>
       <h1>Senha nova</h1>
+      <div id="redefinir-sem-link" hidden>
+        <p class="texto-grande" id="texto-redefinir" role="alert"></p>
+        <p class="rodape-form"><a href="#esqueci" class="botao primario">Pedir outro link</a></p>
+      </div>
       <form id="form-redefinir" novalidate>
         <label>Senha nova
           <span class="campo-senha"><input name="senha" type="password" autocomplete="new-password" minlength="10" maxlength="128" required><button type="button" class="ver-senha" aria-label="Mostrar senha">ver</button></span>

@@ -71,8 +71,8 @@ class Config:
     mp_access_token: str | None = None
     mp_webhook_segredo: str | None = None
     plano_preco: float = 14.90                   # valor de exemplo: quem decide o preço são vocês
-    limite_medidores_gratis: int = 1
-    limite_medidores_pago: int = 5
+    limite_medidores_gratis: int | None = 1      # None = sem limite (MW_LIMITE_MEDIDORES_*=0)
+    limite_medidores_pago: int | None = None     # plano Casa: medidores sem limite (decisão de 25/11)
     # senha própria de cada medidor (Mosquitto com o plugin dynamic-security)
     mqtt_dynsec: bool = False
     mqtt_provisao_usuario: str | None = None
@@ -147,6 +147,27 @@ PACOTE_ANDROID = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$"
 IMPRESSAO_SHA256 = re.compile(r"^([0-9A-F]{2}:){31}[0-9A-F]{2}$")
 
 
+
+def _limite(texto):
+    """Quantidade máxima de medidores por conta. 0 (ou vazio) = sem limite."""
+    n = int(texto or 0)
+    if n < 0:
+        raise ConfiguracaoInvalida("MW_LIMITE_MEDIDORES_* precisa ser 0 (sem limite) ou um número positivo.")
+    return n or None
+
+
+def criar_pasta_privada(caminho):
+    """Cria a pasta só para o dono (0700) no Linux e no macOS.
+
+    No Windows não passa o modo: desde o Python 3.13, mode=0o700 grava no Windows uma lista de
+    acesso fechada que impede até o Bloco de notas da própria pessoa de abrir os arquivos (visto
+    em 25/11 com os e-mails de teste). Lá a pasta fica com as permissões normais, herdadas da
+    pasta do usuário, que outras contas do computador já não leem."""
+    if os.name == "nt":
+        os.makedirs(caminho, exist_ok=True)
+    else:
+        os.makedirs(caminho, mode=0o700, exist_ok=True)
+
 def carregar(env=None):
     env = os.environ if env is None else env
     modo = env.get("MW_MODO", "desenvolvimento").strip().lower()
@@ -155,7 +176,7 @@ def carregar(env=None):
     producao = modo == "producao"
 
     pasta = os.path.abspath(env.get("MW_PASTA_INSTANCIA", "instancia"))
-    os.makedirs(pasta, mode=0o700, exist_ok=True)
+    criar_pasta_privada(pasta)
     porta = int(env.get("MW_HTTP_PORTA", "8000"))
     url = env.get("MW_URL_PUBLICA", f"http://localhost:{porta}").strip().rstrip("/")
     if urlparse(url).scheme not in ("http", "https") or not urlparse(url).netloc:
@@ -278,8 +299,8 @@ def carregar(env=None):
         mp_access_token=env.get("MW_MP_ACCESS_TOKEN") or None,
         mp_webhook_segredo=env.get("MW_MP_WEBHOOK_SEGREDO") or None,
         plano_preco=round(preco, 2),
-        limite_medidores_gratis=int(env.get("MW_LIMITE_MEDIDORES_GRATIS", "1")),
-        limite_medidores_pago=int(env.get("MW_LIMITE_MEDIDORES_PAGO", "5")),
+        limite_medidores_gratis=_limite(env.get("MW_LIMITE_MEDIDORES_GRATIS", "1")),
+        limite_medidores_pago=_limite(env.get("MW_LIMITE_MEDIDORES_PAGO", "0")),
         mqtt_dynsec=dynsec,
         mqtt_provisao_usuario=env.get("MW_MQTT_PROVISAO_USUARIO") or None,
         mqtt_provisao_senha=env.get("MW_MQTT_PROVISAO_SENHA") or None,

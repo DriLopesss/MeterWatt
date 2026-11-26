@@ -26,7 +26,8 @@ def test_entrar_antes_de_confirmar(cliente, plataforma):
     assert r.status_code == 403 and r.get_json()["codigo"] == "email_nao_confirmado"
     token = link_do_email(plataforma, "ana@exemplo.com.br", "confirmar")
     assert cliente.post("/api/conta/confirmar", {"token": token}).status_code == 200
-    assert cliente.post("/api/conta/confirmar", {"token": token}).status_code == 400   # link usa uma vez só
+    r = cliente.post("/api/conta/confirmar", {"token": token})   # aberto de novo: não muda nada, só avisa
+    assert r.status_code == 200 and r.get_json()["situacao"] == "ja_confirmado"
     assert entrar(cliente).status_code == 200
 
 

@@ -16,6 +16,8 @@ import time
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
+from .config import criar_pasta_privada
+
 log = logging.getLogger("meterwatt.email")
 
 
@@ -25,9 +27,25 @@ class Mensageiro:
 
 
 class MensageiroArquivo(Mensageiro):
+    """Cada e-mail vira um .txt. Ao ligar o servidor, os e-mails de vezes anteriores vão para a
+    subpasta "antigos": assim a caixa de saída mostra só os desta vez, e ninguém abre por engano um
+    link velho (que já foi usado ou trocado por um mais novo)."""
+
     def __init__(self, pasta):
         self.pasta = os.path.join(pasta, "caixa-de-saida")
-        os.makedirs(self.pasta, mode=0o700, exist_ok=True)
+        criar_pasta_privada(self.pasta)
+        self._arquivar_antigos()
+
+    def _arquivar_antigos(self):
+        antigos = os.path.join(self.pasta, "antigos")
+        for nome in os.listdir(self.pasta):
+            if not nome.endswith(".txt"):
+                continue
+            try:
+                criar_pasta_privada(antigos)
+                os.replace(os.path.join(self.pasta, nome), os.path.join(antigos, nome))
+            except OSError:
+                pass   # arquivo aberto em outro programa: fica onde está
 
     def enviar(self, para, assunto, texto):
         nome = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}-" + re.sub(r"[^a-z0-9]+", "-", assunto.lower())[:40] + ".txt"
@@ -35,6 +53,8 @@ class MensageiroArquivo(Mensageiro):
         with open(caminho, "w", encoding="utf-8") as f:
             f.write(f"Para: {para}\nAssunto: {assunto}\n\n{texto}\n")
         print(f"[e-mail de teste] '{assunto}' gravado em {caminho}", flush=True)
+        for link in re.findall(r"https?://\S+", texto):
+            print(f"    link: {link}", flush=True)   # dá para abrir direto do terminal (Ctrl+clique)
 
 
 class MensageiroSMTP(Mensageiro):
