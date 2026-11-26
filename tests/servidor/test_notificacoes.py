@@ -186,7 +186,9 @@ def test_desenvolvimento_cria_a_chave_sozinho_e_producao_so_com_chave(tmp_path):
     pasta = tmp_path / "instancia"
     cfg = config.carregar({"MW_PASTA_INSTANCIA": str(pasta)})
     arquivo = pasta / "vapid-desenvolvimento.key"
-    assert cfg.vapid_chave_privada and arquivo.stat().st_mode & 0o777 == 0o600
+    assert cfg.vapid_chave_privada and arquivo.exists()
+    if os.name != "nt":   # o Windows não tem as permissões 600 do Linux
+        assert arquivo.stat().st_mode & 0o777 == 0o600
     assert config.carregar({"MW_PASTA_INSTANCIA": str(pasta)}).vapid_chave_privada == cfg.vapid_chave_privada
     assert cfg.vapid_contato == "mailto:nao-responda@localhost"
     producao = {"MW_PASTA_INSTANCIA": str(tmp_path / "p"), "MW_MODO": "producao", "MW_CHAVE_CRIPTO": config.gerar_chave(),

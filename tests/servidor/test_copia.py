@@ -13,7 +13,8 @@ def test_backup_cifrado_e_restauracao(cliente, plataforma, tmp_path):
     arquivo = copia.fazer(plataforma.cfg)
     bruto = open(arquivo, "rb").read()
     assert b"ana@exemplo.com.br" not in bruto and b"SQLite format" not in bruto      # nada legível sem a chave
-    assert oct(os.stat(arquivo).st_mode)[-3:] == "600"
+    if os.name != "nt":   # o Windows não tem as permissões 600 do Linux (lá vale a da pasta do usuário)
+        assert oct(os.stat(arquivo).st_mode)[-3:] == "600"
     destino = str(tmp_path / "restaurado.sqlite3")
     r = copia.restaurar(plataforma.cfg, arquivo, destino)
     assert r["contas"] == 1
